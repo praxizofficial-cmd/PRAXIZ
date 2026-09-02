@@ -9,6 +9,7 @@ import {
   pendingRegistrations,
 } from "../data";
 import { createClient } from "../../lib/supabase/client";
+import { getSiteOrigin } from "../../lib/site-url";
 import { resolveActiveAssignmentId } from "../auth/student-stabilization";
 import { buildSaveDailyLogRpcArgs, type DailyLogAssignment } from "./daily-log-stabilization";
 import { programsForCollege } from "./institutional-stabilization";
@@ -211,6 +212,7 @@ export type AdminSummary = {
 export type UserAccountRecord = {
   id: string;
   name: string;
+  email: string;
   role: string;
   reference: string;
   status: string;
@@ -1304,10 +1306,17 @@ export const adminService = {
     return ((profilesResult.data ?? []) as ProfileRow[]).map((profile) => ({
       id: profile.id,
       name: profile.preferred_name?.trim() || [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ").trim() || profile.email,
+      email: profile.email,
       role: rolesByUser.get(profile.id)?.join(", ") || "No active role",
       reference: studentNumbers.get(profile.id) ?? employeeNumbers.get(profile.id) ?? hteReferences.get(profile.id) ?? profile.email,
       status: displayStatus(profile.account_status),
     }));
+  },
+  async sendPasswordReset(email: string): Promise<void> {
+    const fallbackOrigin = typeof window === "undefined" ? "http://localhost:3000" : window.location.origin;
+    const redirectTo = `${getSiteOrigin(fallbackOrigin)}/reset-password`;
+    const { error } = await createClient().auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo });
+    if (error) throw new Error(error.message);
   },
 };
 export const feedbackService = { list: () => feedbackThreads };

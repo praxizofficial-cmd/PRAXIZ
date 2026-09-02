@@ -77,6 +77,7 @@ import {
   type NotificationRecord,
   type RegistrationRecord,
   type StudentProgressSummary,
+  type UserAccountRecord,
 } from "./services/praxiz-services";
 import { programsForCollege, unitsForCampus } from "./services/institutional-stabilization";
 import { mimeTypesForPreset, type DocumentTemplateMimePreset, type DocumentTemplatePhase } from "./services/workflow-template-stabilization";
@@ -1126,35 +1127,74 @@ function FeedbackPage({ openModal }: { openModal: (title: string) => void }) {
   return <><PageHeader title="Feedback & follow-up" subtitle="Keep concerns, guidance, and intervention history traceable." action={<ActionButton icon={Plus} onClick={() => openModal("Create feedback")}>New feedback</ActionButton>} /><div className="stats-grid three"><StatCard label="Open" value="1" icon={MessageSquareText} tone="orange" /><StatCard label="In progress" value="1" icon={Clock3} tone="violet" /><StatCard label="Resolved" value="1" icon={CheckCircle2} tone="green" /></div><section className="card table-card"><h2>Feedback records</h2><div className="table-scroll"><table className="data-table"><thead><tr><th>Student</th><th>Related issue</th><th>Created by</th><th>Date</th><th>Follow-up</th><th>Action</th></tr></thead><tbody>{feedbackThreads.map((item) => <tr key={item.subject}><td><b>{item.student}</b></td><td>{item.subject}</td><td>{item.from}</td><td>{item.date}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" onClick={() => openModal("Open feedback thread")}>View</button></td></tr>)}</tbody></table></div></section></>;
 }
 
-function DirectoryPage({ kind, openModal }: { kind: "htes" | "assignments" | "users" | "roles" | "audit"; openModal: (title: string) => void }) {
-  const [userRows, setUserRows] = useState<string[][]>([]);
-  const [usersLoading, setUsersLoading] = useState(kind === "users");
-  const [usersError, setUsersError] = useState("");
+function UserAccessDialog({ account, close }: { account: UserAccountRecord; close: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+
+  async function sendReset() {
+    setSending(true);
+    setError("");
+    try {
+      await adminService.sendPasswordReset(account.email);
+      setSent(true);
+      setConfirming(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The reset email could not be sent.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={`Manage access for ${account.name}`}><button className="modal-close" onClick={close} aria-label="Close account access details"><X size={20} /></button><span className="modal-icon"><LockKeyhole /></span><h2>{account.name}</h2><p>Review the account identity before starting access recovery.</p><dl className="info-list"><div><dt>Email</dt><dd>{account.email}</dd></div><div><dt>Role</dt><dd>{account.role}</dd></div><div><dt>Reference</dt><dd>{account.reference}</dd></div><div><dt>Status</dt><dd>{account.status}</dd></div></dl>
+    {sent && <div className="inline-success"><CheckCircle2 /><div><strong>Reset link sent</strong><p>Supabase sent a secure password-reset link to {account.email}.</p></div></div>}
+    {confirming && !sent && <div className="access-recovery-warning"><AlertTriangle size={19} /><p><strong>Send a password-reset email?</strong><span>The link goes only to {account.email}. The administrator cannot view or choose the user’s password.</span></p></div>}
+    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
+    <div className="modal-actions"><ActionButton variant="secondary" disabled={sending} onClick={close}>{sent ? "Done" : "Cancel"}</ActionButton>{!sent && !confirming && <ActionButton icon={Send} onClick={() => setConfirming(true)}>Send password reset</ActionButton>}{!sent && confirming && <ActionButton disabled={sending} onClick={() => void sendReset()}>{sending ? "Sending…" : "Confirm and send"}</ActionButton>}</div>
+  </section></div>;
+}
+
+function UserAccountsPage() {
+  const [records, setRecords] = useState<UserAccountRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<UserAccountRecord | null>(null);
+
   useEffect(() => {
-    if (kind !== "users") return;
     let active = true;
-    void adminService.listUserAccounts().then((records) => {
-      if (active) setUserRows(records.map((record) => [record.name, record.role, record.reference, record.status]));
+    void adminService.listUserAccounts().then((result) => {
+      if (active) setRecords(result);
     }).catch((reason) => {
-      if (active) setUsersError(reason instanceof Error ? reason.message : "User accounts could not be loaded.");
+      if (active) setError(reason instanceof Error ? reason.message : "User accounts could not be loaded.");
     }).finally(() => {
-      if (active) setUsersLoading(false);
+      if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, [kind]);
+  }, []);
+
+  const visibleRecords = records.filter((record) => !search || `${record.name} ${record.email} ${record.role} ${record.reference} ${record.status}`.toLowerCase().includes(search.toLowerCase()));
+  return <><PageHeader title="User accounts" subtitle="View live identities and help users recover access without exposing or replacing their passwords." action={<Link className="button button-primary" href="/admin/registrations"><UserCheck size={18} /> Review registrations</Link>} />
+    <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Safe access recovery:</strong> administrators can send a one-time reset link to the registered email address, but cannot view or set a user’s password.</p></div>
+    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
+    <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading accounts…" : `${visibleRecords.length} account${visibleRecords.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, or reference…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>User</th><th>Role</th><th>Reference</th><th>Status</th><th>Action</th></tr></thead><tbody>{visibleRecords.map((record) => <tr key={record.id}><td><b>{record.name}</b><small>{record.email}</small></td><td>{record.role}</td><td>{record.reference}</td><td><StatusBadge status={record.status} /></td><td><button className="table-link" onClick={() => setSelected(record)}>Manage access</button></td></tr>)}{!loading && visibleRecords.length === 0 && <tr><td colSpan={5}>No live user accounts match this view.</td></tr>}</tbody></table></div></section>
+    {selected && <UserAccessDialog account={selected} close={() => setSelected(null)} />}
+  </>;
+}
+
+function DirectoryPage({ kind, openModal }: { kind: "htes" | "assignments" | "roles" | "audit"; openModal: (title: string) => void }) {
+  const [search, setSearch] = useState("");
   const configs = {
     htes: { title: "Partner HTEs", subtitle: "View partner organizations and authorized representative records.", action: "Add partner HTE", headers: ["Organization", "Representative", "Assigned interns", "Status"], rows: [["TechSouth Philippines","Allan Maraña","8","Active"],["Albay ICT Solutions","Carla Mendoza","6","Active"],["Bigasburo Digital","Paolo Reyes","7","Active"]] },
     assignments: { title: "Internship assignments", subtitle: "Coordinate student and host training establishment assignments.", action: "Create assignment", headers: ["Student", "HTE", "HTE representative", "Status"], rows: interns.slice(0,5).map((i) => [i.name,i.hte,i.hteRepresentative,i.status]) },
-    users: { title: "User accounts", subtitle: "View live profiles, active roles, references, and account status.", action: "Review registrations", headers: ["User", "Role", "Reference", "Status"], rows: [] },
     roles: { title: "Roles & access", subtitle: "Review the role boundaries applied across PRAXIZ.", action: "Review policy", headers: ["Role", "Scope", "Accounts", "Status"], rows: [["Student Intern","Own internship record only","47","Configured"],["HTE Representative","Own HTE and assigned interns","14","Configured"],["Internship Coordinator","Program-wide monitoring","2","Configured"],["System Administrator","Accounts and configuration","2","Configured"]] },
     audit: { title: "Audit logs", subtitle: "Trace important account and frontend workflow events.", action: "Export audit", headers: ["Event", "Actor", "Timestamp", "Result"], rows: [["Registration reviewed","Alex Rivera","Aug 12 · 10:42 AM","Recorded"],["Role access updated","Alex Rivera","Aug 12 · 9:18 AM","Recorded"],["Account activated","Alex Rivera","Aug 11 · 4:05 PM","Recorded"],["Security settings viewed","System","Aug 11 · 3:10 PM","Recorded"]] },
   } as const;
   const config = configs[kind];
-  const rows: ReadonlyArray<ReadonlyArray<string>> = kind === "users" ? userRows : config.rows;
+  const rows: ReadonlyArray<ReadonlyArray<string>> = config.rows;
   const visibleRows = rows.filter((row) => !search || row.join(" ").toLowerCase().includes(search.toLowerCase()));
-  const action = kind === "users" ? <Link className="button button-primary" href="/admin/registrations"><UserCheck size={18} /> Review registrations</Link> : <ActionButton icon={Plus} onClick={() => openModal(config.action)}>{config.action}</ActionButton>;
-  return <><PageHeader title={config.title} subtitle={config.subtitle} action={action} />{usersError && <p className="form-error"><AlertTriangle size={16} /> {usersError}</p>}<section className="card table-card"><div className="card-title"><h2>{usersLoading ? "Loading accounts…" : `${visibleRows.length} record${visibleRows.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search records…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr>{config.headers.map((header) => <th key={header}>{header}</th>)}<th>Action</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={row[0]}>{row.map((cell, index) => <td key={`${index}-${String(cell)}`}>{index === 0 ? <b>{cell}</b> : index === row.length - 1 ? <StatusBadge status={String(cell)} /> : cell}</td>)}<td><button className="table-link" onClick={() => openModal(`View ${row[0]}`)}>View</button></td></tr>)}</tbody></table></div>{!usersLoading && visibleRows.length === 0 && <p className="muted-note">No live user accounts match this view.</p>}</section></>;
+  return <><PageHeader title={config.title} subtitle={config.subtitle} action={<ActionButton icon={Plus} onClick={() => openModal(config.action)}>{config.action}</ActionButton>} /><section className="card table-card"><div className="card-title"><h2>{`${visibleRows.length} record${visibleRows.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search records…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr>{config.headers.map((header) => <th key={header}>{header}</th>)}<th>Action</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={row[0]}>{row.map((cell, index) => <td key={`${index}-${String(cell)}`}>{index === 0 ? <b>{cell}</b> : index === row.length - 1 ? <StatusBadge status={String(cell)} /> : cell}</td>)}<td><button className="table-link" onClick={() => openModal(`View ${row[0]}`)}>View</button></td></tr>)}</tbody></table></div>{visibleRows.length === 0 && <p className="muted-note">No records match this view.</p>}</section></>;
 }
 
 function MasterRecordRow({ primary, secondary, onClick }: { primary: string; secondary: string; onClick?: () => void }) {
@@ -1508,7 +1548,7 @@ function DashboardRouter({ role, page }: { role: RoleId; page: string }) {
   else if (page === "feedback") content = <FeedbackPage openModal={openModal} />;
   else if (page === "htes") content = <DirectoryPage kind="htes" openModal={openModal} />;
   else if (page === "assignments") content = <DirectoryPage kind="assignments" openModal={openModal} />;
-  else if (page === "users") content = <DirectoryPage kind="users" openModal={openModal} />;
+  else if (page === "users") content = <UserAccountsPage />;
   else if (page === "master-data") content = <MasterDataPage />;
   else if (page === "hte-verification") content = <HteVerificationPage openModal={openModal} />;
   else if (page === "templates") content = <WorkflowTemplatesPage />;

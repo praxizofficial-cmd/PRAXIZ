@@ -136,6 +136,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .inline-success svg { flex: 0 0 auto; }
 .inline-success strong { display: block; color: #086d38; }
 .inline-success p { margin: 4px 0 0; color: #4e7a62; font-size: 12px; line-height: 1.5; }
+.access-recovery-warning { margin: 20px 0; padding: 15px 16px; display: flex; align-items: flex-start; gap: 11px; color: #a45a08; border: 1px solid #f0d3a5; border-radius: 12px; background: #fff9ee; }
+.access-recovery-warning svg { flex: 0 0 auto; margin-top: 1px; }
+.access-recovery-warning p { margin: 0; display: grid; gap: 4px; }
+.access-recovery-warning strong { color: #864807; font-size: 12px; }
+.access-recovery-warning span { color: #836d50; font-size: 11px; line-height: 1.5; }
 .registration-page { align-items: start; }
 .registration-main { align-items: start; padding-top: 58px; }
 .registration-wrap { width: min(100%, 890px); margin: 0 auto; }
