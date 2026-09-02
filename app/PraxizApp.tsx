@@ -1,7 +1,7 @@
 "use client";
 
 import type { AnchorHTMLAttributes, FormEvent, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   Activity,
@@ -65,6 +65,7 @@ import {
   institutionalService,
   notificationService,
   registrationService,
+  type AcademicYearRecord,
   type AttendanceHistoryRow,
   type DailyLogRecord,
   type DocumentRecord,
@@ -76,7 +77,7 @@ import {
   type StudentProgressSummary,
 } from "./services/praxiz-services";
 import { programsForCollege, unitsForCampus } from "./services/institutional-stabilization";
-import { roleIds, type AttendanceSession, type Intern, type RoleId } from "./types";
+import { roleIds, type AttendanceSession, type Campus, type College, type Intern, type RoleId } from "./types";
 
 function Link({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
   return <a href={href} {...props}>{children}</a>;
@@ -1158,15 +1159,102 @@ function MasterRecordRow({ primary, secondary, onClick }: { primary: string; sec
   return onClick ? <button className="master-record-row" onClick={onClick}>{content}</button> : <div className="master-record-row">{content}</div>;
 }
 
+type MasterDataKind = "campus" | "college" | "program" | "term";
+
+function MasterDataDialog({ campuses: campusRows, colleges: collegeRows, academicYears, close, onCreated }: {
+  campuses: Campus[];
+  colleges: College[];
+  academicYears: AcademicYearRecord[];
+  close: () => void;
+  onCreated: () => Promise<void>;
+}) {
+  const [kind, setKind] = useState<MasterDataKind>("program");
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [shortName, setShortName] = useState("");
+  const [municipality, setMunicipality] = useState("");
+  const [campusId, setCampusId] = useState(campusRows[0]?.id ?? "");
+  const availableColleges = collegeRows.filter((college) => college.campusId === campusId);
+  const [collegeId, setCollegeId] = useState(availableColleges[0]?.id ?? "");
+  const [academicYearId, setAcademicYearId] = useState(academicYears.find((year) => year.isCurrent)?.id ?? academicYears[0]?.id ?? "");
+  const [term, setTerm] = useState<"first_semester" | "second_semester" | "midyear">("second_semester");
+  const [startsOn, setStartsOn] = useState("");
+  const [endsOn, setEndsOn] = useState("");
+  const [isCurrent, setIsCurrent] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  function selectCampus(value: string) {
+    setCampusId(value);
+    setCollegeId(collegeRows.find((college) => college.campusId === value)?.id ?? "");
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      if (kind === "campus") await institutionalService.createCampus({ code, name, shortName, municipality });
+      if (kind === "college") await institutionalService.createCollege({ campusId, code, name, shortName });
+      if (kind === "program") await institutionalService.createProgram({ collegeId, code, name });
+      if (kind === "term") await institutionalService.createAcademicTerm({ academicYearId, term, startsOn, endsOn, isCurrent });
+      await onCreated();
+      close();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The record could not be created.");
+      setLoading(false);
+    }
+  }
+
+  const needsCode = kind !== "term";
+  const needsShortName = kind === "campus" || kind === "college";
+  return <div className="modal-backdrop" role="presentation"><section className="modal master-data-modal" role="dialog" aria-modal="true" aria-label="Add institutional record"><button className="modal-close" onClick={close} aria-label="Close institutional record form"><X size={20} /></button><span className="modal-icon"><Settings /></span><h2>Add institutional record</h2><p>The record will be written to Supabase using the administrator-only Master Data policy and included in the audit trail.</p><form onSubmit={submit}>
+    <label className="field"><span>Record type</span><select value={kind} onChange={(event) => setKind(event.target.value as MasterDataKind)}><option value="campus">Campus</option><option value="college">College</option><option value="program">Academic program</option><option value="term">Academic term</option></select></label>
+    {needsCode && <div className="two-fields"><label className="field"><span>Code</span><input required value={code} onChange={(event) => setCode(event.target.value)} placeholder={kind === "campus" ? "PARSU-CAMPUS" : kind === "college" ? "CECS" : "BSIT"} /></label>{needsShortName && <label className="field"><span>Short name</span><input required value={shortName} onChange={(event) => setShortName(event.target.value)} placeholder={kind === "campus" ? "Campus name" : "College acronym"} /></label>}</div>}
+    {kind !== "term" && <label className="field"><span>Official name</span><input required value={name} onChange={(event) => setName(event.target.value)} placeholder={kind === "program" ? "Bachelor of Science in…" : "Enter the official name"} /></label>}
+    {kind === "campus" && <label className="field"><span>Municipality</span><input required value={municipality} onChange={(event) => setMunicipality(event.target.value)} placeholder="Municipality" /></label>}
+    {(kind === "college" || kind === "program") && <label className="field"><span>Campus</span><select required value={campusId} onChange={(event) => selectCampus(event.target.value)}><option value="" disabled>Select a campus</option>{campusRows.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></label>}
+    {kind === "program" && <label className="field"><span>Owning college</span><select required value={collegeId} onChange={(event) => setCollegeId(event.target.value)}><option value="" disabled>Select a college</option>{availableColleges.map((college) => <option key={college.id} value={college.id}>{college.shortName} · {college.name}</option>)}</select></label>}
+    {kind === "term" && <><label className="field"><span>Academic year</span><select required value={academicYearId} onChange={(event) => setAcademicYearId(event.target.value)}><option value="" disabled>Select an academic year</option>{academicYears.map((year) => <option key={year.id} value={year.id}>{year.label}{year.isCurrent ? " · Current" : ""}</option>)}</select></label><label className="field"><span>Term</span><select value={term} onChange={(event) => setTerm(event.target.value as typeof term)}><option value="first_semester">First Semester</option><option value="second_semester">Second Semester</option><option value="midyear">Midyear</option></select></label><div className="two-fields"><label className="field"><span>Starts on</span><input required type="date" value={startsOn} onChange={(event) => setStartsOn(event.target.value)} /></label><label className="field"><span>Ends on</span><input required type="date" min={startsOn || undefined} value={endsOn} onChange={(event) => setEndsOn(event.target.value)} /></label></div><div className="master-current-option"><input aria-label="Make this the current term" type="checkbox" checked={isCurrent} onChange={(event) => setIsCurrent(event.target.checked)} /><span><strong>Make this the current term</strong><small>This switches the active term across PRAXIZ after the record is created.</small></span></div></>}
+    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
+    <div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || (kind === "program" && !collegeId) || (kind === "term" && !academicYearId)}>{loading ? "Saving…" : "Create record"}</ActionButton></div>
+  </form></section></div>;
+}
+
 function MasterDataPage() {
   const [campusRows, setCampusRows] = useState<Awaited<ReturnType<typeof institutionalService.listActiveCampuses>>>([]);
   const [collegeRows, setCollegeRows] = useState<Awaited<ReturnType<typeof institutionalService.listActiveColleges>>>([]);
   const [programRows, setProgramRows] = useState<Awaited<ReturnType<typeof institutionalService.listActivePrograms>>>([]);
   const [termRows, setTermRows] = useState<Awaited<ReturnType<typeof institutionalService.listAcademicTerms>>>([]);
+  const [academicYears, setAcademicYears] = useState<AcademicYearRecord[]>([]);
   const [selectedCampusId, setSelectedCampusId] = useState("");
   const [selectedCollegeId, setSelectedCollegeId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [campusesResult, collegesResult, termsResult, yearsResult] = await Promise.all([
+      institutionalService.listActiveCampuses(),
+      institutionalService.listActiveColleges(),
+      institutionalService.listAcademicTerms(),
+      institutionalService.listAcademicYears(),
+      ]);
+      setCampusRows(campusesResult);
+      setCollegeRows(collegesResult);
+      setTermRows(termsResult);
+      setAcademicYears(yearsResult);
+      setSelectedCampusId((current) => current && campusesResult.some((campus) => campus.id === current) ? current : campusesResult[0]?.id ?? "");
+      setSelectedCollegeId((current) => current && collegesResult.some((college) => college.id === current) ? current : collegesResult.find((college) => college.campusId === campusesResult[0]?.id)?.id ?? "");
+    } catch {
+      setError("Institutional data could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1174,11 +1262,13 @@ function MasterDataPage() {
       institutionalService.listActiveCampuses(),
       institutionalService.listActiveColleges(),
       institutionalService.listAcademicTerms(),
-    ]).then(([campusesResult, collegesResult, termsResult]) => {
+      institutionalService.listAcademicYears(),
+    ]).then(([campusesResult, collegesResult, termsResult, yearsResult]) => {
       if (!active) return;
       setCampusRows(campusesResult);
       setCollegeRows(collegesResult);
       setTermRows(termsResult);
+      setAcademicYears(yearsResult);
       const campusId = campusesResult[0]?.id ?? "";
       setSelectedCampusId(campusId);
       setSelectedCollegeId(collegesResult.find((college) => college.campusId === campusId)?.id ?? "");
@@ -1203,7 +1293,7 @@ function MasterDataPage() {
 
   const visibleColleges = collegeRows.filter((college) => college.campusId === selectedCampusId);
 
-  return <><PageHeader title="Institutional data" subtitle="Maintain the campus, college, program, and academic-term hierarchy used across PRAXIZ." action={<ActionButton icon={Plus} disabled>Add record unavailable</ActionButton>} />
+  return <><PageHeader title="Institutional data" subtitle="Maintain the campus, college, program, and academic-term hierarchy used across PRAXIZ." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Add record</ActionButton>} />
     <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Controlled configuration:</strong> these records define registration choices, reporting scopes, and role assignments. Production changes will be permission-checked and audit logged.</p></div>
     {loading && <p>Loading institutional data…</p>}
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
@@ -1212,7 +1302,7 @@ function MasterDataPage() {
       <section className="card master-data-card"><div className="card-title"><h2>Colleges</h2><StatusBadge status={`${collegeRows.length} active`} /></div><div className="master-record-list">{visibleColleges.map((college) => <MasterRecordRow key={college.id} primary={college.shortName} secondary={college.name} onClick={() => setSelectedCollegeId(college.id)} />)}{!visibleColleges.length && <p className="master-record-empty">Select a campus to view its colleges.</p>}</div></section>
       <section className="card master-data-card"><div className="card-title"><h2>Programs</h2><StatusBadge status={`${programRows.length} active`} /></div><div className="master-record-list">{programRows.map((program) => <MasterRecordRow key={program.id} primary={program.code} secondary={program.name} />)}{!programRows.length && <p className="master-record-empty">Select a college to view its programs.</p>}</div></section>
       <section className="card master-data-card"><div className="card-title"><h2>Academic terms</h2><StatusBadge status={`${termRows.filter((term) => term.isCurrent).length} current`} /></div><div className="master-record-list">{termRows.map((term) => <MasterRecordRow key={term.id} primary={`${term.academicYear} · ${term.term}`} secondary={`${term.startsOn} to ${term.endsOn}${term.isCurrent ? " · Current" : ""}`} />)}</div></section>
-    </div></>;
+    </div>{adding && <MasterDataDialog campuses={campusRows} colleges={collegeRows} academicYears={academicYears} close={() => setAdding(false)} onCreated={loadAll} />}</>;
 }
 
 function HteVerificationPage({ openModal }: { openModal: (title: string) => void }) {

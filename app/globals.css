@@ -371,6 +371,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .master-record-list small { color: #8395ae; font-size: 10px; line-height: 1.4; }
 .master-record-list svg { flex: 0 0 auto; color: #8195b1; }
 .master-record-empty { margin: 0; padding: 28px 24px; color: #8395ae; font-size: 12px; }
+.master-data-modal { width: min(100%, 620px); }
+.master-current-option { margin-top: 4px; padding: 15px 16px; display: flex; align-items: flex-start; gap: 12px; border: 1px solid var(--line); border-radius: 12px; background: #f8fafc; cursor: pointer; }
+.master-current-option input { margin-top: 2px; accent-color: var(--navy); }
+.master-current-option span { display: grid; gap: 4px; }
+.master-current-option strong { color: var(--text); font-size: 12px; }
+.master-current-option small { color: var(--muted); font-size: 10px; line-height: 1.45; }
 .empty-action { min-height: 300px; padding: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #7d90aa; border: 1px dashed #ced9e6; border-radius: 16px; background: rgba(255,255,255,.55); }.empty-action > span { width: 58px; height: 58px; display: grid; place-items: center; color: #316baa; border-radius: 16px; background: #e6f0ff; }.empty-action h3 { margin: 18px 0 7px; color: var(--ink); }.empty-action p { max-width: 450px; margin: 0 0 18px; line-height: 1.55; }
 
 /* Modal */

@@ -193,6 +193,25 @@ export type UserAccountRecord = {
 type InstitutionalUnitRow = { id: string; parent_id: string | null; unit_type: string; code: string; name: string; short_name: string | null; is_active: boolean; deleted_at: string | null };
 type InstitutionalProgramRow = { id: string; owning_org_unit_id: string; code: string; name: string; is_active: boolean; deleted_at: string | null };
 
+export type AcademicYearRecord = {
+  id: string;
+  label: string;
+  startsOn: string;
+  endsOn: string;
+  isCurrent: boolean;
+};
+
+export type CreateCampusInput = { code: string; name: string; shortName: string; municipality: string };
+export type CreateCollegeInput = { campusId: string; code: string; name: string; shortName: string };
+export type CreateProgramInput = { collegeId: string; code: string; name: string };
+export type CreateAcademicTermInput = {
+  academicYearId: string;
+  term: "first_semester" | "second_semester" | "midyear";
+  startsOn: string;
+  endsOn: string;
+  isCurrent: boolean;
+};
+
 async function activeInstitutionalUnits(): Promise<InstitutionalUnitRow[]> {
   const { data, error } = await createClient()
     .from("org_units")
@@ -300,6 +319,66 @@ export const institutionalService = {
   async getCurrentAcademicTerm(): Promise<AcademicTerm | null> {
     const terms = await this.listAcademicTerms();
     return terms.find((term) => term.isCurrent) ?? null;
+  },
+  async listAcademicYears(): Promise<AcademicYearRecord[]> {
+    const { data, error } = await createClient()
+      .from("academic_years")
+      .select("id,label,starts_on,ends_on,is_current")
+      .is("deleted_at", null)
+      .order("starts_on", { ascending: false });
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as Array<{ id: string; label: string; starts_on: string; ends_on: string; is_current: boolean }>).map((row) => ({
+      id: row.id,
+      label: row.label,
+      startsOn: row.starts_on,
+      endsOn: row.ends_on,
+      isCurrent: row.is_current,
+    }));
+  },
+  async createCampus(input: CreateCampusInput): Promise<Campus> {
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("create_campus", {
+      p_code: input.code.trim(),
+      p_name: input.name.trim(),
+      p_short_name: input.shortName.trim(),
+      p_municipality: input.municipality.trim(),
+    });
+    if (error || !data) throw new Error(error?.message ?? "The campus could not be created.");
+    return { id: data as string, name: input.name.trim(), shortName: input.shortName.trim(), municipality: input.municipality.trim() };
+  },
+  async createCollege(input: CreateCollegeInput): Promise<College> {
+    const { data, error } = await createClient()
+      .from("org_units")
+      .insert({
+        parent_id: input.campusId,
+        unit_type: "college",
+        code: input.code.trim(),
+        name: input.name.trim(),
+        short_name: input.shortName.trim(),
+      })
+      .select("id,parent_id,name,short_name")
+      .single();
+    if (error || !data) throw new Error(error?.message ?? "The college could not be created.");
+    return { id: data.id as string, campusId: data.parent_id as string, name: data.name as string, shortName: (data.short_name as string | null) ?? (data.name as string) };
+  },
+  async createProgram(input: CreateProgramInput): Promise<Program> {
+    const { data, error } = await createClient()
+      .from("academic_programs")
+      .insert({ owning_org_unit_id: input.collegeId, code: input.code.trim(), name: input.name.trim() })
+      .select("id,owning_org_unit_id,code,name")
+      .single();
+    if (error || !data) throw new Error(error?.message ?? "The program could not be created.");
+    return { id: data.id as string, collegeId: data.owning_org_unit_id as string, code: data.code as string, name: data.name as string };
+  },
+  async createAcademicTerm(input: CreateAcademicTermInput): Promise<void> {
+    const { error } = await createClient().rpc("create_academic_term", {
+      p_academic_year_id: input.academicYearId,
+      p_term: input.term,
+      p_starts_on: input.startsOn,
+      p_ends_on: input.endsOn,
+      p_is_current: input.isCurrent,
+    });
+    if (error) throw new Error(error.message);
   },
 };
 
