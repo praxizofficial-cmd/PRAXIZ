@@ -12,6 +12,7 @@ import { createClient } from "../../lib/supabase/client";
 import { resolveActiveAssignmentId } from "../auth/student-stabilization";
 import { buildSaveDailyLogRpcArgs, type DailyLogAssignment } from "./daily-log-stabilization";
 import { programsForCollege } from "./institutional-stabilization";
+import { normalizeDocumentTemplateCode, validateDocumentTemplate, type DocumentTemplatePhase } from "./workflow-template-stabilization";
 import type { AcademicTerm, AttendanceEvent, AttendanceSession, AttendanceStatus, Campus, College, Intern, Program } from "../types";
 
 type AttendanceEventRow = {
@@ -66,6 +67,31 @@ export type DocumentRecord = {
   latestFeedback: string;
   allowedMimeTypes: string[];
   maxFileSizeBytes: number;
+};
+
+export type DocumentTemplateRecord = {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  phase: DocumentTemplatePhase;
+  allowedMimeTypes: string[];
+  maxFileSizeBytes: number;
+  isRequired: boolean;
+  isActive: boolean;
+  displayOrder: number;
+};
+
+export type CreateDocumentTemplateInput = {
+  code: string;
+  name: string;
+  description: string;
+  phase: DocumentTemplatePhase;
+  allowedMimeTypes: string[];
+  maxFileSizeMb: number;
+  isRequired: boolean;
+  isActive: boolean;
+  displayOrder: number;
 };
 
 export type DailyLogRecord = {
@@ -858,6 +884,61 @@ export const dailyLogService = {
     if (error) throw new Error(error.message);
   },
 };
+export const workflowTemplateService = {
+  async listDocumentTemplates(): Promise<DocumentTemplateRecord[]> {
+    const { data, error } = await createClient()
+      .from("document_requirement_templates")
+      .select("id,code,name,description,phase,allowed_mime_types,max_file_size_bytes,is_required,is_active,display_order")
+      .order("display_order", { ascending: true })
+      .order("name", { ascending: true });
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as Array<{
+      id: string;
+      code: string;
+      name: string;
+      description: string | null;
+      phase: DocumentTemplatePhase;
+      allowed_mime_types: string[];
+      max_file_size_bytes: number | string;
+      is_required: boolean;
+      is_active: boolean;
+      display_order: number;
+    }>).map((row) => ({
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      description: row.description ?? "",
+      phase: row.phase,
+      allowedMimeTypes: row.allowed_mime_types,
+      maxFileSizeBytes: Number(row.max_file_size_bytes),
+      isRequired: row.is_required,
+      isActive: row.is_active,
+      displayOrder: row.display_order,
+    }));
+  },
+  async createDocumentTemplate(input: CreateDocumentTemplateInput): Promise<{ templateId: string; provisionedAssignments: number }> {
+    const validationError = validateDocumentTemplate(input);
+    if (validationError) throw new Error(validationError);
+    const { data, error } = await createClient().rpc("create_document_requirement_template", {
+      p_code: normalizeDocumentTemplateCode(input.code),
+      p_name: input.name.trim(),
+      p_description: input.description.trim(),
+      p_phase: input.phase,
+      p_allowed_mime_types: input.allowedMimeTypes,
+      p_max_file_size_bytes: input.maxFileSizeMb * 1024 * 1024,
+      p_is_required: input.isRequired,
+      p_is_active: input.isActive,
+      p_display_order: input.displayOrder,
+    });
+    if (error || !data) throw new Error(error?.message ?? "The document template could not be created.");
+    const result = data as { template_id?: string; provisioned_assignments?: number };
+    return {
+      templateId: result.template_id ?? "",
+      provisionedAssignments: Number(result.provisioned_assignments ?? 0),
+    };
+  },
+};
+
 const documentStatus: Record<string, string> = {
   missing: "Missing",
   submitted: "Submitted",

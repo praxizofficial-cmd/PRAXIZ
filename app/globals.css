@@ -115,6 +115,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .role-student { background: #1768e5; }.role-coordinator { background: #df7200; }.role-hte { background: #00a446; }
 .auth-form-wrap form > .button { width: 100%; margin-top: 8px; }
 .form-error { display: flex; align-items: center; gap: 8px; color: #bb1e1e; font-size: 13px; }
+.form-success { padding: 12px 14px; display: flex; align-items: center; gap: 8px; color: #08783e; border: 1px solid #bde8ce; border-radius: 10px; background: #f0fbf5; font-size: 12px; }
 .auth-switch { margin: 25px 0 0; text-align: center; color: var(--muted); font-size: 14px; }
 .auth-switch a { color: #075cb7; font-weight: 700; }
 .demo-shortcuts { margin-top: 35px; padding-top: 23px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }

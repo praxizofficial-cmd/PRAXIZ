@@ -65,10 +65,12 @@ import {
   institutionalService,
   notificationService,
   registrationService,
+  workflowTemplateService,
   type AcademicYearRecord,
   type AttendanceHistoryRow,
   type DailyLogRecord,
   type DocumentRecord,
+  type DocumentTemplateRecord,
   type EvaluationAssignment,
   type EvaluationCriterionRecord,
   type EvaluationRecord,
@@ -77,6 +79,7 @@ import {
   type StudentProgressSummary,
 } from "./services/praxiz-services";
 import { programsForCollege, unitsForCampus } from "./services/institutional-stabilization";
+import { mimeTypesForPreset, type DocumentTemplateMimePreset, type DocumentTemplatePhase } from "./services/workflow-template-stabilization";
 import { roleIds, type AttendanceSession, type Campus, type College, type Intern, type RoleId } from "./types";
 
 function Link({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
@@ -1315,16 +1318,112 @@ function HteVerificationPage({ openModal }: { openModal: (title: string) => void
   return <><PageHeader title="HTE verification" subtitle="Review partner organizations and authorized representatives before account activation." /><div className="stats-grid three"><StatCard label="Pending review" value="1" icon={Clock3} tone="orange" /><StatCard label="Verified this term" value="12" icon={ShieldCheck} tone="green" /><StatCard label="Needs revision" value="1" icon={AlertTriangle} tone="red" /></div><section className="card table-card"><div className="card-title"><h2>Organization applications</h2><label className="table-search"><Search size={17} /><input placeholder="Search organization…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Representative</th><th>Verification evidence</th><th>Status</th><th>Action</th></tr></thead><tbody>{applications.map((row) => <tr key={row[0]}><td><b>{row[0]}</b></td><td>{row[1]}</td><td>{row[2]}</td><td><StatusBadge status={row[3]} /></td><td><button className="table-link" onClick={() => openModal(`Review HTE · ${row[0]}`)}>Review</button></td></tr>)}</tbody></table></div></section></>;
 }
 
-function WorkflowTemplatesPage({ openModal }: { openModal: (title: string) => void }) {
-  const templates = [
-    ["Acceptance Form", "Pre-internship document", "Required", "Published"],
-    ["Memorandum of Agreement", "Pre-internship document", "Required", "Published"],
-    ["Daily Time Record", "During-internship document", "Required", "Published"],
-    ["Weekly Accomplishment Report", "During-internship document", "Required", "Published"],
-    ["Midterm Evaluation", "HTE evaluation", "Scored", "Published"],
-    ["Final Evaluation", "HTE evaluation", "Coordinator finalization", "Draft"],
-  ];
-  return <><PageHeader title="Workflow templates" subtitle="Configure document requirements and evaluation templates by academic workflow." action={<ActionButton icon={Plus} onClick={() => openModal("Create workflow template")}>Create template</ActionButton>} /><section className="card table-card"><div className="card-title"><h2>Document and evaluation templates</h2><StatusBadge status={`${templates.length} configured`} /></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Template</th><th>Workflow</th><th>Requirement</th><th>Status</th><th>Action</th></tr></thead><tbody>{templates.map((row) => <tr key={row[0]}><td><b>{row[0]}</b></td><td>{row[1]}</td><td>{row[2]}</td><td><StatusBadge status={row[3]} /></td><td><button className="table-link" onClick={() => openModal(`Configure ${row[0]}`)}>Configure</button></td></tr>)}</tbody></table></div></section></>;
+const documentTemplatePhaseLabels: Record<DocumentTemplatePhase, string> = {
+  pre_internship: "Pre-Internship",
+  during_internship: "During Internship",
+  post_internship: "Post-Internship",
+};
+
+function formatTemplateFileTypes(mimeTypes: string[]): string {
+  const labels = mimeTypes.map((mime) => mime === "application/pdf" ? "PDF" : mime === "image/jpeg" ? "JPG" : mime === "image/png" ? "PNG" : mime);
+  return labels.join(", ");
+}
+
+function DocumentTemplateDialog({ nextDisplayOrder, close, onCreated }: {
+  nextDisplayOrder: number;
+  close: () => void;
+  onCreated: (provisionedAssignments: number) => Promise<void>;
+}) {
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [phase, setPhase] = useState<DocumentTemplatePhase>("pre_internship");
+  const [mimePreset, setMimePreset] = useState<DocumentTemplateMimePreset>("pdf_images");
+  const [maxFileSizeMb, setMaxFileSizeMb] = useState("20");
+  const [displayOrder, setDisplayOrder] = useState(String(nextDisplayOrder));
+  const [isRequired, setIsRequired] = useState(true);
+  const [isActive, setIsActive] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const result = await workflowTemplateService.createDocumentTemplate({
+        code,
+        name,
+        description,
+        phase,
+        allowedMimeTypes: mimeTypesForPreset(mimePreset),
+        maxFileSizeMb: Number(maxFileSizeMb),
+        isRequired,
+        isActive,
+        displayOrder: Number(displayOrder),
+      });
+      await onCreated(result.provisionedAssignments);
+      close();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The document template could not be created.");
+      setLoading(false);
+    }
+  }
+
+  return <div className="modal-backdrop" role="presentation"><section className="modal master-data-modal" role="dialog" aria-modal="true" aria-label="Create document requirement template"><button className="modal-close" onClick={close} aria-label="Close document template form"><X size={20} /></button><span className="modal-icon"><FileCheck2 /></span><h2>Create document requirement</h2><p>This creates an auditable workflow template. If it is active, PRAXIZ also adds it to current approved and active internships.</p><form onSubmit={submit}>
+    <div className="two-fields"><label className="field"><span>Template code</span><input required value={code} onChange={(event) => { setCode(event.target.value); setError(""); }} placeholder="medical-certificate" /></label><label className="field"><span>Workflow phase</span><select value={phase} onChange={(event) => setPhase(event.target.value as DocumentTemplatePhase)}><option value="pre_internship">Pre-Internship</option><option value="during_internship">During Internship</option><option value="post_internship">Post-Internship</option></select></label></div>
+    <label className="field"><span>Document name</span><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Medical Certificate" /></label>
+    <label className="field"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Explain what the student must submit…" /></label>
+    <div className="two-fields"><label className="field"><span>Accepted files</span><select value={mimePreset} onChange={(event) => setMimePreset(event.target.value as DocumentTemplateMimePreset)}><option value="pdf_images">PDF, JPG, and PNG</option><option value="pdf">PDF only</option></select></label><label className="field"><span>Maximum size (MB)</span><input required type="number" min="1" max="20" step="1" value={maxFileSizeMb} onChange={(event) => setMaxFileSizeMb(event.target.value)} /></label></div>
+    <label className="field"><span>Display order</span><input required type="number" min="0" step="1" value={displayOrder} onChange={(event) => setDisplayOrder(event.target.value)} /></label>
+    <label className="master-current-option"><input aria-label="Make this a required submission" type="checkbox" checked={isRequired} onChange={(event) => setIsRequired(event.target.checked)} /><span><strong>Required submission</strong><small>Required templates count toward the student’s document compliance.</small></span></label>
+    <label className="master-current-option"><input aria-label="Publish this requirement immediately" type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span><strong>Publish immediately</strong><small>Active templates are assigned to current approved and active internships when created.</small></span></label>
+    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
+    <div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading}>{loading ? "Creating…" : "Create requirement"}</ActionButton></div>
+  </form></section></div>;
+}
+
+function DocumentTemplateDetails({ template, close }: { template: DocumentTemplateRecord; close: () => void }) {
+  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={`View ${template.name}`}><button className="modal-close" onClick={close} aria-label="Close document template details"><X size={20} /></button><span className="modal-icon"><FileCheck2 /></span><h2>{template.name}</h2><p>{template.description || "No description has been provided."}</p><dl className="info-list"><div><dt>Code</dt><dd>{template.code}</dd></div><div><dt>Workflow phase</dt><dd>{documentTemplatePhaseLabels[template.phase]}</dd></div><div><dt>Requirement</dt><dd>{template.isRequired ? "Required" : "Optional"}</dd></div><div><dt>Accepted files</dt><dd>{formatTemplateFileTypes(template.allowedMimeTypes)}</dd></div><div><dt>Maximum size</dt><dd>{Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB</dd></div><div><dt>Display order</dt><dd>{template.displayOrder}</dd></div><div><dt>Status</dt><dd>{template.isActive ? "Published" : "Inactive"}</dd></div></dl><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></section></div>;
+}
+
+function WorkflowTemplatesPage() {
+  const [templates, setTemplates] = useState<DocumentTemplateRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [selected, setSelected] = useState<DocumentTemplateRecord | null>(null);
+
+  const loadTemplates = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try { setTemplates(await workflowTemplateService.listDocumentTemplates()); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Workflow templates could not be loaded."); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void workflowTemplateService.listDocumentTemplates().then((result) => {
+      if (active) setTemplates(result);
+    }).catch((reason) => {
+      if (active) setError(reason instanceof Error ? reason.message : "Workflow templates could not be loaded.");
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
+  const nextDisplayOrder = templates.length ? Math.max(...templates.map((template) => template.displayOrder)) + 10 : 10;
+
+  return <><PageHeader title="Workflow templates" subtitle="Configure the document requirements students must complete throughout their internship." action={<ActionButton icon={Plus} onClick={() => { setNotice(""); setAdding(true); }}>Create requirement</ActionButton>} />
+    <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Controlled configuration:</strong> published requirements are permission-checked, audit logged, and added to current approved and active internships.</p></div>
+    {notice && <p className="form-success"><CheckCircle2 size={16} /> {notice}</p>}
+    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
+    <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading document requirements…" : "Document requirement templates"}</h2><StatusBadge status={`${templates.filter((template) => template.isActive).length} published`} /></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Template</th><th>Workflow phase</th><th>Requirement</th><th>Accepted files</th><th>Limit</th><th>Status</th><th>Action</th></tr></thead><tbody>{templates.map((template) => <tr key={template.id}><td><b>{template.name}</b><small>{template.code}</small></td><td>{documentTemplatePhaseLabels[template.phase]}</td><td>{template.isRequired ? "Required" : "Optional"}</td><td>{formatTemplateFileTypes(template.allowedMimeTypes)}</td><td>{Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB</td><td><StatusBadge status={template.isActive ? "Published" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelected(template)}>View</button></td></tr>)}{!loading && templates.length === 0 && <tr><td colSpan={7}>No document requirement templates have been configured.</td></tr>}</tbody></table></div></section>
+    {adding && <DocumentTemplateDialog nextDisplayOrder={nextDisplayOrder} close={() => setAdding(false)} onCreated={async (count) => { await loadTemplates(); setNotice(count > 0 ? `Requirement created and added to ${count} current internship${count === 1 ? "" : "s"}.` : "Requirement created. No current internship needed provisioning."); }} />}
+    {selected && <DocumentTemplateDetails template={selected} close={() => setSelected(null)} />}
+  </>;
 }
 
 function RegistrationReviewDialog({ application, close, onReviewed }: { application: RegistrationRecord; close: () => void; onReviewed: () => void }) {
@@ -1412,7 +1511,7 @@ function DashboardRouter({ role, page }: { role: RoleId; page: string }) {
   else if (page === "users") content = <DirectoryPage kind="users" openModal={openModal} />;
   else if (page === "master-data") content = <MasterDataPage />;
   else if (page === "hte-verification") content = <HteVerificationPage openModal={openModal} />;
-  else if (page === "templates") content = <WorkflowTemplatesPage openModal={openModal} />;
+  else if (page === "templates") content = <WorkflowTemplatesPage />;
   else if (page === "roles") content = <DirectoryPage kind="roles" openModal={openModal} />;
   else if (page === "audit-logs") content = <DirectoryPage kind="audit" openModal={openModal} />;
   else if (page === "registrations") content = <RegistrationsPage />;
