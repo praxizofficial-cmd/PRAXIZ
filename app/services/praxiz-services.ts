@@ -362,12 +362,30 @@ export const institutionalService = {
     return { id: data.id as string, campusId: data.parent_id as string, name: data.name as string, shortName: (data.short_name as string | null) ?? (data.name as string) };
   },
   async createProgram(input: CreateProgramInput): Promise<Program> {
-    const { data, error } = await createClient()
+    const supabase = createClient();
+    const code = input.code.trim();
+    const { data: existing, error: lookupError } = await supabase
       .from("academic_programs")
-      .insert({ owning_org_unit_id: input.collegeId, code: input.code.trim(), name: input.name.trim() })
+      .select("id,name")
+      .eq("owning_org_unit_id", input.collegeId)
+      .ilike("code", code)
+      .is("deleted_at", null)
+      .limit(1)
+      .maybeSingle();
+    if (lookupError) throw new Error(lookupError.message);
+    if (existing) {
+      throw new Error(`${code} already exists in the selected college as ${existing.name}. Use the existing program or enter a different code.`);
+    }
+
+    const { data, error } = await supabase
+      .from("academic_programs")
+      .insert({ owning_org_unit_id: input.collegeId, code, name: input.name.trim() })
       .select("id,owning_org_unit_id,code,name")
       .single();
-    if (error || !data) throw new Error(error?.message ?? "The program could not be created.");
+    if (error || !data) {
+      if (error?.code === "23505") throw new Error(`${code} already exists in the selected college. Use the existing program or enter a different code.`);
+      throw new Error(error?.message ?? "The program could not be created.");
+    }
     return { id: data.id as string, collegeId: data.owning_org_unit_id as string, code: data.code as string, name: data.name as string };
   },
   async createAcademicTerm(input: CreateAcademicTermInput): Promise<void> {
