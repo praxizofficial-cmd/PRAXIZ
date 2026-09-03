@@ -102,12 +102,6 @@ begin
   from public.evaluation_templates
   where code = trim(p_code);
 
-  if p_is_active then
-    update public.evaluation_templates
-    set is_active = false
-    where is_active;
-  end if;
-
   insert into public.evaluation_templates (
     code,
     name,
@@ -124,7 +118,7 @@ begin
     p_stage,
     p_evaluator_type,
     next_version,
-    p_is_active,
+    false,
     (select auth.uid())
   )
   returning id into new_template_id;
@@ -149,6 +143,16 @@ begin
     (criterion->>'maximum_score')::numeric,
     coalesce((criterion->>'display_order')::integer, (ordinality * 10)::integer)
   from jsonb_array_elements(p_criteria) with ordinality as item(criterion, ordinality);
+
+  if p_is_active then
+    update public.evaluation_templates
+    set is_active = false
+    where is_active;
+
+    update public.evaluation_templates
+    set is_active = true
+    where id = new_template_id;
+  end if;
 
   return jsonb_build_object(
     'template_id', new_template_id,
