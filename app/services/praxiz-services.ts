@@ -181,6 +181,8 @@ export type EvaluationRecord = {
   strengths: string;
   areasForImprovement: string;
   overallRemarks: string;
+  reviewFeedback: string;
+  reviewedAt: string;
   weightedScore: number | null;
   submittedAt: string;
   criteria: EvaluationCriterionRecord[];
@@ -1202,7 +1204,7 @@ export const evaluationService = {
   listCriteria: () => evaluations,
   async listLive(): Promise<EvaluationRecord[]> {
     const { data, error } = await createClient().from("evaluations")
-      .select("id,internship_assignment_id,evaluation_template_id,evaluator_user_id,status,weighted_score,submitted_at,internship_assignments(student_user_id),evaluation_templates(name,evaluation_criteria(id,label,description,minimum_score,maximum_score,weight,display_order)),current_version:evaluation_versions!evaluations_current_version_fk(strengths,areas_for_improvement,overall_remarks,submitted_at,evaluation_scores(criterion_id,score))")
+      .select("id,internship_assignment_id,evaluation_template_id,evaluator_user_id,status,weighted_score,submitted_at,internship_assignments(student_user_id),evaluation_templates(name,evaluation_criteria(id,label,description,minimum_score,maximum_score,weight,display_order)),current_version:evaluation_versions!evaluations_current_version_fk(strengths,areas_for_improvement,overall_remarks,submitted_at,evaluation_scores(criterion_id,score)),evaluation_reviews(decision,feedback,reviewed_at)")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
@@ -1215,6 +1217,7 @@ export const evaluationService = {
       weighted_score: number | string | null;
       submitted_at: string | null;
       current_version?: { strengths: string | null; areas_for_improvement: string | null; overall_remarks: string | null; submitted_at: string | null; evaluation_scores?: Array<{ criterion_id: string; score: number | string }> | null } | Array<{ strengths: string | null; areas_for_improvement: string | null; overall_remarks: string | null; submitted_at: string | null; evaluation_scores?: Array<{ criterion_id: string; score: number | string }> | null }> | null;
+      evaluation_reviews?: Array<{ decision: string; feedback: string | null; reviewed_at: string }> | null;
       internship_assignments?: { student_user_id?: string } | Array<{ student_user_id?: string }> | null;
       evaluation_templates?: { name: string; evaluation_criteria?: Array<{ id: string; label: string; description: string | null; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number }> } | Array<{ name: string; evaluation_criteria?: Array<{ id: string; label: string; description: string | null; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number }> }> | null;
     };
@@ -1228,6 +1231,7 @@ export const evaluationService = {
       const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
       const template = Array.isArray(row.evaluation_templates) ? row.evaluation_templates[0] : row.evaluation_templates;
       const currentVersion = joinedOne(row.current_version);
+      const latestReview = [...(row.evaluation_reviews ?? [])].sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at))[0];
       const scoreByCriterion = new Map((currentVersion?.evaluation_scores ?? []).map((score) => [score.criterion_id, Number(score.score)]));
       const criteria = [...(template?.evaluation_criteria ?? [])].sort((a, b) => a.display_order - b.display_order).map((criterion) => ({
         id: criterion.id,
@@ -1249,6 +1253,8 @@ export const evaluationService = {
         strengths: currentVersion?.strengths ?? "",
         areasForImprovement: currentVersion?.areas_for_improvement ?? "",
         overallRemarks: currentVersion?.overall_remarks ?? "",
+        reviewFeedback: latestReview?.feedback ?? "",
+        reviewedAt: latestReview?.reviewed_at ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(latestReview.reviewed_at)) : "",
         weightedScore: row.weighted_score == null ? null : Number(row.weighted_score),
         submittedAt: row.submitted_at ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(row.submitted_at)) : "Not submitted",
         criteria,
@@ -1298,11 +1304,12 @@ export const evaluationService = {
     });
     if (error) throw new Error(error.message);
   },
-  async finalize(evaluationId: string): Promise<void> {
+  async review(evaluationId: string, decision: "finalized" | "returned", feedback: string): Promise<void> {
+    if (decision === "returned" && !feedback.trim()) throw new Error("Enter feedback before returning this evaluation.");
     const { error } = await createClient().rpc("review_evaluation", {
       p_evaluation_id: evaluationId,
-      p_decision: "finalized",
-      p_feedback: null,
+      p_decision: decision,
+      p_feedback: feedback.trim() || null,
     });
     if (error) throw new Error(error.message);
   },
