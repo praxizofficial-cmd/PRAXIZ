@@ -14,6 +14,13 @@ import { resolveActiveAssignmentId } from "../auth/student-stabilization";
 import { buildSaveDailyLogRpcArgs, type DailyLogAssignment } from "./daily-log-stabilization";
 import { programsForCollege } from "./institutional-stabilization";
 import { normalizeDocumentTemplateCode, validateDocumentTemplate, type DocumentTemplatePhase } from "./workflow-template-stabilization";
+import {
+  normalizeEvaluationCode,
+  validateEvaluationTemplate,
+  type EvaluationTemplateCriterionInput,
+  type EvaluationTemplateEvaluator,
+  type EvaluationTemplateStage,
+} from "./evaluation-template-stabilization";
 import type { AcademicTerm, AttendanceEvent, AttendanceSession, AttendanceStatus, Campus, College, Intern, Program } from "../types";
 
 type AttendanceEventRow = {
@@ -93,6 +100,28 @@ export type CreateDocumentTemplateInput = {
   isRequired: boolean;
   isActive: boolean;
   displayOrder: number;
+};
+
+export type EvaluationTemplateRecord = {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  stage: EvaluationTemplateStage;
+  evaluatorType: EvaluationTemplateEvaluator | "faculty";
+  version: number;
+  isActive: boolean;
+  criteria: EvaluationTemplateCriterionInput[];
+};
+
+export type CreateEvaluationTemplateInput = {
+  code: string;
+  name: string;
+  description: string;
+  stage: EvaluationTemplateStage;
+  evaluatorType: EvaluationTemplateEvaluator;
+  isActive: boolean;
+  criteria: EvaluationTemplateCriterionInput[];
 };
 
 export type DailyLogRecord = {
@@ -937,6 +966,73 @@ export const workflowTemplateService = {
     return {
       templateId: result.template_id ?? "",
       provisionedAssignments: Number(result.provisioned_assignments ?? 0),
+    };
+  },
+  async listEvaluationTemplates(): Promise<EvaluationTemplateRecord[]> {
+    const { data, error } = await createClient()
+      .from("evaluation_templates")
+      .select("id,code,name,description,stage,evaluator_type,version,is_active,evaluation_criteria(code,label,description,weight,minimum_score,maximum_score,display_order)")
+      .order("version", { ascending: false })
+      .order("name", { ascending: true });
+    if (error) throw new Error(error.message);
+    type CriterionRow = { code: string; label: string; description: string | null; weight: number | string; minimum_score: number | string; maximum_score: number | string; display_order: number };
+    return ((data ?? []) as unknown as Array<{
+      id: string;
+      code: string;
+      name: string;
+      description: string | null;
+      stage: EvaluationTemplateStage;
+      evaluator_type: EvaluationTemplateRecord["evaluatorType"];
+      version: number;
+      is_active: boolean;
+      evaluation_criteria?: CriterionRow[] | null;
+    }>).map((row) => ({
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      description: row.description ?? "",
+      stage: row.stage,
+      evaluatorType: row.evaluator_type,
+      version: row.version,
+      isActive: row.is_active,
+      criteria: [...(row.evaluation_criteria ?? [])].sort((a, b) => a.display_order - b.display_order).map((criterion) => ({
+        code: criterion.code,
+        label: criterion.label,
+        description: criterion.description ?? "",
+        weight: Number(criterion.weight),
+        minimumScore: Number(criterion.minimum_score),
+        maximumScore: Number(criterion.maximum_score),
+        displayOrder: criterion.display_order,
+      })),
+    }));
+  },
+  async createEvaluationTemplate(input: CreateEvaluationTemplateInput): Promise<{ templateId: string; version: number; criteriaCount: number }> {
+    const validationError = validateEvaluationTemplate(input);
+    if (validationError) throw new Error(validationError);
+    const criteria = input.criteria.map((criterion, index) => ({
+      code: normalizeEvaluationCode(criterion.code || criterion.label),
+      label: criterion.label.trim(),
+      description: criterion.description.trim(),
+      weight: criterion.weight,
+      minimum_score: criterion.minimumScore,
+      maximum_score: criterion.maximumScore,
+      display_order: index * 10 + 10,
+    }));
+    const { data, error } = await createClient().rpc("create_evaluation_template", {
+      p_code: normalizeEvaluationCode(input.code),
+      p_name: input.name.trim(),
+      p_description: input.description.trim(),
+      p_stage: input.stage,
+      p_evaluator_type: input.evaluatorType,
+      p_is_active: input.isActive,
+      p_criteria: criteria,
+    });
+    if (error || !data) throw new Error(error?.message ?? "The evaluation template could not be created.");
+    const result = data as { template_id?: string; version?: number; criteria_count?: number };
+    return {
+      templateId: result.template_id ?? "",
+      version: Number(result.version ?? 1),
+      criteriaCount: Number(result.criteria_count ?? criteria.length),
     };
   },
 };

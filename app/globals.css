@@ -390,6 +390,26 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .attendance-review-modal { width: min(100%, 650px); }
 .evaluation-editor-modal { width: min(100%, 920px); }
 .evaluation-editor-modal .evaluation-notes { margin-top: 18px; }
+.workflow-template-tabs { width: max-content; margin-bottom: 18px; }
+.evaluation-template-modal { width: min(100%, 920px); max-height: min(90vh, 880px); overflow-y: auto; }
+.criteria-builder { margin: 22px 0; display: grid; gap: 12px; }
+.criteria-builder-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.criteria-builder-heading > div { display: grid; gap: 4px; }
+.criteria-builder-heading strong { color: var(--ink); font-size: 14px; }
+.criteria-builder-heading small { color: #8295af; font-size: 11px; }
+.criterion-builder-row { margin: 0; padding: 15px; display: grid; gap: 11px; border: 1px solid var(--line); border-radius: 12px; background: #f8fafc; }
+.criterion-builder-row legend { padding: 0 7px; color: #5f7390; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.criterion-builder-primary { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 13px; }
+.criterion-builder-row .field { margin: 0; }
+.criterion-remove { width: max-content; color: #c33d3d; }
+.criterion-remove:disabled { color: #a8b4c5; cursor: not-allowed; }
+.criterion-add { justify-self: start; }
+.template-criteria-summary { margin-top: 20px; display: grid; gap: 8px; }
+.template-criteria-summary article { padding: 13px 14px; display: flex; justify-content: space-between; gap: 18px; border: 1px solid #e5ebf3; border-radius: 10px; background: #f8fafc; }
+.template-criteria-summary article > div { display: grid; gap: 4px; }
+.template-criteria-summary strong { color: var(--text); font-size: 12px; }
+.template-criteria-summary small { color: #8194ae; font-size: 10px; line-height: 1.45; }
+.template-criteria-summary b { color: var(--navy); font-size: 12px; white-space: nowrap; }
 .readonly-event-grid { margin-top: 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .readonly-event-grid > div { padding: 15px; display: grid; gap: 5px; border: 1px solid var(--line); border-radius: 11px; background: #f8fafc; }
 .readonly-event-grid span { color: #71849f; font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
@@ -429,7 +449,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .app-header { height: 76px; padding: 0 15px; }.crumb strong { font-size: 14px; }.crumb small { display: none; }.icon-button { width: 42px; height: 42px; }.user-trigger .avatar { width: 38px; height: 38px; }.app-main { padding: 26px 16px 45px; }.page-heading { align-items: flex-start; flex-direction: column; margin-bottom: 23px; }.page-heading h1 { font-size: 27px; }.page-heading p { font-size: 14px; }.page-actions { width: 100%; flex-wrap: wrap; }.page-actions .button { flex: 1; }
   .stats-grid.three, .stats-grid.four, .stats-grid.six { grid-template-columns: 1fr; gap: 12px; }.stat-card { min-height: 150px; }.stat-card > p { margin-bottom: 30px; }.dashboard-side-col { grid-template-columns: 1fr; }.card { padding: 21px 19px; }.quick-actions { grid-template-columns: 1fr; }.activity-row { align-items: flex-start; flex-direction: column; }.activity-row > span:last-child { width: 100%; justify-content: space-between; }
   .hours-overview { grid-template-columns: 1fr; }.hours-overview > div { border-bottom: 1px solid #edf1f5; }.hours-progress { grid-column: auto; }.document-row { grid-template-columns: auto 1fr; align-items: start; }.document-row > .badge { grid-column: 2; }.document-actions { grid-column: 1 / -1; }.document-actions .button { flex: 1; }
-  .criterion { grid-template-columns: 1fr; gap: 10px; padding: 14px 0; border-bottom: 1px solid #edf1f5; }.score-selector { flex-wrap: wrap; }.score-text { display: none; }.evaluation-notes { grid-template-columns: 1fr; }.evaluation-notes .full, .evaluation-submit { grid-column: auto; }.evaluation-submit { flex-wrap: wrap; }.segmented { width: 100%; }.segmented button { flex: 1; }.evaluation-heading { align-items: flex-start; }.evaluation-heading > div:last-child { flex: 0 0 auto; }.profile-grid { grid-template-columns: 1fr; }.progress-hero { padding: 22px; }.progress-ring { width: 100px; height: 100px; }.progress-ring::after { width: 72px; height: 72px; }.progress-ring span { font-size: 22px; }
+  .criterion { grid-template-columns: 1fr; gap: 10px; padding: 14px 0; border-bottom: 1px solid #edf1f5; }.score-selector { flex-wrap: wrap; }.score-text { display: none; }.evaluation-notes { grid-template-columns: 1fr; }.evaluation-notes .full, .evaluation-submit { grid-column: auto; }.evaluation-submit { flex-wrap: wrap; }.segmented { width: 100%; }.segmented button { flex: 1; }.evaluation-heading { align-items: flex-start; }.evaluation-heading > div:last-child { flex: 0 0 auto; }.profile-grid { grid-template-columns: 1fr; }.progress-hero { padding: 22px; }.progress-ring { width: 100px; height: 100px; }.progress-ring::after { width: 72px; height: 72px; }.progress-ring span { font-size: 22px; }.criterion-builder-primary { grid-template-columns: 1fr; }.criteria-builder-heading { align-items: flex-start; flex-direction: column; }
   .notification-controls { width: 100%; }.notification-controls button { flex: 1; }.notification-item { grid-template-columns: auto 1fr; }.notification-item > small { grid-column: 2; }.indicator-cards, .report-filter-grid, .report-grid { grid-template-columns: 1fr; }.radar { max-width: 100%; }.report-generate { align-items: stretch; flex-direction: column; }.report-generate > div { margin-bottom: 5px; }.filter-bar { width: 100%; flex-wrap: wrap; }.filter-bar label { min-width: 100%; }.filter-bar select { flex: 1; min-width: 130px; }.table-card > .card-title { align-items: flex-start; flex-direction: column; }.table-search { width: 100%; }.horizontal-bars div { grid-template-columns: 80px 1fr 22px; }.horizontal-bars span { font-size: 9px; }
   .demo-account-grid, .evaluation-status-grid, .readonly-event-grid { grid-template-columns: 1fr; }
   .pdf-report-card { grid-template-columns: 1fr; align-items: start; }

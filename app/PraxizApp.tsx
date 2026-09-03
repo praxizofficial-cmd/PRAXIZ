@@ -74,12 +74,14 @@ import {
   type EvaluationAssignment,
   type EvaluationCriterionRecord,
   type EvaluationRecord,
+  type EvaluationTemplateRecord,
   type NotificationRecord,
   type RegistrationRecord,
   type StudentProgressSummary,
   type UserAccountRecord,
 } from "./services/praxiz-services";
 import { programsForCollege, unitsForCampus } from "./services/institutional-stabilization";
+import { normalizeEvaluationCode, type EvaluationTemplateCriterionInput, type EvaluationTemplateEvaluator, type EvaluationTemplateStage } from "./services/evaluation-template-stabilization";
 import { mimeTypesForPreset, type DocumentTemplateMimePreset, type DocumentTemplatePhase } from "./services/workflow-template-stabilization";
 import { roleIds, type AttendanceSession, type Campus, type College, type Intern, type RoleId } from "./types";
 
@@ -1427,26 +1429,104 @@ function DocumentTemplateDetails({ template, close }: { template: DocumentTempla
   return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={`View ${template.name}`}><button className="modal-close" onClick={close} aria-label="Close document template details"><X size={20} /></button><span className="modal-icon"><FileCheck2 /></span><h2>{template.name}</h2><p>{template.description || "No description has been provided."}</p><dl className="info-list"><div><dt>Code</dt><dd>{template.code}</dd></div><div><dt>Workflow phase</dt><dd>{documentTemplatePhaseLabels[template.phase]}</dd></div><div><dt>Requirement</dt><dd>{template.isRequired ? "Required" : "Optional"}</dd></div><div><dt>Accepted files</dt><dd>{formatTemplateFileTypes(template.allowedMimeTypes)}</dd></div><div><dt>Maximum size</dt><dd>{Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB</dd></div><div><dt>Display order</dt><dd>{template.displayOrder}</dd></div><div><dt>Status</dt><dd>{template.isActive ? "Published" : "Inactive"}</dd></div></dl><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></section></div>;
 }
 
+const evaluationStageLabels: Record<EvaluationTemplateStage, string> = {
+  midterm: "Midterm",
+  final: "Final",
+  other: "Other",
+};
+
+const evaluatorTypeLabels: Record<EvaluationTemplateRecord["evaluatorType"], string> = {
+  hte: "HTE representative",
+  coordinator: "Internship coordinator",
+  faculty: "Faculty evaluator",
+};
+
+function newEvaluationCriterion(index: number): EvaluationTemplateCriterionInput {
+  return { code: "", label: "", description: "", weight: 0, minimumScore: 1, maximumScore: 5, displayOrder: (index + 1) * 10 };
+}
+
+function EvaluationTemplateDialog({ close, onCreated }: { close: () => void; onCreated: (result: { version: number; criteriaCount: number }) => Promise<void> }) {
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [stage, setStage] = useState<EvaluationTemplateStage>("final");
+  const [evaluatorType, setEvaluatorType] = useState<EvaluationTemplateEvaluator>("hte");
+  const [isActive, setIsActive] = useState(true);
+  const [criteria, setCriteria] = useState<EvaluationTemplateCriterionInput[]>([
+    { code: "work-quality", label: "Work quality", description: "Accuracy, completeness, and reliability of assigned work.", weight: 50, minimumScore: 1, maximumScore: 5, displayOrder: 10 },
+    { code: "professionalism", label: "Professionalism", description: "Workplace conduct, initiative, and collaboration.", weight: 50, minimumScore: 1, maximumScore: 5, displayOrder: 20 },
+  ]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const totalWeight = criteria.reduce((total, criterion) => total + Number(criterion.weight || 0), 0);
+
+  function updateCriterion(index: number, changes: Partial<EvaluationTemplateCriterionInput>) {
+    setCriteria((current) => current.map((criterion, criterionIndex) => criterionIndex === index ? { ...criterion, ...changes } : criterion));
+    setError("");
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const result = await workflowTemplateService.createEvaluationTemplate({ code, name, description, stage, evaluatorType, isActive, criteria });
+      await onCreated({ version: result.version, criteriaCount: result.criteriaCount });
+      close();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The evaluation form could not be created.");
+      setLoading(false);
+    }
+  }
+
+  return <div className="modal-backdrop" role="presentation"><section className="modal evaluation-template-modal" role="dialog" aria-modal="true" aria-label="Create evaluation form"><button className="modal-close" onClick={close} aria-label="Close evaluation form builder"><X size={20} /></button><span className="modal-icon"><Star /></span><h2>Create evaluation form</h2><p>Define the scorecard used by authorized evaluators. Publishing a new form makes it the active evaluation template.</p><form onSubmit={submit}>
+    <div className="two-fields"><label className="field"><span>Form name</span><input required value={name} onChange={(event) => { const value = event.target.value; setName(value); if (!code) setCode(normalizeEvaluationCode(value)); }} placeholder="Final HTE Evaluation" /></label><label className="field"><span>Template code</span><input required value={code} onChange={(event) => setCode(normalizeEvaluationCode(event.target.value))} placeholder="final-hte-evaluation" /></label></div>
+    <label className="field"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Explain when and how this form should be used…" /></label>
+    <div className="two-fields"><label className="field"><span>Evaluation stage</span><select value={stage} onChange={(event) => setStage(event.target.value as EvaluationTemplateStage)}><option value="midterm">Midterm</option><option value="final">Final</option><option value="other">Other</option></select></label><label className="field"><span>Evaluator</span><select value={evaluatorType} onChange={(event) => setEvaluatorType(event.target.value as EvaluationTemplateEvaluator)}><option value="hte">HTE representative</option><option value="coordinator">Internship coordinator</option></select></label></div>
+    <div className="criteria-builder"><div className="criteria-builder-heading"><div><strong>Scoring criteria</strong><small>Weights must total exactly 100%. Each criterion uses a 1–5 scale.</small></div><StatusBadge status={`${totalWeight}% total`} /></div>{criteria.map((criterion, index) => <fieldset className="criterion-builder-row" key={`${index}-${criterion.code}`}><legend>Criterion {index + 1}</legend><div className="criterion-builder-primary"><label className="field"><span>Name</span><input required value={criterion.label} onChange={(event) => updateCriterion(index, { label: event.target.value, code: normalizeEvaluationCode(event.target.value) })} placeholder="Communication" /></label><label className="field criterion-weight"><span>Weight (%)</span><input required type="number" min="1" max="100" step="1" value={criterion.weight || ""} onChange={(event) => updateCriterion(index, { weight: Number(event.target.value) })} /></label></div><label className="field"><span>Description</span><input value={criterion.description} onChange={(event) => updateCriterion(index, { description: event.target.value })} placeholder="What the evaluator should assess…" /></label><button type="button" className="table-link criterion-remove" disabled={criteria.length === 1} onClick={() => setCriteria((current) => current.filter((_, criterionIndex) => criterionIndex !== index))}>Remove criterion</button></fieldset>)}<button type="button" className="button button-secondary criterion-add" disabled={criteria.length >= 20} onClick={() => setCriteria((current) => [...current, newEvaluationCriterion(current.length)])}><Plus size={17} /> Add criterion</button></div>
+    <label className="master-current-option"><input aria-label="Publish this evaluation form immediately" type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span><strong>Publish immediately</strong><small>This becomes the single active evaluation form. Previous forms remain available for historical records.</small></span></label>
+    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
+    <div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading}>{loading ? "Creating…" : "Create evaluation form"}</ActionButton></div>
+  </form></section></div>;
+}
+
+function EvaluationTemplateDetails({ template, close }: { template: EvaluationTemplateRecord; close: () => void }) {
+  return <div className="modal-backdrop" role="presentation"><section className="modal evaluation-template-modal" role="dialog" aria-modal="true" aria-label={`View ${template.name}`}><button className="modal-close" onClick={close} aria-label="Close evaluation template details"><X size={20} /></button><span className="modal-icon"><Star /></span><h2>{template.name}</h2><p>{template.description || "No description has been provided."}</p><dl className="info-list"><div><dt>Code</dt><dd>{template.code}</dd></div><div><dt>Version</dt><dd>{template.version}</dd></div><div><dt>Stage</dt><dd>{evaluationStageLabels[template.stage]}</dd></div><div><dt>Evaluator</dt><dd>{evaluatorTypeLabels[template.evaluatorType]}</dd></div><div><dt>Status</dt><dd>{template.isActive ? "Published" : "Inactive"}</dd></div><div><dt>Total weight</dt><dd>{template.criteria.reduce((total, criterion) => total + criterion.weight, 0)}%</dd></div></dl><div className="template-criteria-summary">{template.criteria.map((criterion) => <article key={criterion.code}><div><strong>{criterion.label}</strong><small>{criterion.description || "No criterion guidance provided."}</small></div><b>{criterion.weight}%</b></article>)}</div><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></section></div>;
+}
+
 function WorkflowTemplatesPage() {
+  const [section, setSection] = useState<"documents" | "evaluations">("documents");
   const [templates, setTemplates] = useState<DocumentTemplateRecord[]>([]);
+  const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTemplateRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [adding, setAdding] = useState(false);
+  const [addingEvaluation, setAddingEvaluation] = useState(false);
   const [selected, setSelected] = useState<DocumentTemplateRecord | null>(null);
+  const [selectedEvaluation, setSelectedEvaluation] = useState<EvaluationTemplateRecord | null>(null);
 
   const loadTemplates = useCallback(async () => {
     setLoading(true);
     setError("");
-    try { setTemplates(await workflowTemplateService.listDocumentTemplates()); }
+    try {
+      const [documents, evaluations] = await Promise.all([
+        workflowTemplateService.listDocumentTemplates(),
+        workflowTemplateService.listEvaluationTemplates(),
+      ]);
+      setTemplates(documents);
+      setEvaluationTemplates(evaluations);
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Workflow templates could not be loaded."); }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
     let active = true;
-    void workflowTemplateService.listDocumentTemplates().then((result) => {
-      if (active) setTemplates(result);
+    void Promise.all([workflowTemplateService.listDocumentTemplates(), workflowTemplateService.listEvaluationTemplates()]).then(([documents, evaluations]) => {
+      if (!active) return;
+      setTemplates(documents);
+      setEvaluationTemplates(evaluations);
     }).catch((reason) => {
       if (active) setError(reason instanceof Error ? reason.message : "Workflow templates could not be loaded.");
     }).finally(() => {
@@ -1456,13 +1536,17 @@ function WorkflowTemplatesPage() {
   }, []);
   const nextDisplayOrder = templates.length ? Math.max(...templates.map((template) => template.displayOrder)) + 10 : 10;
 
-  return <><PageHeader title="Workflow templates" subtitle="Configure the document requirements students must complete throughout their internship." action={<ActionButton icon={Plus} onClick={() => { setNotice(""); setAdding(true); }}>Create requirement</ActionButton>} />
-    <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Controlled configuration:</strong> published requirements are permission-checked, audit logged, and added to current approved and active internships.</p></div>
+  return <><PageHeader title="Workflow templates" subtitle="Configure document requirements and evaluation forms used throughout every internship." action={section === "documents" ? <ActionButton icon={Plus} onClick={() => { setNotice(""); setAdding(true); }}>Create requirement</ActionButton> : <ActionButton icon={Plus} onClick={() => { setNotice(""); setAddingEvaluation(true); }}>Create evaluation form</ActionButton>} />
+    <div className="segmented workflow-template-tabs" role="tablist" aria-label="Workflow template type"><button type="button" role="tab" aria-selected={section === "documents"} className={section === "documents" ? "active" : ""} onClick={() => { setSection("documents"); setNotice(""); }}>Document requirements</button><button type="button" role="tab" aria-selected={section === "evaluations"} className={section === "evaluations" ? "active" : ""} onClick={() => { setSection("evaluations"); setNotice(""); }}>Evaluation forms</button></div>
+    <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Controlled configuration:</strong> {section === "documents" ? "published requirements are permission-checked, audit logged, and added to current approved and active internships." : "evaluation forms and criteria are permission-checked, validated to 100% total weight, versioned, and audit logged."}</p></div>
     {notice && <p className="form-success"><CheckCircle2 size={16} /> {notice}</p>}
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading document requirements…" : "Document requirement templates"}</h2><StatusBadge status={`${templates.filter((template) => template.isActive).length} published`} /></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Template</th><th>Workflow phase</th><th>Requirement</th><th>Accepted files</th><th>Limit</th><th>Status</th><th>Action</th></tr></thead><tbody>{templates.map((template) => <tr key={template.id}><td><b>{template.name}</b><small>{template.code}</small></td><td>{documentTemplatePhaseLabels[template.phase]}</td><td>{template.isRequired ? "Required" : "Optional"}</td><td>{formatTemplateFileTypes(template.allowedMimeTypes)}</td><td>{Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB</td><td><StatusBadge status={template.isActive ? "Published" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelected(template)}>View</button></td></tr>)}{!loading && templates.length === 0 && <tr><td colSpan={7}>No document requirement templates have been configured.</td></tr>}</tbody></table></div></section>
+    {section === "documents" && <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading document requirements…" : "Document requirement templates"}</h2><StatusBadge status={`${templates.filter((template) => template.isActive).length} published`} /></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Template</th><th>Workflow phase</th><th>Requirement</th><th>Accepted files</th><th>Limit</th><th>Status</th><th>Action</th></tr></thead><tbody>{templates.map((template) => <tr key={template.id}><td><b>{template.name}</b><small>{template.code}</small></td><td>{documentTemplatePhaseLabels[template.phase]}</td><td>{template.isRequired ? "Required" : "Optional"}</td><td>{formatTemplateFileTypes(template.allowedMimeTypes)}</td><td>{Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB</td><td><StatusBadge status={template.isActive ? "Published" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelected(template)}>View</button></td></tr>)}{!loading && templates.length === 0 && <tr><td colSpan={7}>No document requirement templates have been configured.</td></tr>}</tbody></table></div></section>}
+    {section === "evaluations" && <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading evaluation forms…" : "Evaluation form templates"}</h2><StatusBadge status={`${evaluationTemplates.filter((template) => template.isActive).length} published`} /></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Form</th><th>Stage</th><th>Evaluator</th><th>Criteria</th><th>Version</th><th>Status</th><th>Action</th></tr></thead><tbody>{evaluationTemplates.map((template) => <tr key={template.id}><td><b>{template.name}</b><small>{template.code}</small></td><td>{evaluationStageLabels[template.stage]}</td><td>{evaluatorTypeLabels[template.evaluatorType]}</td><td>{template.criteria.length}</td><td>v{template.version}</td><td><StatusBadge status={template.isActive ? "Published" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelectedEvaluation(template)}>View</button></td></tr>)}{!loading && evaluationTemplates.length === 0 && <tr><td colSpan={7}>No evaluation forms have been configured. Create one to enable evaluation scoring.</td></tr>}</tbody></table></div></section>}
     {adding && <DocumentTemplateDialog nextDisplayOrder={nextDisplayOrder} close={() => setAdding(false)} onCreated={async (count) => { await loadTemplates(); setNotice(count > 0 ? `Requirement created and added to ${count} current internship${count === 1 ? "" : "s"}.` : "Requirement created. No current internship needed provisioning."); }} />}
+    {addingEvaluation && <EvaluationTemplateDialog close={() => setAddingEvaluation(false)} onCreated={async ({ version, criteriaCount }) => { await loadTemplates(); setSection("evaluations"); setNotice(`Evaluation form version ${version} created with ${criteriaCount} scoring ${criteriaCount === 1 ? "criterion" : "criteria"}.`); }} />}
     {selected && <DocumentTemplateDetails template={selected} close={() => setSelected(null)} />}
+    {selectedEvaluation && <EvaluationTemplateDetails template={selectedEvaluation} close={() => setSelectedEvaluation(null)} />}
   </>;
 }
 
