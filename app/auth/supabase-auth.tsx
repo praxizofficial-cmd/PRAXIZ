@@ -53,6 +53,59 @@ function authRedirectUrl(path: string) {
   return `${siteUrl}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+function clearRecoveryCredentials(url: URL) {
+  url.searchParams.delete("code");
+  url.searchParams.delete("token_hash");
+  url.searchParams.delete("type");
+  url.hash = "";
+  window.history.replaceState({}, document.title, `${url.pathname}${url.search}`);
+}
+
+async function restorePasswordRecoverySession(supabase: ReturnType<typeof createClient>) {
+  const current = await supabase.auth.getSession();
+  if (current.error) throw current.error;
+  if (current.data.session) return current.data.session;
+
+  const url = new URL(window.location.href);
+  const queryCode = url.searchParams.get("code");
+  if (queryCode) {
+    const result = await supabase.auth.exchangeCodeForSession(queryCode);
+    if (result.error) throw result.error;
+    if (result.data.session) {
+      clearRecoveryCredentials(url);
+      return result.data.session;
+    }
+  }
+
+  const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
+  const accessToken = hash.get("access_token");
+  const refreshToken = hash.get("refresh_token");
+  if (accessToken && refreshToken) {
+    const result = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    if (result.error) throw result.error;
+    if (result.data.session) {
+      clearRecoveryCredentials(url);
+      return result.data.session;
+    }
+  }
+
+  const tokenHash = url.searchParams.get("token_hash") ?? hash.get("token_hash");
+  const recoveryType = url.searchParams.get("type") ?? hash.get("type");
+  if (tokenHash && recoveryType === "recovery") {
+    const result = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
+    if (result.error) throw result.error;
+    if (result.data.session) {
+      clearRecoveryCredentials(url);
+      return result.data.session;
+    }
+  }
+
+  return null;
+}
+
 function splitName(fullName: string) {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return { firstName: "", middleName: "", lastName: "" };
@@ -336,9 +389,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     async updatePassword(password) {
       const supabase = createClient();
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw new Error(sessionError.message);
-      if (!sessionData.session) {
+      let session = null;
+      try {
+        session = await restorePasswordRecoverySession(supabase);
+      } catch {
+        throw new Error("This password-reset link is invalid or has expired. Request a new link and try again.");
+      }
+      if (!session) {
         throw new Error("This password-reset link is invalid or has expired. Request a new link and try again.");
       }
       const { error } = await supabase.auth.updateUser({ password });
