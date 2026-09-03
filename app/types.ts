@@ -124,6 +124,7 @@ export type AttendanceSession = {
 };
 
 export type Intern = {
+  studentUserId?: string;
   initials: string;
   name: string;
   campus: string;
@@ -134,5 +135,5 @@ export type Intern = {
   requiredHours?: number;
   attendance: number;
   requirements: string;
-  status: "Active" | "Completed" | "Needs Attention";
+  status: "Active" | "Completed" | "Needs Attention" | "Awaiting Assignment";
 };

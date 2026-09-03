@@ -14,6 +14,7 @@ import { resolveActiveAssignmentId } from "../auth/student-stabilization";
 import { buildSaveDailyLogRpcArgs, type DailyLogAssignment } from "./daily-log-stabilization";
 import { programsForCollege } from "./institutional-stabilization";
 import { normalizeDocumentTemplateCode, validateDocumentTemplate, type DocumentTemplatePhase } from "./workflow-template-stabilization";
+import { mergeCoordinatorProgramStudents, type CoordinatorProgramStudent } from "./coordinator-routing";
 import {
   normalizeEvaluationCode,
   validateEvaluationTemplate,
@@ -638,6 +639,7 @@ export const internshipService = {
       const name = names.get(row.student_user_id) ?? "Assigned intern";
       const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "SI";
       return {
+        studentUserId: row.student_user_id,
         initials,
         name,
         campus: campus?.short_name ?? campus?.name ?? "Assigned campus",
@@ -651,6 +653,29 @@ export const internshipService = {
         status,
       } as Intern & { requiredHours: number };
     });
+  },
+  async listCoordinatorInterns(): Promise<Intern[]> {
+    const supabase = createClient();
+    const [assignedInterns, { data, error }] = await Promise.all([
+      internshipService.listLiveInterns(),
+      supabase.rpc("list_coordinator_program_students"),
+    ]);
+    if (error) throw new Error(error.message);
+
+    type ProgramStudentRow = {
+      student_user_id: string;
+      full_name: string;
+      campus_name: string;
+      program_code: string;
+    };
+    const programStudents = ((data ?? []) as ProgramStudentRow[]).map((row): CoordinatorProgramStudent => ({
+      studentUserId: row.student_user_id,
+      name: row.full_name,
+      campus: row.campus_name,
+      program: row.program_code,
+    }));
+
+    return mergeCoordinatorProgramStudents(assignedInterns, programStudents);
   },
   async getStudentProgress(): Promise<StudentProgressSummary | null> {
     const supabase = createClient();

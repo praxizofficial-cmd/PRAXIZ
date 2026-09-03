@@ -596,7 +596,7 @@ function CoordinatorDashboard() {
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void internshipService.listLiveInterns().then((records) => {
+    void internshipService.listCoordinatorInterns().then((records) => {
       if (active) setRows(records);
     }).catch((reason) => {
       if (active) setError(reason instanceof Error ? reason.message : "The coordinator dashboard could not be loaded.");
@@ -604,16 +604,17 @@ function CoordinatorDashboard() {
     return () => { active = false; };
   }, []);
   const totalInterns = rows.length;
+  const awaitingAssignment = rows.filter((intern) => intern.status === "Awaiting Assignment").length;
   const activeInterns = rows.filter((intern) => intern.status === "Active" || intern.status === "Needs Attention").length;
   const completedInterns = rows.filter((intern) => intern.status === "Completed").length;
-  const partnerHtes = new Set(rows.map((intern) => intern.hte)).size;
-  const requirementCounts = rows.map((intern) => intern.requirements.split("/").map(Number)).map(([approved = 0, required = 0]) => ({ approved, required }));
-  const missingRequirements = requirementCounts.reduce((sum, item) => sum + Math.max(0, item.required - item.approved), 0);
+  const assignedRows = rows.filter((intern) => intern.status !== "Awaiting Assignment");
+  const partnerHtes = new Set(assignedRows.map((intern) => intern.hte).filter((hte) => hte !== "Not assigned")).size;
+  const requirementCounts = assignedRows.map((intern) => intern.requirements.split("/").map(Number)).map(([approved = 0, required = 0]) => ({ approved, required }));
   const completeDocuments = requirementCounts.filter((item) => item.required > 0 && item.approved >= item.required).length;
   const partialDocuments = requirementCounts.filter((item) => item.approved > 0 && item.approved < item.required).length;
-  const missingDocuments = Math.max(0, totalInterns - completeDocuments - partialDocuments);
-  const averageAttendance = totalInterns ? Math.round(rows.reduce((sum, row) => sum + row.attendance, 0) / totalInterns) : 0;
-  const hteCounts = [...rows.reduce((counts, intern) => counts.set(intern.hte, (counts.get(intern.hte) ?? 0) + 1), new Map<string, number>()).entries()].sort((left, right) => right[1] - left[1]);
+  const missingDocuments = Math.max(0, assignedRows.length - completeDocuments - partialDocuments);
+  const averageAttendance = assignedRows.length ? Math.round(assignedRows.reduce((sum, row) => sum + row.attendance, 0) / assignedRows.length) : 0;
+  const hteCounts = [...assignedRows.reduce((counts, intern) => counts.set(intern.hte, (counts.get(intern.hte) ?? 0) + 1), new Map<string, number>()).entries()].sort((left, right) => right[1] - left[1]);
   const maxHteCount = Math.max(1, ...hteCounts.map(([, count]) => count));
   const attentionRows = rows.filter((intern) => {
     const [approved = 0, required = 0] = intern.requirements.split("/").map(Number);
@@ -621,8 +622,8 @@ function CoordinatorDashboard() {
   });
   return <><PageHeader title={`Good day, ${user?.fullName ?? "Internship Coordinator"}`} subtitle={`Live internship overview for AY ${currentAcademicTerm.academicYear}, ${currentAcademicTerm.term}.`} />
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <div className="stats-grid five"><StatCard label="Total interns" value={String(totalInterns)} detail="within your authorized scope" icon={UsersRound} /><StatCard label="Active interns" value={String(activeInterns)} detail={totalInterns ? `${Math.round(activeInterns / totalInterns * 100)}% of total` : "No assignments yet"} icon={CheckCircle2} /><StatCard label="Completed" value={String(completedInterns)} detail={totalInterns ? `${Math.round(completedInterns / totalInterns * 100)}% completed` : "No assignments yet"} icon={GraduationCap} tone="green" /><StatCard label="Partner HTEs" value={String(partnerHtes)} detail="with visible assignments" icon={BriefcaseBusiness} tone="orange" /><StatCard label="Missing requirements" value={String(missingRequirements)} detail="needs follow-up" icon={AlertTriangle} tone="red" /></div>
-    <div className="chart-grid"><section className="card"><h2>Portfolio attendance verification</h2><div className="progress-card"><div className="metric-row"><span>Average verified-session rate</span><strong>{averageAttendance}%</strong></div><ProgressBar value={averageAttendance} /><p className="muted-note">Calculated from the attendance sessions visible within your coordinator scope.</p></div></section><section className="card donut-card"><h2>Document compliance</h2><div className="donut"><strong>{totalInterns}<small>interns</small></strong></div><ul className="legend"><li><i className="green" /> Complete <b>{completeDocuments}</b></li><li><i className="orange" /> Partial <b>{partialDocuments}</b></li><li><i className="red" /> Missing <b>{missingDocuments}</b></li></ul></section></div>
+    <div className="stats-grid five"><StatCard label="Program students" value={String(totalInterns)} detail="matched by academic program" icon={UsersRound} /><StatCard label="Awaiting assignment" value={String(awaitingAssignment)} detail="registered without a placement" icon={Clock3} tone="orange" /><StatCard label="Active interns" value={String(activeInterns)} detail={totalInterns ? `${Math.round(activeInterns / totalInterns * 100)}% of program students` : "No students yet"} icon={CheckCircle2} /><StatCard label="Completed" value={String(completedInterns)} detail={totalInterns ? `${Math.round(completedInterns / totalInterns * 100)}% completed` : "No students yet"} icon={GraduationCap} tone="green" /><StatCard label="Partner HTEs" value={String(partnerHtes)} detail="with visible assignments" icon={BriefcaseBusiness} tone="violet" /></div>
+    <div className="chart-grid"><section className="card"><h2>Portfolio attendance verification</h2><div className="progress-card"><div className="metric-row"><span>Average verified-session rate</span><strong>{averageAttendance}%</strong></div><ProgressBar value={averageAttendance} /><p className="muted-note">Calculated from the attendance sessions visible within your coordinator scope.</p></div></section><section className="card donut-card"><h2>Document compliance</h2><div className="donut"><strong>{assignedRows.length}<small>assignments</small></strong></div><ul className="legend"><li><i className="green" /> Complete <b>{completeDocuments}</b></li><li><i className="orange" /> Partial <b>{partialDocuments}</b></li><li><i className="red" /> Missing <b>{missingDocuments}</b></li></ul></section></div>
     <section className="card hte-bars-card"><h2>Interns by host training establishment</h2><div className="horizontal-bars">{hteCounts.map(([label, value]) => <div key={label}><span>{label}</span><b style={{ width: `${value / maxHteCount * 100}%` }} /><em>{value}</em></div>)}{hteCounts.length === 0 && <p className="muted-note">No HTE assignments are visible yet.</p>}</div></section>
     <section className="card table-card"><div className="card-title"><h2>Interns needing attention</h2><Link className="text-link" href="/coordinator/interns">Open monitoring</Link></div><InternTable rows={attentionRows.slice(0, 6)} />{attentionRows.length === 0 && <p className="muted-note">No interns currently meet the follow-up criteria.</p>}</section></>;
 }
@@ -643,7 +644,7 @@ function AdminDashboard() {
 }
 
 function InternTable({ rows, compact = false }: { rows: Intern[]; compact?: boolean }) {
-  return <div className="table-scroll"><table className={`data-table ${compact ? "compact-table" : ""}`}><thead><tr><th>Student</th>{!compact && <th>Campus</th>}{!compact && <th>Program</th>}<th>HTE</th>{!compact && <th>HTE representative</th>}<th>Hours</th><th>Attendance</th>{!compact && <th>Requirements</th>}<th>Status</th></tr></thead><tbody>{rows.map((intern) => { const requiredHours = intern.requiredHours ?? 400; return <tr key={intern.name}><td><span className="person-cell"><i>{intern.initials}</i><b>{intern.name}</b></span></td>{!compact && <td>{intern.campus}</td>}{!compact && <td>{intern.program}</td>}<td>{intern.hte}</td>{!compact && <td>{intern.hteRepresentative}</td>}<td><span className="hours-cell">{intern.hours}/{requiredHours}<ProgressBar value={requiredHours ? Math.min(100, intern.hours / requiredHours * 100) : 0} /></span></td><td>{intern.attendance}%</td>{!compact && <td>{intern.requirements}</td>}<td><StatusBadge status={intern.status} /></td></tr>; })}</tbody></table></div>;
+  return <div className="table-scroll"><table className={`data-table ${compact ? "compact-table" : ""}`}><thead><tr><th>Student</th>{!compact && <th>Campus</th>}{!compact && <th>Program</th>}<th>HTE</th>{!compact && <th>HTE representative</th>}<th>Hours</th><th>Attendance</th>{!compact && <th>Requirements</th>}<th>Status</th></tr></thead><tbody>{rows.map((intern) => { const requiredHours = intern.requiredHours ?? 400; const awaitingAssignment = intern.status === "Awaiting Assignment"; return <tr key={intern.studentUserId ?? intern.name}><td><span className="person-cell"><i>{intern.initials}</i><b>{intern.name}</b></span></td>{!compact && <td>{intern.campus}</td>}{!compact && <td>{intern.program}</td>}<td>{intern.hte}</td>{!compact && <td>{intern.hteRepresentative}</td>}<td>{awaitingAssignment ? "—" : <span className="hours-cell">{intern.hours}/{requiredHours}<ProgressBar value={requiredHours ? Math.min(100, intern.hours / requiredHours * 100) : 0} /></span>}</td><td>{awaitingAssignment ? "—" : `${intern.attendance}%`}</td>{!compact && <td>{awaitingAssignment ? "—" : intern.requirements}</td>}<td><StatusBadge status={intern.status} /></td></tr>; })}</tbody></table></div>;
 }
 
 function AttendanceReviewDialog({ record, close, onSaved }: { record: AttendanceHistoryRow; close: () => void; onSaved: () => void }) {
@@ -1093,7 +1094,7 @@ function ProfilePage({ role, settings = false, openModal }: { role: RoleId; sett
 }
 
 function FilterBar({ search, setSearch, campus, setCampus, campusOptions, program, setProgram, programOptions, status, setStatus }: { search: string; setSearch: (value: string) => void; campus: string; setCampus: (value: string) => void; campusOptions: string[]; program: string; setProgram: (value: string) => void; programOptions: string[]; status: string; setStatus: (value: string) => void }) {
-  return <div className="filter-bar"><label><Search size={18} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search intern or HTE…" /></label><select value={campus} onChange={(e) => setCampus(e.target.value)} aria-label="Filter by campus"><option>All Campuses</option>{campusOptions.map((item) => <option key={item}>{item}</option>)}</select><select value={program} onChange={(e) => setProgram(e.target.value)} aria-label="Filter by program"><option>All Programs</option>{programOptions.map((item) => <option key={item}>{item}</option>)}</select><select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status"><option>All Statuses</option><option>Active</option><option>Completed</option><option>Needs Attention</option></select></div>;
+  return <div className="filter-bar"><label><Search size={18} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search intern or HTE…" /></label><select value={campus} onChange={(e) => setCampus(e.target.value)} aria-label="Filter by campus"><option>All Campuses</option>{campusOptions.map((item) => <option key={item}>{item}</option>)}</select><select value={program} onChange={(e) => setProgram(e.target.value)} aria-label="Filter by program"><option>All Programs</option>{programOptions.map((item) => <option key={item}>{item}</option>)}</select><select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status"><option>All Statuses</option><option>Awaiting Assignment</option><option>Active</option><option>Completed</option><option>Needs Attention</option></select></div>;
 }
 
 function InternManagementPage({ role }: { role: RoleId }) {
@@ -1104,7 +1105,8 @@ function InternManagementPage({ role }: { role: RoleId }) {
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void internshipService.listLiveInterns().then((records) => {
+    const request = role === "coordinator" ? internshipService.listCoordinatorInterns() : internshipService.listLiveInterns();
+    void request.then((records) => {
       if (active) setRows(records);
     }).catch((reason) => {
       if (active) setError(reason instanceof Error ? reason.message : "Intern assignments could not be loaded.");
@@ -1112,11 +1114,11 @@ function InternManagementPage({ role }: { role: RoleId }) {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, []);
+  }, [role]);
   const campusOptions = useMemo(() => [...new Set([user?.campus, ...rows.map((intern) => intern.campus)].filter((value): value is string => Boolean(value)))], [rows, user?.campus]);
   const programOptions = useMemo(() => [...new Set([user?.scopeProgramCode, ...rows.map((intern) => intern.program)].filter((value): value is string => Boolean(value)))], [rows, user?.scopeProgramCode]);
   const visible = useMemo(() => rows.filter((intern) => (!search || `${intern.name} ${intern.hte}`.toLowerCase().includes(search.toLowerCase())) && (campus === "All Campuses" || intern.campus === campus) && (program === "All Programs" || intern.program === program) && (status === "All Statuses" || intern.status === status)), [rows, search, campus, program, status]);
-  return <><PageHeader title={role === "coordinator" ? "Intern management" : "Assigned interns"} subtitle={role === "coordinator" ? "Monitor interns by campus, assignment, progress, and requirement status." : "View interns assigned to your authorized supervision scope."} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading interns…" : `${visible.length} intern${visible.length === 1 ? "" : "s"}`}</h2><FilterBar search={search} setSearch={setSearch} campus={campus} setCampus={setCampus} campusOptions={campusOptions} program={program} setProgram={setProgram} programOptions={programOptions} status={status} setStatus={setStatus} /></div><InternTable rows={visible} />{!loading && visible.length === 0 && <p className="muted-note">No internship assignments match the selected filters.</p>}</section></>;
+  return <><PageHeader title={role === "coordinator" ? "Intern management" : "Assigned interns"} subtitle={role === "coordinator" ? "Students are routed here automatically by academic program; placement details appear after assignment." : "View interns assigned to your authorized supervision scope."} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading interns…" : `${visible.length} intern${visible.length === 1 ? "" : "s"}`}</h2><FilterBar search={search} setSearch={setSearch} campus={campus} setCampus={setCampus} campusOptions={campusOptions} program={program} setProgram={setProgram} programOptions={programOptions} status={status} setStatus={setStatus} /></div><InternTable rows={visible} />{!loading && visible.length === 0 && <p className="muted-note">No students match the selected filters within your academic-program scope.</p>}</section></>;
 }
 
 function AnalyticsPage() {
