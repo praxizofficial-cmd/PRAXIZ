@@ -117,20 +117,6 @@ function splitName(fullName: string) {
   };
 }
 
-function roleCodeFromJoin(value: unknown): string | null {
-  if (!value || typeof value !== "object") return null;
-  const role = (value as { roles?: unknown }).roles;
-  if (Array.isArray(role)) {
-    const first = role[0] as { code?: unknown } | undefined;
-    return typeof first?.code === "string" ? first.code : null;
-  }
-  if (role && typeof role === "object") {
-    const code = (role as { code?: unknown }).code;
-    return typeof code === "string" ? code : null;
-  }
-  return null;
-}
-
 function logSupabaseError(operation: string, error: { code?: string; message?: string; details?: string; hint?: string }) {
   console.error(`Supabase ${operation} failed`, {
     code: error.code,
@@ -159,30 +145,49 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
 
   const { data: assignments, error: roleError } = await supabase
     .from("role_assignments")
-    .select("role_id,scope_org_unit_id,scope_academic_program_id,starts_at,ends_at,deleted_at,roles(code)")
+    .select("role_id,scope_org_unit_id,scope_academic_program_id,starts_at,ends_at,deleted_at")
     .eq("user_id", authUser.id)
     .is("deleted_at", null)
     .or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`)
     .or(`ends_at.is.null,ends_at.gt.${new Date().toISOString()}`);
 
-  if (roleError) throw new Error("Your assigned PRAXIZ role could not be verified.");
+  if (roleError) {
+    logSupabaseError("role assignment query", roleError);
+    throw new Error("Your assigned PRAXIZ role could not be verified.");
+  }
 
-  const roleAssignments = ((assignments ?? []) as unknown[]).flatMap((assignment) => {
-    const code = roleCodeFromJoin(assignment);
-    const row = assignment as {
-      starts_at?: string | null;
-      ends_at?: string | null;
-      deleted_at?: string | null;
-      scope_org_unit_id?: string | null;
-      scope_academic_program_id?: string | null;
-    };
+  type RoleAssignmentRow = {
+    role_id: string;
+    starts_at: string | null;
+    ends_at: string | null;
+    deleted_at: string | null;
+    scope_org_unit_id: string | null;
+    scope_academic_program_id: string | null;
+  };
+  const assignmentRows = (assignments ?? []) as RoleAssignmentRow[];
+  const roleIds = [...new Set(assignmentRows.map((assignment) => assignment.role_id))];
+  const { data: roleRows, error: rolesError } = roleIds.length
+    ? await supabase.from("roles").select("id,code").in("id", roleIds)
+    : { data: [], error: null };
+
+  if (rolesError) {
+    logSupabaseError("role catalog query", rolesError);
+    throw new Error("Your assigned PRAXIZ role could not be verified.");
+  }
+
+  const roleCodeById = new Map(
+    ((roleRows ?? []) as { id: string; code: string }[]).map((roleRow) => [roleRow.id, roleRow.code]),
+  );
+
+  const roleAssignments = assignmentRows.flatMap((assignment) => {
+    const code = roleCodeById.get(assignment.role_id);
     return code ? [{
       code,
-      startsAt: row.starts_at ?? null,
-      endsAt: row.ends_at ?? null,
-      deletedAt: row.deleted_at ?? null,
-      scopeOrgUnitId: row.scope_org_unit_id ?? null,
-      scopeAcademicProgramId: row.scope_academic_program_id ?? null,
+      startsAt: assignment.starts_at,
+      endsAt: assignment.ends_at,
+      deletedAt: assignment.deleted_at,
+      scopeOrgUnitId: assignment.scope_org_unit_id,
+      scopeAcademicProgramId: assignment.scope_academic_program_id,
     }] : [];
   });
   const roleCodes = roleAssignments.map((assignment) => assignment.code);
