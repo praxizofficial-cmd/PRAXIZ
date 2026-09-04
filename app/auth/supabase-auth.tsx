@@ -427,7 +427,7 @@ export function ProtectedRoute({ role, children }: { role: RoleId; children: Rea
   }, [ready, role, user]);
 
   if (!ready || !user || !user.roles.includes(role)) {
-    return <main className="route-loading" aria-live="polite"><strong>PRAXIZ</strong><span>Preparing your secure workspace…</span></main>;
+    return <main className="route-loading" aria-live="polite" aria-busy="true"><span className="route-loading-mark" aria-hidden="true"><span /></span><strong>PRAXIZ</strong><span>Preparing your secure workspace…</span></main>;
   }
   return children;
 }

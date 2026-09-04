@@ -1,6 +1,6 @@
 "use client";
 
-import type { AnchorHTMLAttributes, FormEvent, ReactNode } from "react";
+import type { AnchorHTMLAttributes, ChangeEvent, FormEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
@@ -44,13 +44,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import {
-  academicTerms,
-  campuses,
-  colleges,
-  programs,
-  roles,
-} from "./data";
+import { roles } from "./data";
 import { AuthProvider, ProtectedRoute, useAuth } from "./auth/supabase-auth";
 import { formatCoordinatorSidebarSubtitle, formatStudentSidebarSubtitle } from "./auth/student-stabilization";
 import { hasPermission } from "./permissions";
@@ -60,6 +54,7 @@ import {
   dailyLogService,
   documentService,
   evaluationService,
+  coordinatorService,
   feedbackService,
   internshipService,
   institutionalService,
@@ -67,6 +62,8 @@ import {
   registrationService,
   workflowTemplateService,
   type AcademicYearRecord,
+  type AssignmentOptions,
+  type AuditLogRecord,
   type AttendanceHistoryRow,
   type DailyLogRecord,
   type DocumentRecord,
@@ -75,8 +72,11 @@ import {
   type EvaluationCriterionRecord,
   type EvaluationRecord,
   type EvaluationTemplateRecord,
+  type FeedbackRecord,
   type NotificationRecord,
+  type PartnerHteRecord,
   type RegistrationRecord,
+  type RolePolicyRecord,
   type StudentProgressSummary,
   type UserAccountRecord,
 } from "./services/praxiz-services";
@@ -90,9 +90,7 @@ function Link({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorEleme
 }
 
 const attendanceRecords = attendanceService.listHistory();
-const feedbackThreads = feedbackService.list();
-const interns = internshipService.listInterns();
-const currentAcademicTerm = academicTerms.find((term) => term.isCurrent) ?? academicTerms[0];
+const currentAcademicTerm = { academicYear: "Current term", term: "Authorized assignments" } as const;
 
 const iconMap: Record<string, LucideIcon> = {
   dashboard: LayoutDashboard,
@@ -124,6 +122,22 @@ function formatTimestamp(value: string): string {
     dateStyle: "medium",
     timeStyle: "medium",
   }).format(new Date(value));
+}
+
+function downloadCsv(filename: string, headers: string[], rows: Array<Array<string | number>>): void {
+  const escape = (input: string | number) => {
+    const value = String(input ?? "");
+    return `"${(/^[=+\-@]/.test(value) ? "'" : "")}${value.replaceAll('"', '""')}"`;
+  };
+  const content = [headers, ...rows].map((row) => row.map(escape).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function Logo({ compact = false }: { compact?: boolean }) {
@@ -185,6 +199,9 @@ function PublicHeader() {
     <header className="public-header">
       <Link href="/" aria-label="PRAXIZ home"><Logo /></Link>
       <nav aria-label="Public navigation">
+        <Link href="/#about" className="public-link">About</Link>
+        <Link href="/#sdgs" className="public-link">Sustainable Goals</Link>
+        <Link href="/#contact" className="public-link">Contact</Link>
         <Link href="/signin" className="public-link">Sign in</Link>
         <Link href="/register" className="button button-light">Create account</Link>
       </nav>
@@ -199,23 +216,21 @@ function LandingPage() {
       <main>
         <section className="hero">
           <div className="hero-orb hero-orb-one" /><div className="hero-orb hero-orb-two" />
-          <span className="semester"><span /> AY {currentAcademicTerm.academicYear} · {currentAcademicTerm.term}</span>
+          <span className="semester"><span /> Partido State University · Internship Monitoring</span>
           <p className="eyebrow">What is PRAXIZ?</p>
           <h1>The complete internship journey, <em>clearly monitored.</em></h1>
-          <p className="hero-copy">PRAXIZ is an AI-powered internship monitoring and management platform for Partido State University. It brings attendance, daily activities, document submissions, evaluations, progress monitoring, and decision-support insights into one secure institutional workspace.</p>
+          <p className="hero-copy">PRAXIZ is Partido State University’s secure internship monitoring and management platform—connecting attendance, daily activities, document submissions, evaluations, progress, and institutional reporting in one trusted workspace.</p>
           <div className="hero-actions">
             <Link className="button button-light button-large" href="/signin">Sign in to PRAXIZ <ChevronRight size={19} /></Link>
             <Link className="button button-outline-light button-large" href="/register">Create an account</Link>
           </div>
-          <div className="feature-grid" aria-label="Platform highlights">
-            <article><span><CalendarCheck2 size={21} /></span><h2>Event-driven attendance</h2><p>Record Time In and Time Out events and track verified hours.</p></article>
-            <article><span><FileText size={21} /></span><h2>Logs and documents</h2><p>Submit work records and requirements with traceable reviews.</p></article>
-            <article><span><Star size={21} /></span><h2>Evaluations and progress</h2><p>Follow evaluation completion, requirements, and milestones.</p></article>
-            <article><span><ChartNoAxesCombined size={21} /></span><h2>Institutional insights</h2><p>Support coordinators with campus-aware monitoring and reports.</p></article>
-          </div>
         </section>
+        <section className="landing-section landing-about" id="about"><span className="eyebrow dark">About PRAXIZ</span><div className="landing-section-heading"><h2>Internship learning, documented with integrity.</h2><p>The platform supports the complete monitored internship process while keeping each stakeholder inside an authorized workspace.</p></div><div className="feature-grid" aria-label="Platform capabilities"><article><span><CalendarCheck2 size={21} /></span><h3>Attendance</h3><p>Server-recorded Time In and Time Out events with verified hours.</p></article><article><span><FileText size={21} /></span><h3>Logs & requirements</h3><p>Traceable daily activities, documents, and reviewer decisions.</p></article><article><span><Star size={21} /></span><h3>Evaluation</h3><p>Configured criteria, authorized scoring, and finalized results.</p></article><article><span><ChartNoAxesCombined size={21} /></span><h3>Progress & reports</h3><p>Program-scoped monitoring grounded in verified records.</p></article></div></section>
+        <section className="landing-section landing-sdgs" id="sdgs"><span className="eyebrow">Sustainable Development Goals</span><div className="landing-section-heading"><h2>Education strengthened through responsible digital partnership.</h2><p>PRAXIZ supports three closely related United Nations Sustainable Development Goals through its academic and industry internship workflow.</p></div><div className="sdg-grid"><article className="sdg-four"><b>04</b><div><h3>Quality Education</h3><p>Structured internship learning, documented activities, feedback, and evaluation support experiential education.</p></div></article><article className="sdg-nine"><b>09</b><div><h3>Industry, Innovation and Infrastructure</h3><p>A secure digital workflow helps PSU and industry partners manage internship records consistently.</p></div></article><article className="sdg-seventeen"><b>17</b><div><h3>Partnerships for the Goals</h3><p>Students, coordinators, administrators, and Host Training Establishments collaborate through shared, role-appropriate processes.</p></div></article></div></section>
+        <section className="landing-section stakeholders"><span className="eyebrow dark">How it works</span><div className="landing-section-heading"><h2>One process, four trusted stakeholders.</h2></div><div className="stakeholder-grid"><article><UserRound /><strong>Student Intern</strong><p>Records attendance, logs, documents, and progress.</p></article><article><UsersRound /><strong>Internship Coordinator</strong><p>Coordinates placements and program monitoring.</p></article><article><BriefcaseBusiness /><strong>HTE Representative</strong><p>Reviews assigned interns and evaluates performance.</p></article><article><ShieldCheck /><strong>System Administrator</strong><p>Verifies access and maintains controlled configuration.</p></article></div></section>
+        <section className="landing-contact" id="contact"><div><span className="eyebrow">Support</span><h2>Need help accessing PRAXIZ?</h2><p>Use the account recovery page for sign-in issues or contact your authorized internship coordinator through your official university channel.</p></div><div className="hero-actions"><Link className="button button-light" href="/forgot-password">Recover access</Link><Link className="button button-outline-light" href="/register">Create an account</Link></div></section>
       </main>
-      <footer className="landing-footer"><span>© 2026 Partido State University</span><span>PRAXIZ · Secure internship monitoring platform</span></footer>
+      <footer className="landing-footer"><span>© 2026 Partido State University · PRAXIZ</span><nav><a href="#about">About</a><a href="#sdgs">SDGs</a><a href="#contact">Contact</a><Link href="/signin">Sign in</Link></nav></footer>
     </div>
   );
 }
@@ -233,7 +248,8 @@ function AuthAside({ title, copy, children }: { title: string; copy: string; chi
 
 function SignInPage() {
   const { signIn } = useAuth();
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => typeof window === "undefined" ? "" : localStorage.getItem("praxiz-remembered-email") ?? "");
+  const [rememberEmail, setRememberEmail] = useState(() => typeof window !== "undefined" && Boolean(localStorage.getItem("praxiz-remembered-email")));
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -248,6 +264,8 @@ function SignInPage() {
     setLoading(true);
     setError("");
     try {
+      if (rememberEmail) localStorage.setItem("praxiz-remembered-email", email.trim().toLowerCase());
+      else localStorage.removeItem("praxiz-remembered-email");
       const account = await signIn(email, password);
       window.location.href = `/${account.role}/dashboard`;
     } catch (reason) {
@@ -266,7 +284,7 @@ function SignInPage() {
           <form onSubmit={submit} noValidate>
             <label className="field"><span>Email address</span><input name="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Enter your registered email" /></label>
             <label className="field"><span>Password <Link href="/forgot-password">Forgot password?</Link></span><span className="password-input"><input name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" /><button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={19} /> : <Eye size={19} />}</button></span></label>
-            <label className="remember-row"><input type="checkbox" /> <span>Remember my email on this device</span></label>
+            <label className="remember-row"><input type="checkbox" checked={rememberEmail} onChange={(event) => setRememberEmail(event.target.checked)} /> <span>Remember my email on this device</span></label>
             {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
             <ActionButton type="submit" disabled={loading}>{loading ? "Recognizing account…" : "Sign in to PRAXIZ"}</ActionButton>
           </form>
@@ -620,7 +638,7 @@ function CoordinatorDashboard() {
     const [approved = 0, required = 0] = intern.requirements.split("/").map(Number);
     return intern.status === "Needs Attention" || approved < required;
   });
-  return <><PageHeader title={`Good day, ${user?.fullName ?? "Internship Coordinator"}`} subtitle={`Live internship overview for AY ${currentAcademicTerm.academicYear}, ${currentAcademicTerm.term}.`} />
+  return <><PageHeader title={`Good day, ${user?.fullName ?? "Internship Coordinator"}`} subtitle="Live internship overview for your authorized academic-program scope." />
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
     <div className="stats-grid five"><StatCard label="Program students" value={String(totalInterns)} detail="matched by academic program" icon={UsersRound} /><StatCard label="Awaiting assignment" value={String(awaitingAssignment)} detail="registered without a placement" icon={Clock3} tone="orange" /><StatCard label="Active interns" value={String(activeInterns)} detail={totalInterns ? `${Math.round(activeInterns / totalInterns * 100)}% of program students` : "No students yet"} icon={CheckCircle2} /><StatCard label="Completed" value={String(completedInterns)} detail={totalInterns ? `${Math.round(completedInterns / totalInterns * 100)}% completed` : "No students yet"} icon={GraduationCap} tone="green" /><StatCard label="Partner HTEs" value={String(partnerHtes)} detail="with visible assignments" icon={BriefcaseBusiness} tone="violet" /></div>
     <div className="chart-grid"><section className="card"><h2>Portfolio attendance verification</h2><div className="progress-card"><div className="metric-row"><span>Average verified-session rate</span><strong>{averageAttendance}%</strong></div><ProgressBar value={averageAttendance} /><p className="muted-note">Calculated from the attendance sessions visible within your coordinator scope.</p></div></section><section className="card donut-card"><h2>Document compliance</h2><div className="donut"><strong>{assignedRows.length}<small>assignments</small></strong></div><ul className="legend"><li><i className="green" /> Complete <b>{completeDocuments}</b></li><li><i className="orange" /> Partial <b>{partialDocuments}</b></li><li><i className="red" /> Missing <b>{missingDocuments}</b></li></ul></section></div>
@@ -789,7 +807,7 @@ function StudentDailyLogDialog({ log, close, onSaved }: { log: DailyLogRecord | 
     }
   }
   if (log && !["Draft", "Needs Revision"].includes(log.status)) return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label="View daily log"><button className="modal-close" onClick={close} aria-label="Close daily log"><X size={20} /></button><span className="modal-icon"><FileText /></span><h2>Daily log</h2><p><strong>{log.date}</strong> · {log.hours} hours · <StatusBadge status={log.status} /></p><div className="readonly-summary"><strong>Activities performed</strong><p>{log.summary}</p>{log.learnings && <><strong>Key learnings</strong><p>{log.learnings}</p></>}{log.challenges && <><strong>Challenges</strong><p>{log.challenges}</p></>}{log.latestFeedback && <><strong>Latest reviewer feedback</strong><p>{log.latestFeedback}</p></>}</div><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></section></div>;
-  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={log ? "Edit daily log" : "Add daily log"}><button className="modal-close" onClick={close} aria-label="Close daily log form"><X size={20} /></button><span className="modal-icon"><FileText /></span><h2>{log ? "Edit daily log" : "Add daily log"}</h2><p>The entry will be stored in Supabase and routed to your assigned reviewers.</p><form onSubmit={(event) => { event.preventDefault(); void save("submitted"); }}><div className="two-fields"><label className="field"><span>Work date</span><input required type="date" value={logDate} onChange={(event) => setLogDate(event.target.value)} /></label><label className="field"><span>Rendered hours</span><input required type="number" min="0.25" max="24" step="0.25" value={hours} onChange={(event) => setHours(event.target.value)} /></label></div><label className="field"><span>Activities performed</span><textarea required value={activities} onChange={(event) => setActivities(event.target.value)} placeholder="Describe the work completed during this internship day…" /></label><label className="field"><span>Key learnings</span><textarea value={learnings} onChange={(event) => setLearnings(event.target.value)} placeholder="What did you learn?" /></label><label className="field"><span>Challenges encountered</span><textarea value={challenges} onChange={(event) => setChallenges(event.target.value)} placeholder="Optional challenges or blockers" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton type="button" variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="button" variant="secondary" disabled={loading} onClick={() => void save("draft")}>Save Draft</ActionButton><ActionButton type="submit" disabled={loading}>{loading ? "Submitting…" : "Submit daily log"}</ActionButton></div></form></section></div>;
+  return <div className="modal-backdrop" role="presentation"><section className="modal daily-log-modal" role="dialog" aria-modal="true" aria-label={log ? "Edit daily log" : "Add daily log"}><button className="modal-close" onClick={close} aria-label="Close daily log form"><X size={20} /></button><header className="modal-heading"><span className="modal-icon"><FileText /></span><div><span className="settings-kicker">Internship activity record</span><h2>{log ? "Edit daily log" : "Add daily log"}</h2><p>Save a private draft, or submit the entry to your authorized reviewers.</p></div></header><form onSubmit={(event) => { event.preventDefault(); void save("submitted"); }}><fieldset className="daily-log-section"><legend>1. Log information</legend><p>Use the actual work date and hours completed at your assigned HTE.</p><div className="two-fields"><label className="field"><span>Work date *</span><input required type="date" value={logDate} onChange={(event) => setLogDate(event.target.value)} /></label><label className="field"><span>Rendered hours *</span><input required type="number" min="0.25" max="24" step="0.25" value={hours} onChange={(event) => setHours(event.target.value)} /></label></div></fieldset><fieldset className="daily-log-section"><legend>2. Work and learning</legend><label className="field"><span>Activities performed *</span><textarea required minLength={3} value={activities} onChange={(event) => setActivities(event.target.value)} placeholder="Describe the work you completed and your responsibilities for the day." /></label><div className="two-fields"><label className="field"><span>Key learnings</span><textarea value={learnings} onChange={(event) => setLearnings(event.target.value)} placeholder="Skills, knowledge, or insights gained" /></label><label className="field"><span>Challenges encountered</span><textarea value={challenges} onChange={(event) => setChallenges(event.target.value)} placeholder="Optional blockers or issues that need follow-up" /></label></div></fieldset>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="daily-log-actions"><p><strong>Draft</strong> stays editable. <strong>Submit</strong> sends this entry for review.</p><div className="modal-actions"><ActionButton type="button" variant="ghost" onClick={close}>Cancel</ActionButton><ActionButton type="button" variant="secondary" disabled={loading || !activities.trim()} onClick={() => void save("draft")}>Save Draft</ActionButton><ActionButton type="submit" disabled={loading || !activities.trim()}>{loading ? "Saving…" : "Submit daily log"}</ActionButton></div></div></form></section></div>;
 }
 
 function DailyLogDialog({ log, student, close, onSaved }: { log: DailyLogRecord | null; student: boolean; close: () => void; onSaved: () => void }) {
@@ -1084,13 +1102,38 @@ function NotificationsPage() {
   return <><PageHeader title="Notifications" subtitle={`${items.filter((item) => item.unread).length} unread notifications`} action={<div className="notification-controls"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>All</button><button className={filter === "unread" ? "active" : ""} onClick={() => setFilter("unread")}>Unread</button><button disabled={!items.some((item) => item.unread)} onClick={() => { void markAll(); }}>Mark all read</button></div>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="notification-list">{shown.map((item) => <button key={item.id} className={`notification-item notification-${item.tone} ${item.unread ? "unread" : ""}`} onClick={() => { void markOne(item); }}><span className="notification-symbol">{item.tone === "success" ? <CheckCircle2 /> : item.tone === "warning" || item.tone === "error" ? <AlertTriangle /> : <MessageSquareText />}</span><span><strong>{item.title}</strong><p>{item.message}</p></span><small>{item.time}</small></button>)}{!loading && shown.length === 0 && <EmptyAction icon={Bell} title="You’re all caught up" copy={filter === "unread" ? "There are no unread notifications." : "No notifications have been sent to this account yet."} />}</div></>;
 }
 
-function ProfilePage({ role, settings = false, openModal }: { role: RoleId; settings?: boolean; openModal: (title: string) => void }) {
-  const { user } = useAuth();
-  const current = roles[role];
-  const student = role === "student";
-  const displayName = user?.fullName ?? current.user;
-  const displayInitials = displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || current.initials;
-  return <><PageHeader title={settings ? "Settings" : "Profile"} subtitle={settings ? "Manage your account preferences and notification choices." : "Review the official details linked to your PRAXIZ account."} /><div className="profile-grid"><section className="card profile-summary"><span className={`avatar avatar-${current.accent}`}>{displayInitials}</span><h2>{displayName}</h2><p>{current.label}</p><StatusBadge status="Verified account" /></section><section className="card profile-form"><h2>{settings ? "Account preferences" : "Official account information"}</h2>{settings ? <><label aria-label="Email notifications" className="toggle-row"><span><strong>Email notifications</strong><small>Receive important submission and verification updates</small></span><input type="checkbox" defaultChecked /></label><label aria-label="Weekly progress summary" className="toggle-row"><span><strong>Weekly progress summary</strong><small>Receive a concise Friday digest</small></span><input type="checkbox" defaultChecked /></label><label aria-label="Monitoring notices" className="toggle-row"><span><strong>Monitoring notices</strong><small>Receive rules-based attendance and compliance reminders</small></span><input type="checkbox" /></label><ActionButton onClick={() => openModal("Preferences saved")}>Save preferences</ActionButton></> : <><div className="two-fields"><label className="field"><span>Full name</span><input value={displayName} readOnly /></label><label className="field"><span>Role</span><input value={current.label} readOnly /></label></div><div className="two-fields"><label className="field"><span>Official email</span><input value={user?.email ?? ""} readOnly /></label><label className="field"><span>Account status</span><input value="Active and verified" readOnly /></label></div>{student && <><div className="two-fields"><label className="field"><span>Student number</span><input value={user?.studentNumber ?? "Not available"} readOnly /></label><label className="field"><span>Year level</span><input value={user?.yearLevel ? String(user.yearLevel) : "Not available"} readOnly /></label></div><div className="two-fields"><label className="field"><span>Section</span><input value={user?.section ?? "Not available"} readOnly /></label><label className="field"><span>Expected graduation</span><input value={user?.expectedGraduationYear ? String(user.expectedGraduationYear) : "Not available"} readOnly /></label></div><div className="two-fields"><label className="field"><span>Academic program</span><input value={user?.academicProgram ?? "Not available"} readOnly /></label><label className="field"><span>College</span><input value={user?.college ?? "Not available"} readOnly /></label></div><div className="two-fields"><label className="field"><span>Campus</span><input value={user?.campus ?? "Not available"} readOnly /></label></div></>}{role === "coordinator" && <><div className="two-fields"><label className="field"><span>Coordinated program</span><input value={user?.scopeProgramCode && user?.scopeProgramName ? `${user.scopeProgramCode} — ${user.scopeProgramName}` : "Not available"} readOnly /></label><label className="field"><span>College</span><input value={user?.college ?? "Not available"} readOnly /></label></div><div className="two-fields"><label className="field"><span>Campus</span><input value={user?.campus ?? "Not available"} readOnly /></label></div></>}<div className="verification-principle"><ShieldCheck size={20} /><p>Institutional identity fields are read-only. Request corrections through your coordinator or system administrator so changes remain traceable.</p></div></>}</section></div></>;
+type ThemeMode = "light" | "dark" | "system";
+type AccentMode = "blue" | "pink" | "gold";
+
+function applyTheme(mode: ThemeMode, accent: AccentMode) {
+  const dark = mode === "dark" || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  document.documentElement.dataset.themeMode = mode;
+  document.documentElement.dataset.accent = accent;
+  localStorage.setItem("praxiz-theme", mode);
+  localStorage.setItem("praxiz-accent", accent);
+}
+
+function SettingsPanel() {
+  const [preferences, setPreferences] = useState({ emailNotifications: true, weeklyProgressSummary: true, monitoringNotices: false });
+  const [theme, setTheme] = useState<ThemeMode>(() => typeof window === "undefined" ? "system" : (localStorage.getItem("praxiz-theme") as ThemeMode | null) ?? "system"); const [accent, setAccent] = useState<AccentMode>(() => typeof window === "undefined" ? "blue" : (localStorage.getItem("praxiz-accent") as AccentMode | null) ?? "blue"); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [notice, setNotice] = useState(""); const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    void notificationService.getPreferences().then((result) => { if (active) setPreferences(result); }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Preferences could not be loaded."); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+  function chooseTheme(value: ThemeMode) { setTheme(value); applyTheme(value, accent); }
+  function chooseAccent(value: AccentMode) { setAccent(value); applyTheme(theme, value); }
+  async function save() { setSaving(true); setError(""); setNotice(""); try { await notificationService.savePreferences(preferences); setNotice("Notification preferences saved."); } catch (reason) { setError(reason instanceof Error ? reason.message : "Preferences could not be saved."); } finally { setSaving(false); } }
+  const toggle = (key: keyof typeof preferences) => setPreferences((current) => ({ ...current, [key]: !current[key] }));
+  // Checkbox and radio inputs are nested inside their visible text labels.
+  // eslint-disable-next-line jsx-a11y/label-has-associated-control
+  return <div className="settings-stack"><section className="settings-section"><div><span className="settings-kicker">Notifications</span><h2>Communication preferences</h2><p>These choices are stored in your PRAXIZ account.</p></div><div><label className="toggle-row"><span><strong>Email notifications</strong><small>Submission, verification, and account updates</small></span><input type="checkbox" checked={preferences.emailNotifications} disabled={loading} onChange={() => toggle("emailNotifications")} /></label><label className="toggle-row"><span><strong>Weekly progress summary</strong><small>A concise digest of verified internship progress</small></span><input type="checkbox" checked={preferences.weeklyProgressSummary} disabled={loading} onChange={() => toggle("weeklyProgressSummary")} /></label><label className="toggle-row"><span><strong>Monitoring notices</strong><small>Rules-based attendance and compliance reminders</small></span><input type="checkbox" checked={preferences.monitoringNotices} disabled={loading} onChange={() => toggle("monitoringNotices")} /></label></div></section><section className="settings-section"><div><span className="settings-kicker">Appearance</span><h2>Theme and accent</h2><p>Visual preferences stay on this device.</p></div><div className="appearance-controls"><label className="field"><span>Color mode</span><select value={theme} onChange={(event) => chooseTheme(event.target.value as ThemeMode)}><option value="system">Use system setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label><fieldset className="accent-picker"><legend>Accent color</legend>{(["blue", "pink", "gold"] as AccentMode[]).map((color) => <label key={color} className={`accent-option accent-${color}`}><input type="radio" name="accent" value={color} checked={accent === color} onChange={() => chooseAccent(color)} /><span />{color === "blue" ? "PRAXIZ Blue" : color === "pink" ? "Pink" : "Gold"}</label>)}</fieldset></div></section>{notice && <p className="form-success"><CheckCircle2 size={16} /> {notice}</p>}{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<ActionButton disabled={loading || saving} onClick={() => void save()}>{saving ? "Saving…" : "Save notification preferences"}</ActionButton></div>;
+}
+
+function ProfilePage({ role, settings = false }: { role: RoleId; settings?: boolean }) {
+  const { user } = useAuth(); const current = roles[role]; const student = role === "student"; const displayName = user?.fullName ?? current.user; const displayInitials = displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || current.initials;
+  return <><PageHeader title={settings ? "Settings" : "Profile"} subtitle={settings ? "Manage notification and appearance preferences." : "Review the official details linked to your PRAXIZ account."} /><div className="profile-grid"><section className="card profile-summary"><span className={`avatar avatar-${current.accent}`}>{displayInitials}</span><h2>{displayName}</h2><p>{current.label}</p><StatusBadge status="Verified account" /></section><section className="card profile-form">{settings ? <SettingsPanel /> : <><h2>Official account information</h2><div className="two-fields"><label className="field"><span>Full name</span><input value={displayName} readOnly /></label><label className="field"><span>Role</span><input value={current.label} readOnly /></label></div><div className="two-fields"><label className="field"><span>Official email</span><input value={user?.email ?? ""} readOnly /></label><label className="field"><span>Account status</span><input value="Active and verified" readOnly /></label></div>{student && <><div className="two-fields"><label className="field"><span>Student number</span><input value={user?.studentNumber ?? "Not available"} readOnly /></label><label className="field"><span>Year level</span><input value={user?.yearLevel ? String(user.yearLevel) : "Not available"} readOnly /></label></div><div className="two-fields"><label className="field"><span>Academic program</span><input value={user?.academicProgram ?? "Not available"} readOnly /></label><label className="field"><span>Campus</span><input value={user?.campus ?? "Not available"} readOnly /></label></div></>}{role === "coordinator" && <><div className="two-fields"><label className="field"><span>Coordinated program</span><input value={user?.scopeProgramCode && user?.scopeProgramName ? `${user.scopeProgramCode} — ${user.scopeProgramName}` : "Not available"} readOnly /></label><label className="field"><span>College / department</span><input value={user?.college ?? "Not available"} readOnly /></label></div></>}<div className="verification-principle"><ShieldCheck size={20} /><p>Institutional identity fields are read-only so official changes remain traceable.</p></div></>}</section></div></>;
 }
 
 function FilterBar({ search, setSearch, campus, setCampus, campusOptions, program, setProgram, programOptions, status, setStatus }: { search: string; setSearch: (value: string) => void; campus: string; setCampus: (value: string) => void; campusOptions: string[]; program: string; setProgram: (value: string) => void; programOptions: string[]; status: string; setStatus: (value: string) => void }) {
@@ -1122,18 +1165,80 @@ function InternManagementPage({ role }: { role: RoleId }) {
 }
 
 function AnalyticsPage() {
-  const metrics = [["Attendance",92,"Good"],["Log submission",72,"Needs Attention"],["Evaluation",88,"Very Good"],["Document compliance",80,"Nearly Complete"],["Work quality",85,"Very Good"],["Punctuality",95,"Excellent"]] as const;
-  return <><PageHeader title="Performance analytics preview" subtitle="Frontend visualization of verified PRAXIZ indicators." action={<span className="ai-label"><Clock3 size={16} /> AI not connected</span>} /><div className="ai-disclaimer"><ShieldCheck size={20} /><p><strong>Prototype data only.</strong> This page currently renders deterministic mock indicators; no AI model is connected and no content is AI-generated. A governed decision-support service will be integrated only after the database and verified-data pipeline are approved.</p></div><div className="analytics-grid"><div><section className="card insight-summary"><h2>Rules-based summary preview</h2><p>The current mock record shows <strong>consistent attendance</strong> and <strong>satisfactory to very good evaluation scores</strong>. Three delayed daily log submissions meet the prototype follow-up rule. Document compliance is near complete, with one requirement pending.</p><div className="standing">Prototype standing <StatusBadge status="Good Standing" /></div></section><section className="card"><h2>Key indicators</h2><div className="indicator-cards">{metrics.slice(0,4).map(([label,value,status]) => <article key={label}><span>{label === "Attendance" ? <CheckCircle2 /> : label === "Log submission" ? <AlertTriangle /> : label === "Evaluation" ? <Star /> : <FileText />}</span><div><strong>{label}</strong><p>{value}% · Mock verified record</p><StatusBadge status={status} /></div></article>)}</div></section><section className="card concerns"><h2>Rules-based monitoring prompts</h2><p>Static frontend examples for supervisor awareness—not findings or AI output.</p><div><AlertTriangle /> 3 delayed daily log submissions identified (Weeks 5, 6, and 7)</div><div><AlertTriangle /> Attendance decreased from 95% to 88% this week</div><div><Bell /> Final Evaluation Form is still missing</div></section></div><aside className="card radar-card"><h2>Indicator radar preview</h2><div className="radar"><div className="radar-grid r1"/><div className="radar-grid r2"/><div className="radar-shape"/><span className="radar-top">Attendance</span><span className="radar-r">Log submission</span><span className="radar-br">Evaluation</span><span className="radar-bottom">Documents</span><span className="radar-bl">Work quality</span><span className="radar-l">Punctuality</span></div><div className="indicator-list compact">{metrics.map(([label,value]) => <div key={label}><span>{label}</span><b>{value}%</b><ProgressBar value={value} /></div>)}</div></aside></div></>;
+  const [rows, setRows] = useState<Intern[]>([]);
+  const [evaluations, setEvaluations] = useState<EvaluationRecord[]>([]);
+  const [logs, setLogs] = useState<DailyLogRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    void Promise.all([internshipService.listCoordinatorInterns(), evaluationService.listLive(), dailyLogService.listLive()]).then(([internRows, evaluationRows, logRows]) => {
+      if (!active) return;
+      setRows(internRows.filter((row) => row.status !== "Awaiting Assignment"));
+      setEvaluations(evaluationRows);
+      setLogs(logRows);
+    }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Analytics could not be loaded."); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+  const average = (values: number[]) => values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
+  const attendance = average(rows.map((row) => row.attendance));
+  const required = rows.reduce((sum, row) => sum + Number(row.requirements.split("/")[1] ?? 0), 0);
+  const approved = rows.reduce((sum, row) => sum + Number(row.requirements.split("/")[0] ?? 0), 0);
+  const documentCompliance = required ? Math.round(approved / required * 100) : 0;
+  const submittedLogs = logs.filter((log) => ["Submitted", "Approved"].includes(log.status)).length;
+  const logApproval = logs.length ? Math.round(logs.filter((log) => log.status === "Approved").length / logs.length * 100) : 0;
+  const scored = evaluations.flatMap((item) => item.weightedScore == null ? [] : [item.weightedScore]);
+  const evaluationAverage = average(scored);
+  const metrics = [["Attendance verification", attendance, rows.length ? "Live" : "No data"], ["Daily log approval", logApproval, logs.length ? `${submittedLogs} submitted/approved` : "No data"], ["Evaluation average", evaluationAverage, scored.length ? `${scored.length} scored` : "No data"], ["Document compliance", documentCompliance, required ? `${approved} of ${required}` : "Not configured"]] as const;
+  const concerns = rows.filter((row) => row.status === "Needs Attention");
+  return <><PageHeader title="Performance analytics" subtitle={`Live, rules-based indicators for ${currentAcademicTerm.academicYear} · ${currentAcademicTerm.term}.`} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="ai-disclaimer"><ShieldCheck size={20} /><p><strong>Verified-data analytics.</strong> Values are calculated from records visible inside your authorized program scope. No AI model or synthetic data is used.</p></div>{loading ? <EmptyAction icon={Clock3} title="Loading analytics" copy="Calculating indicators from authorized Supabase records." /> : <div className="analytics-grid"><div><section className="card insight-summary"><h2>Portfolio summary</h2><p>{rows.length ? `${rows.length} assigned intern${rows.length === 1 ? " is" : "s are"} represented in this view. ${concerns.length} currently meet the existing follow-up rule.` : "No assigned interns are available for the current coordinator scope."}</p><div className="standing">Monitoring state <StatusBadge status={concerns.length ? "Needs Attention" : rows.length ? "Good Standing" : "No Data"} /></div></section><section className="card"><h2>Key indicators</h2><div className="indicator-cards">{metrics.map(([label, value, detail]) => <article key={label}><span>{label.startsWith("Attendance") ? <CheckCircle2 /> : label.startsWith("Daily") ? <FileText /> : label.startsWith("Evaluation") ? <Star /> : <FileCheck2 />}</span><div><strong>{label}</strong><p>{value}% · {detail}</p><ProgressBar value={value} /></div></article>)}</div></section></div><aside className="card radar-card"><h2>Current program indicators</h2><div className="indicator-list compact">{metrics.map(([label, value, detail]) => <div key={label}><span>{label}</span><b>{value}%</b><ProgressBar value={value} /><small>{detail}</small></div>)}</div></aside></div>}</>;
 }
 
-function ReportsPage({ openModal }: { openModal: (title: string) => void }) {
+function ReportsPage() {
+  const { user } = useAuth();
+  const [rows, setRows] = useState<Intern[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [selected, setSelected] = useState("Attendance Report");
+  useEffect(() => {
+    let active = true;
+    void internshipService.listCoordinatorInterns().then((items) => { if (active) setRows(items); }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Report data could not be loaded."); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
   const reports = [{ title: "Attendance Report", copy: "Daily time records, rates, and hour summaries", icon: CalendarCheck2 },{ title: "Internship Progress Report", copy: "Rendered hours, completion, and timeline", icon: LineChart },{ title: "Document Compliance Report", copy: "Submission status and missing requirements", icon: FileCheck2 },{ title: "Evaluation Report", copy: "Scores, criteria breakdown, and remarks", icon: Star },{ title: "Intern Performance Summary", copy: "Comprehensive individual performance overview", icon: UserRound },{ title: "Internship Completion Report", copy: "End-of-internship summary and readiness", icon: GraduationCap }];
-  return <><PageHeader title="Reports" subtitle="Configure, preview, and export internship monitoring reports." /><section className="card report-filters"><h2>Report filters</h2><div className="report-filter-grid"><label className="field"><span>Academic term</span><select>{academicTerms.map((term) => <option key={term.id}>{term.academicYear} · {term.term}</option>)}</select></label><label className="field"><span>Campus</span><select><option>All Campuses</option>{campuses.map((campus) => <option key={campus.id}>{campus.shortName}</option>)}</select></label><label className="field"><span>College</span><select><option>All Colleges</option>{colleges.map((college) => <option key={college.id}>{college.name}</option>)}</select></label><label className="field"><span>Date from</span><input type="date" defaultValue="2026-06-02" /></label><label className="field"><span>Date to</span><input type="date" defaultValue="2026-09-05" /></label><label className="field"><span>Program</span><select><option>All Programs</option>{programs.map((program) => <option key={program.id}>{program.code}</option>)}</select></label><label className="field"><span>Host training establishment</span><select><option>All HTEs</option><option>TechSouth PH</option><option>Albay ICT</option></select></label></div></section><h2 className="section-label">Select report type</h2><div className="report-grid">{reports.map((report) => { const Icon = report.icon; return <button className={selected === report.title ? "selected" : ""} onClick={() => setSelected(report.title)} key={report.title}><Icon /><strong>{report.title}</strong><span>{report.copy}</span>{selected === report.title && <CheckCircle2 className="report-check" />}</button>; })}</div><section className="report-generate"><div><span>Selected report</span><strong>{selected}</strong></div><ActionButton variant="secondary" icon={Eye} onClick={() => openModal(`Preview ${selected}`)}>Preview</ActionButton><ActionButton icon={Download} onClick={() => openModal(`Generate ${selected}`)}>Generate report</ActionButton></section></>;
+  function exportReport() {
+    downloadCsv(`praxiz-${selected.toLowerCase().replaceAll(" ", "-")}-${new Date().toISOString().slice(0, 10)}.csv`, ["Student", "Campus", "Program", "HTE", "Rendered Hours", "Required Hours", "Attendance %", "Requirements", "Status"], rows.map((row) => [row.name, row.campus, row.program, row.hte, row.hours, row.requiredHours ?? 400, row.attendance, row.requirements, row.status]));
+  }
+  return <><PageHeader title="Reports" subtitle="Export real internship records inside your authorized program scope." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card report-filters"><h2>Authorized scope</h2><div className="report-filter-grid"><label className="field"><span>Academic term</span><input value={`${currentAcademicTerm.academicYear} · ${currentAcademicTerm.term}`} readOnly /></label><label className="field"><span>Campus</span><input value={user?.campus ?? "Assigned campus"} readOnly /></label><label className="field"><span>Department / college</span><input value={user?.college ?? "Assigned organizational unit"} readOnly /></label><label className="field"><span>Program</span><input value={user?.scopeProgramCode && user.scopeProgramName ? `${user.scopeProgramCode} — ${user.scopeProgramName}` : "Assigned program"} readOnly /></label></div><p className="form-hint">The available organizational scope comes from your active role assignment; it cannot be broadened from this screen.</p></section><h2 className="section-label">Select report type</h2><div className="report-grid">{reports.map((report) => { const Icon = report.icon; return <button className={selected === report.title ? "selected" : ""} onClick={() => setSelected(report.title)} key={report.title}><Icon /><strong>{report.title}</strong><span>{report.copy}</span>{selected === report.title && <CheckCircle2 className="report-check" />}</button>; })}</div><section className="report-generate"><div><span>Selected report</span><strong>{selected} · {loading ? "Loading…" : `${rows.length} record${rows.length === 1 ? "" : "s"}`}</strong></div><ActionButton icon={Download} disabled={loading || rows.length === 0} onClick={exportReport}>Export CSV</ActionButton></section></>;
 }
 
-function FeedbackPage({ openModal }: { openModal: (title: string) => void }) {
-  return <><PageHeader title="Feedback & follow-up" subtitle="Keep concerns, guidance, and intervention history traceable." action={<ActionButton icon={Plus} onClick={() => openModal("Create feedback")}>New feedback</ActionButton>} /><div className="stats-grid three"><StatCard label="Open" value="1" icon={MessageSquareText} tone="orange" /><StatCard label="In progress" value="1" icon={Clock3} tone="violet" /><StatCard label="Resolved" value="1" icon={CheckCircle2} tone="green" /></div><section className="card table-card"><h2>Feedback records</h2><div className="table-scroll"><table className="data-table"><thead><tr><th>Student</th><th>Related issue</th><th>Created by</th><th>Date</th><th>Follow-up</th><th>Action</th></tr></thead><tbody>{feedbackThreads.map((item) => <tr key={item.subject}><td><b>{item.student}</b></td><td>{item.subject}</td><td>{item.from}</td><td>{item.date}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" onClick={() => openModal("Open feedback thread")}>View</button></td></tr>)}</tbody></table></div></section></>;
+function FeedbackDialog({ assignments, close, onSaved }: { assignments: EvaluationAssignment[]; close: () => void; onSaved: () => void }) {
+  const [assignmentId, setAssignmentId] = useState(assignments[0]?.id ?? "");
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setLoading(true); setError("");
+    try { await feedbackService.create({ assignmentId, subject, message }); onSaved(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Feedback could not be saved."); setLoading(false); }
+  }
+  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label="Create internship feedback"><button className="modal-close" onClick={close} aria-label="Close feedback form"><X size={20} /></button><span className="modal-icon"><MessageSquareText /></span><h2>New feedback</h2><p>Feedback is permanently associated with the selected internship assignment and its authorized reviewers.</p><form onSubmit={submit}><label className="field"><span>Internship assignment *</span><select required value={assignmentId} onChange={(event) => setAssignmentId(event.target.value)}><option value="" disabled>Select an intern</option>{assignments.map((item) => <option key={item.id} value={item.id}>{item.studentName}</option>)}</select></label><label className="field"><span>Subject *</span><input required minLength={3} maxLength={160} value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="Concise follow-up topic" /></label><label className="field"><span>Feedback *</span><textarea required minLength={3} maxLength={5000} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Give specific, constructive, and actionable guidance…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !assignmentId}>{loading ? "Saving…" : "Save feedback"}</ActionButton></div></form></section></div>;
+}
+
+function FeedbackPage() {
+  const [records, setRecords] = useState<FeedbackRecord[]>([]);
+  const [assignments, setAssignments] = useState<EvaluationAssignment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const load = useCallback(async () => {
+    try { const [items, options] = await Promise.all([feedbackService.listLive(), evaluationService.listAssignments()]); setRecords(items); setAssignments(options); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Feedback records could not be loaded."); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  return <><PageHeader title="Feedback & follow-up" subtitle="Real, assignment-bound guidance visible only to authorized participants." action={<ActionButton icon={Plus} disabled={loading || assignments.length === 0} onClick={() => setAdding(true)}>New feedback</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Open" value={String(records.filter((item) => item.status === "Open").length)} icon={MessageSquareText} tone="orange" /><StatCard label="In progress" value={String(records.filter((item) => item.status === "In Progress").length)} icon={Clock3} tone="violet" /><StatCard label="Resolved" value={String(records.filter((item) => item.status === "Resolved").length)} icon={CheckCircle2} tone="green" /></div><section className="card table-card"><h2>{loading ? "Loading feedback…" : "Feedback records"}</h2><div className="table-scroll"><table className="data-table"><thead><tr><th>Student</th><th>Subject</th><th>Created by</th><th>Date</th><th>Status</th></tr></thead><tbody>{records.map((item) => <tr key={item.id}><td><b>{item.studentName}</b></td><td><b>{item.subject}</b><small>{item.message}</small></td><td>{item.authorName}</td><td>{new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" }).format(new Date(item.createdAt))}</td><td><StatusBadge status={item.status} /></td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={5}>No feedback has been recorded for your authorized assignments.</td></tr>}</tbody></table></div></section>{adding && <FeedbackDialog assignments={assignments} close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}</>;
 }
 
 function UserAccessDialog({ account, close }: { account: UserAccountRecord; close: () => void }) {
@@ -1192,18 +1297,49 @@ function UserAccountsPage() {
   </>;
 }
 
-function DirectoryPage({ kind, openModal }: { kind: "htes" | "assignments" | "roles" | "audit"; openModal: (title: string) => void }) {
-  const [search, setSearch] = useState("");
-  const configs = {
-    htes: { title: "Partner HTEs", subtitle: "View partner organizations and authorized representative records.", action: "Add partner HTE", headers: ["Organization", "Representative", "Assigned interns", "Status"], rows: [["TechSouth Philippines","Allan Maraña","8","Active"],["Albay ICT Solutions","Carla Mendoza","6","Active"],["Bigasburo Digital","Paolo Reyes","7","Active"]] },
-    assignments: { title: "Internship assignments", subtitle: "Coordinate student and host training establishment assignments.", action: "Create assignment", headers: ["Student", "HTE", "HTE representative", "Status"], rows: interns.slice(0,5).map((i) => [i.name,i.hte,i.hteRepresentative,i.status]) },
-    roles: { title: "Roles & access", subtitle: "Review the role boundaries applied across PRAXIZ.", action: "Review policy", headers: ["Role", "Scope", "Accounts", "Status"], rows: [["Student Intern","Own internship record only","47","Configured"],["HTE Representative","Own HTE and assigned interns","14","Configured"],["Internship Coordinator","Program-wide monitoring","2","Configured"],["System Administrator","Accounts and configuration","2","Configured"]] },
-    audit: { title: "Audit logs", subtitle: "Trace important account and frontend workflow events.", action: "Export audit", headers: ["Event", "Actor", "Timestamp", "Result"], rows: [["Registration reviewed","Alex Rivera","Aug 12 · 10:42 AM","Recorded"],["Role access updated","Alex Rivera","Aug 12 · 9:18 AM","Recorded"],["Account activated","Alex Rivera","Aug 11 · 4:05 PM","Recorded"],["Security settings viewed","System","Aug 11 · 3:10 PM","Recorded"]] },
-  } as const;
-  const config = configs[kind];
-  const rows: ReadonlyArray<ReadonlyArray<string>> = config.rows;
-  const visibleRows = rows.filter((row) => !search || row.join(" ").toLowerCase().includes(search.toLowerCase()));
-  return <><PageHeader title={config.title} subtitle={config.subtitle} action={<ActionButton icon={Plus} onClick={() => openModal(config.action)}>{config.action}</ActionButton>} /><section className="card table-card"><div className="card-title"><h2>{`${visibleRows.length} record${visibleRows.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search records…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr>{config.headers.map((header) => <th key={header}>{header}</th>)}<th>Action</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={row[0]}>{row.map((cell, index) => <td key={`${index}-${String(cell)}`}>{index === 0 ? <b>{cell}</b> : index === row.length - 1 ? <StatusBadge status={String(cell)} /> : cell}</td>)}<td><button className="table-link" onClick={() => openModal(`View ${row[0]}`)}>View</button></td></tr>)}</tbody></table></div>{visibleRows.length === 0 && <p className="muted-note">No records match this view.</p>}</section></>;
+function PartnerHteDialog({ close, onSaved }: { close: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState({ name: "", registrationNumber: "", industry: "", address: "", city: "", province: "", email: "", phone: "" });
+  const [loading, setLoading] = useState(false); const [error, setError] = useState("");
+  const field = (key: keyof typeof form) => (event: ChangeEvent<HTMLInputElement>) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setLoading(true); setError(""); try { await coordinatorService.createPartnerHte(form); onSaved(); } catch (reason) { setError(reason instanceof Error ? reason.message : "The HTE could not be created."); setLoading(false); } }
+  return <div className="modal-backdrop" role="presentation"><section className="modal master-data-modal" role="dialog" aria-modal="true" aria-label="Add partner HTE"><button className="modal-close" onClick={close} aria-label="Close partner HTE form"><X size={20} /></button><span className="modal-icon"><BriefcaseBusiness /></span><h2>Add partner HTE</h2><p>New organizations begin as Pending and require administrator verification before they can receive internship assignments.</p><form onSubmit={submit}><label className="field"><span>Legal organization name *</span><input required value={form.name} onChange={field("name")} /></label><div className="two-fields"><label className="field"><span>Registration number</span><input value={form.registrationNumber} onChange={field("registrationNumber")} /></label><label className="field"><span>Industry</span><input value={form.industry} onChange={field("industry")} /></label></div><label className="field"><span>Address *</span><input required value={form.address} onChange={field("address")} /></label><div className="two-fields"><label className="field"><span>City / municipality</span><input value={form.city} onChange={field("city")} /></label><label className="field"><span>Province</span><input value={form.province} onChange={field("province")} /></label></div><div className="two-fields"><label className="field"><span>Contact email</span><input type="email" value={form.email} onChange={field("email")} /></label><label className="field"><span>Contact phone</span><input value={form.phone} onChange={field("phone")} /></label></div>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading}>{loading ? "Saving…" : "Create pending HTE"}</ActionButton></div></form></section></div>;
+}
+
+function PartnerHtesPage() {
+  const [records, setRecords] = useState<PartnerHteRecord[]>([]); const [search, setSearch] = useState(""); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [adding, setAdding] = useState(false);
+  const load = useCallback(async () => { try { setRecords(await coordinatorService.listPartnerHtes()); } catch (reason) { setError(reason instanceof Error ? reason.message : "Partner HTEs could not be loaded."); } finally { setLoading(false); } }, []);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  const shown = records.filter((item) => !search || `${item.name} ${item.representative} ${item.industry} ${item.location} ${item.status}`.toLowerCase().includes(search.toLowerCase()));
+  return <><PageHeader title="Partner HTEs" subtitle="Verified and pending organizations available within the authorized internship workflow." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Add partner HTE</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading organizations…" : `${shown.length} organization${shown.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search organizations…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Representative</th><th>Industry / location</th><th>Assigned interns</th><th>Verification</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.representative}</td><td>{item.industry}<small>{item.location}</small></td><td>{item.assignedInterns}</td><td><StatusBadge status={item.status} /></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={5}>No real HTE organization matches this view.</td></tr>}</tbody></table></div></section>{adding && <PartnerHteDialog close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}</>;
+}
+
+function AssignmentDialog({ close, onSaved }: { close: () => void; onSaved: () => void }) {
+  const [options, setOptions] = useState<AssignmentOptions>({ students: [], htes: [], terms: [] }); const [studentId, setStudentId] = useState(""); const [hteId, setHteId] = useState(""); const [termId, setTermId] = useState(""); const [hours, setHours] = useState("400"); const [startDate, setStartDate] = useState(""); const [endDate, setEndDate] = useState(""); const [submitForApproval, setSubmitForApproval] = useState(true); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  useEffect(() => { let active = true; void coordinatorService.getAssignmentOptions().then((result) => { if (!active) return; setOptions(result); setStudentId(result.students[0]?.id ?? ""); setHteId(result.htes[0]?.id ?? ""); setTermId(result.terms[0]?.id ?? ""); const term = result.terms[0]; if (term) { setStartDate(term.startsOn); setEndDate(term.endsOn); } }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Assignment choices could not be loaded."); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
+  function chooseTerm(id: string) { setTermId(id); const term = options.terms.find((item) => item.id === id); if (term) { setStartDate(term.startsOn); setEndDate(term.endsOn); } }
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setLoading(true); setError(""); try { await coordinatorService.createAssignment({ studentUserId: studentId, hteId, academicTermId: termId, requiredHours: Number(hours), startDate, expectedEndDate: endDate, submitForApproval }); onSaved(); } catch (reason) { setError(reason instanceof Error ? reason.message : "The assignment could not be created."); setLoading(false); } }
+  return <div className="modal-backdrop" role="presentation"><section className="modal master-data-modal" role="dialog" aria-modal="true" aria-label="Create internship assignment"><button className="modal-close" onClick={close} aria-label="Close assignment form"><X size={20} /></button><span className="modal-icon"><ListChecks /></span><h2>Create assignment</h2><p>Students are limited to your program; only verified HTEs are eligible. Overlapping placements are rejected by the database.</p>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<form onSubmit={submit}><label className="field"><span>Student *</span><select required value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="" disabled>Select student</option>{options.students.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="field"><span>Verified HTE *</span><select required value={hteId} onChange={(event) => setHteId(event.target.value)}><option value="" disabled>Select HTE</option>{options.htes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="field"><span>Academic term *</span><select required value={termId} onChange={(event) => chooseTerm(event.target.value)}><option value="" disabled>Select term</option>{options.terms.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><div className="two-fields"><label className="field"><span>Required hours *</span><input required type="number" min="1" value={hours} onChange={(event) => setHours(event.target.value)} /></label><label className="field"><span>Workflow</span><select value={submitForApproval ? "approval" : "draft"} onChange={(event) => setSubmitForApproval(event.target.value === "approval")}><option value="approval">Submit for approval</option><option value="draft">Save as draft</option></select></label></div><div className="two-fields"><label className="field"><span>Start date *</span><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label className="field"><span>Expected end date *</span><input required type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label></div><div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !studentId || !hteId || !termId}>{loading ? "Please wait…" : "Create assignment"}</ActionButton></div></form></section></div>;
+}
+
+function AssignmentsPage() {
+  const [rows, setRows] = useState<Intern[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [adding, setAdding] = useState(false);
+  const load = useCallback(async () => { try { setRows(await internshipService.listCoordinatorInterns()); } catch (reason) { setError(reason instanceof Error ? reason.message : "Assignments could not be loaded."); } finally { setLoading(false); } }, []);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  return <><PageHeader title="Internship assignments" subtitle="Create and monitor placements for students inside your academic-program scope." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Create assignment</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><h2>{loading ? "Loading assignments…" : `${rows.filter((row) => row.status !== "Awaiting Assignment").length} assignment${rows.filter((row) => row.status !== "Awaiting Assignment").length === 1 ? "" : "s"}`}</h2><InternTable rows={rows.filter((row) => row.status !== "Awaiting Assignment")} />{!loading && rows.every((row) => row.status === "Awaiting Assignment") && <p className="muted-note">No internship assignments have been created for this program.</p>}</section>{adding && <AssignmentDialog close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}</>;
+}
+
+function RolesPage() {
+  const [records, setRecords] = useState<RolePolicyRecord[]>([]); const [selected, setSelected] = useState<RolePolicyRecord | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  useEffect(() => { let active = true; void adminService.listRolePolicies().then((items) => { if (active) setRecords(items); }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Role policies could not be loaded."); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
+  return <><PageHeader title="Roles & access" subtitle="Read-only view of the existing roles, assignments, and permission architecture." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><h2>{loading ? "Loading role policies…" : `${records.length} configured roles`}</h2><div className="table-scroll"><table className="data-table"><thead><tr><th>Role</th><th>Scope</th><th>Active assignments</th><th>Status</th><th>Policy</th></tr></thead><tbody>{records.map((item) => <tr key={item.id}><td><b>{item.name}</b><small>{item.description}</small></td><td>{item.scope}</td><td>{item.accounts}</td><td><StatusBadge status={item.active ? "Configured" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelected(item)}>Review policy</button></td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={5}>No roles are configured.</td></tr>}</tbody></table></div></section>{selected && <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={`${selected.name} policy`}><button className="modal-close" onClick={() => setSelected(null)} aria-label="Close policy"><X size={20} /></button><span className="modal-icon"><ShieldCheck /></span><h2>{selected.name}</h2><p>{selected.description}</p><p className="form-hint">Scope: {selected.scope}. This is the live permission policy; changes require an audited database administration workflow.</p><dl className="info-list">{selected.permissions.map((permission) => <div key={permission.code}><dt>{permission.code}</dt><dd>{permission.description || "Permission enabled for this role."}</dd></div>)}</dl><div className="modal-actions"><ActionButton onClick={() => setSelected(null)}>Done</ActionButton></div></section></div>}</>;
+}
+
+function AuditLogsPage() {
+  const [records, setRecords] = useState<AuditLogRecord[]>([]); const [search, setSearch] = useState(""); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  useEffect(() => { let active = true; void adminService.listAuditLogs().then((items) => { if (active) setRecords(items); }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Audit history could not be loaded."); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
+  const shown = records.filter((item) => !search || `${item.action} ${item.actor} ${item.entity}`.toLowerCase().includes(search.toLowerCase()));
+  function exportAudit() { downloadCsv(`praxiz-audit-${new Date().toISOString().slice(0, 10)}.csv`, ["Action", "Actor", "Entity", "Occurred At", "Metadata"], shown.map((item) => [item.action, item.actor, item.entity, item.occurredAt, JSON.stringify(item.metadata)])); }
+  return <><PageHeader title="Audit logs" subtitle="Immutable production events from the existing PRAXIZ audit mechanism." action={<ActionButton icon={Download} disabled={loading || shown.length === 0} onClick={exportAudit}>Export audit</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading audit events…" : `${shown.length} event${shown.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search action, actor, or entity…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Action</th><th>Actor</th><th>Entity</th><th>Timestamp</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.action}</b></td><td>{item.actor}</td><td>{item.entity}</td><td>{formatTimestamp(item.occurredAt)}</td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={4}>No recorded audit event matches this view.</td></tr>}</tbody></table></div></section></>;
 }
 
 function MasterRecordRow({ primary, secondary, onClick }: { primary: string; secondary: string; onClick?: () => void }) {
@@ -1358,13 +1494,27 @@ function MasterDataPage() {
     </div>{adding && <MasterDataDialog campuses={campusRows} colleges={collegeRows} academicYears={academicYears} close={() => setAdding(false)} onCreated={loadAll} />}</>;
 }
 
-function HteVerificationPage({ openModal }: { openModal: (title: string) => void }) {
-  const applications = [
-    ["Northstar Digital Services", "Leah Villanueva", "Official registration + representative ID", "Pending Review"],
-    ["Camarines Sur Tech Hub", "Marco de Vera", "Business permit verified", "Verified"],
-    ["Bicol Systems Laboratory", "Ana Cruz", "Authorization letter required", "Needs Revision"],
-  ];
-  return <><PageHeader title="HTE verification" subtitle="Review partner organizations and authorized representatives before account activation." /><div className="stats-grid three"><StatCard label="Pending review" value="1" icon={Clock3} tone="orange" /><StatCard label="Verified this term" value="12" icon={ShieldCheck} tone="green" /><StatCard label="Needs revision" value="1" icon={AlertTriangle} tone="red" /></div><section className="card table-card"><div className="card-title"><h2>Organization applications</h2><label className="table-search"><Search size={17} /><input placeholder="Search organization…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Representative</th><th>Verification evidence</th><th>Status</th><th>Action</th></tr></thead><tbody>{applications.map((row) => <tr key={row[0]}><td><b>{row[0]}</b></td><td>{row[1]}</td><td>{row[2]}</td><td><StatusBadge status={row[3]} /></td><td><button className="table-link" onClick={() => openModal(`Review HTE · ${row[0]}`)}>Review</button></td></tr>)}</tbody></table></div></section></>;
+function HteVerificationPage() {
+  const [applications, setApplications] = useState<RegistrationRecord[]>([]); const [organizations, setOrganizations] = useState<PartnerHteRecord[]>([]); const [search, setSearch] = useState(""); const [selected, setSelected] = useState<RegistrationRecord | null>(null); const [selectedOrganization, setSelectedOrganization] = useState<PartnerHteRecord | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  const load = useCallback(async () => { try { const [registrations, htes] = await Promise.all([registrationService.listLivePending(), coordinatorService.listPartnerHtes()]); setApplications(registrations.filter((item) => item.role === "HTE Representative")); setOrganizations(htes); } catch (reason) { setError(reason instanceof Error ? reason.message : "HTE verification data could not be loaded."); } finally { setLoading(false); } }, []);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  const normalizedSearch = search.trim().toLowerCase();
+  const shown = applications.filter((item) => !normalizedSearch || `${item.name} ${item.email} ${item.reference} ${Object.values(item.details).join(" ")}`.toLowerCase().includes(normalizedSearch));
+  const pendingOrganizations = organizations.filter((item) => item.status === "Pending" && (!normalizedSearch || `${item.name} ${item.industry} ${item.location}`.toLowerCase().includes(normalizedSearch)));
+  return <><PageHeader title="HTE verification" subtitle="Review HTE account applications and pending partner organizations before they enter the assignment workflow." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Pending accounts" value={String(applications.length)} icon={Clock3} tone="orange" /><StatCard label="Verified organizations" value={String(organizations.filter((item) => item.status === "Verified").length)} icon={ShieldCheck} tone="green" /><StatCard label="Pending organizations" value={String(organizations.filter((item) => item.status === "Pending").length)} icon={AlertTriangle} tone="red" /></div><section className="card table-card"><div className="card-title"><h2>{loading ? "Loading verification queue…" : "Pending partner organizations"}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search verification queue…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Industry / location</th><th>Representative</th><th>Assigned interns</th><th>Status</th><th>Action</th></tr></thead><tbody>{pendingOrganizations.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.industry}<small>{item.location}</small></td><td>{item.representative}</td><td>{item.assignedInterns}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" onClick={() => setSelectedOrganization(item)}>Review</button></td></tr>)}{!loading && pendingOrganizations.length === 0 && <tr><td colSpan={6}>No partner organizations are awaiting verification.</td></tr>}</tbody></table></div></section><section className="card table-card"><div className="card-title"><h2>{loading ? "Loading applications…" : "Pending HTE accounts"}</h2></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Applicant</th><th>Reference</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.details.organization_name || item.name}</b></td><td>{item.email}</td><td>{item.reference}</td><td>{item.submitted}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" disabled={!item.id || !["Pending", "Under Review"].includes(item.status)} onClick={() => setSelected(item)}>Review</button></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={6}>No HTE account applications are awaiting review.</td></tr>}</tbody></table></div></section>{selectedOrganization && <HteOrganizationReviewDialog organization={selectedOrganization} close={() => setSelectedOrganization(null)} onReviewed={() => { setSelectedOrganization(null); void load(); }} />}{selected && <RegistrationReviewDialog application={selected} close={() => setSelected(null)} onReviewed={() => { setSelected(null); void load(); }} />}</>;
+}
+
+function HteOrganizationReviewDialog({ organization, close, onReviewed }: { organization: PartnerHteRecord; close: () => void; onReviewed: () => void }) {
+  const [notes, setNotes] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  async function decide(decision: "verified" | "rejected") {
+    if (decision === "rejected" && !notes.trim()) { setError("A reason is required when rejecting an organization."); return; }
+    setLoading(true); setError("");
+    try { await adminService.reviewHteOrganization(organization.id, decision, notes); onReviewed(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "The organization decision could not be saved."); setLoading(false); }
+  }
+  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={`Review ${organization.name}`}><button className="modal-close" onClick={close} aria-label="Close organization review"><X size={20} /></button><span className="modal-icon"><ShieldCheck /></span><h2>Review partner HTE</h2><p>Verification makes this organization available for new internship assignments.</p><dl className="info-list"><div><dt>Organization</dt><dd>{organization.name}</dd></div><div><dt>Industry</dt><dd>{organization.industry}</dd></div><div><dt>Location</dt><dd>{organization.location}</dd></div><div><dt>Representative</dt><dd>{organization.representative}</dd></div></dl><label className="field"><span>Administrator notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add verification notes or a rejection reason…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("verified")}>Verify organization</ActionButton><ActionButton variant="danger" disabled={loading || !notes.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></section></div>;
 }
 
 const documentTemplatePhaseLabels: Record<DocumentTemplatePhase, string> = {
@@ -1608,15 +1758,7 @@ function RegistrationsPage() {
   return <><PageHeader title="Pending registrations" subtitle="Verify identities and role requests before account activation." /><section className="card table-card"><RegistrationTable /></section></>;
 }
 
-function Modal({ title, close }: { title: string; close: () => void }) {
-  const lower = title.toLowerCase();
-  const isForm = lower.includes("feedback") || lower.includes("daily log") || lower.includes("revision");
-  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={title}><button className="modal-close" onClick={close} aria-label="Close dialog"><X size={20} /></button><span className="modal-icon">{isForm ? <FileText /> : <CheckCircle2 />}</span><h2>{title}</h2><p>This supporting workflow is not enabled on this screen yet. No database record was changed.</p><div className="modal-actions"><ActionButton onClick={close}>Close</ActionButton></div></section></div>;
-}
-
 function DashboardRouter({ role, page }: { role: RoleId; page: string }) {
-  const [modal, setModal] = useState("");
-  const openModal = (title: string) => setModal(title);
   const allowedPages = new Set([
     ...roles[role].nav.filter((item) => !item.permission || hasPermission(role, item.permission)).map((item) => item.href.split("/").filter(Boolean).at(-1)),
     "profile",
@@ -1631,23 +1773,23 @@ function DashboardRouter({ role, page }: { role: RoleId; page: string }) {
   else if (page === "evaluations") content = <EvaluationsPage role={role} />;
   else if (page === "progress") content = <ProgressPage />;
   else if (page === "notifications") content = <NotificationsPage />;
-  else if (page === "profile") content = <ProfilePage role={role} openModal={openModal} />;
-  else if (page === "settings") content = <ProfilePage role={role} settings openModal={openModal} />;
+  else if (page === "profile") content = <ProfilePage role={role} />;
+  else if (page === "settings") content = <ProfilePage role={role} settings />;
   else if (page === "interns") content = <InternManagementPage role={role} />;
   else if (page === "analytics") content = <AnalyticsPage />;
-  else if (page === "reports") content = <ReportsPage openModal={openModal} />;
-  else if (page === "feedback") content = <FeedbackPage openModal={openModal} />;
-  else if (page === "htes") content = <DirectoryPage kind="htes" openModal={openModal} />;
-  else if (page === "assignments") content = <DirectoryPage kind="assignments" openModal={openModal} />;
+  else if (page === "reports") content = <ReportsPage />;
+  else if (page === "feedback") content = <FeedbackPage />;
+  else if (page === "htes") content = <PartnerHtesPage />;
+  else if (page === "assignments") content = <AssignmentsPage />;
   else if (page === "users") content = <UserAccountsPage />;
   else if (page === "master-data") content = <MasterDataPage />;
-  else if (page === "hte-verification") content = <HteVerificationPage openModal={openModal} />;
+  else if (page === "hte-verification") content = <HteVerificationPage />;
   else if (page === "templates") content = <WorkflowTemplatesPage />;
-  else if (page === "roles") content = <DirectoryPage kind="roles" openModal={openModal} />;
-  else if (page === "audit-logs") content = <DirectoryPage kind="audit" openModal={openModal} />;
+  else if (page === "roles") content = <RolesPage />;
+  else if (page === "audit-logs") content = <AuditLogsPage />;
   else if (page === "registrations") content = <RegistrationsPage />;
   else content = <EmptyAction icon={FileText} title="This workspace is ready" copy="Choose a section from the navigation to continue." />;
-  return <AppShell role={role} page={page}>{content}{modal && <Modal title={modal} close={() => setModal("")} />}</AppShell>;
+  return <AppShell role={role} page={page}>{content}</AppShell>;
 }
 
 function PraxizRouter() {

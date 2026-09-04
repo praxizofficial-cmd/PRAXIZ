@@ -112,7 +112,7 @@ export type AttendanceEvent = {
   sessionId: string;
   kind: "time_in" | "time_out";
   occurredAt: string;
-  timestampSource: "mock_server" | "server";
+  timestampSource: "server";
 };
 
 export type AttendanceSession = {

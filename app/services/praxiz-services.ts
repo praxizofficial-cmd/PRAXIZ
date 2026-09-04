@@ -1,13 +1,3 @@
-import {
-  activity,
-  dailyLogs,
-  documents,
-  evaluations,
-  feedbackThreads,
-  interns,
-  notifications,
-  pendingRegistrations,
-} from "../data";
 import { createClient } from "../../lib/supabase/client";
 import { getSiteOrigin } from "../../lib/site-url";
 import { resolveActiveAssignmentId } from "../auth/student-stabilization";
@@ -209,6 +199,63 @@ export type NotificationRecord = {
   tone: "info" | "success" | "warning" | "error";
   time: string;
   unread: boolean;
+};
+
+export type PartnerHteRecord = {
+  id: string;
+  name: string;
+  representative: string;
+  assignedInterns: number;
+  status: string;
+  industry: string;
+  location: string;
+};
+
+export type AssignmentOption = { id: string; label: string };
+export type AssignmentOptions = {
+  students: AssignmentOption[];
+  htes: AssignmentOption[];
+  terms: Array<AssignmentOption & { startsOn: string; endsOn: string }>;
+};
+
+export type CreateAssignmentInput = {
+  studentUserId: string;
+  hteId: string;
+  academicTermId: string;
+  requiredHours: number;
+  startDate: string;
+  expectedEndDate: string;
+  submitForApproval: boolean;
+};
+
+export type RolePolicyRecord = {
+  id: string;
+  name: string;
+  description: string;
+  scope: string;
+  accounts: number;
+  active: boolean;
+  permissions: Array<{ code: string; description: string }>;
+};
+
+export type AuditLogRecord = {
+  id: string;
+  action: string;
+  actor: string;
+  entity: string;
+  occurredAt: string;
+  metadata: Record<string, unknown>;
+};
+
+export type FeedbackRecord = {
+  id: string;
+  assignmentId: string;
+  studentName: string;
+  subject: string;
+  message: string;
+  authorName: string;
+  createdAt: string;
+  status: "Open" | "In Progress" | "Resolved";
 };
 
 export type StudentProgressSummary = {
@@ -594,8 +641,6 @@ function displayDate(value: string) {
 }
 
 export const internshipService = {
-  listInterns: () => interns,
-  listActivity: () => activity,
   async listLiveInterns(): Promise<Intern[]> {
     const supabase = createClient();
     const [{ data: assignments, error: assignmentError }, { data: progress, error: progressError }] = await Promise.all([
@@ -873,7 +918,6 @@ const dailyLogStatus: Record<string, string> = {
 };
 
 export const dailyLogService = {
-  list: () => dailyLogs,
   async listLive(): Promise<DailyLogRecord[]> {
     const { data, error } = await createClient()
       .from("daily_logs")
@@ -1081,7 +1125,6 @@ const documentPhase: Record<string, DocumentRecord["phase"]> = {
 };
 
 export const documentService = {
-  list: () => documents,
   async listLive(): Promise<DocumentRecord[]> {
     const supabase = createClient();
     const { data, error } = await supabase
@@ -1226,7 +1269,6 @@ async function namesForUsers(userIds: string[]) {
 }
 
 export const evaluationService = {
-  listCriteria: () => evaluations,
   async listLive(): Promise<EvaluationRecord[]> {
     const { data, error } = await createClient().from("evaluations")
       .select("id,internship_assignment_id,evaluation_template_id,evaluator_user_id,status,weighted_score,submitted_at,internship_assignments(student_user_id),evaluation_templates(name,evaluation_criteria(id,label,description,minimum_score,maximum_score,weight,display_order)),current_version:evaluation_versions!evaluations_current_version_fk(strengths,areas_for_improvement,overall_remarks,submitted_at,evaluation_scores(criterion_id,score)),evaluation_reviews(decision,feedback,reviewed_at)")
@@ -1341,7 +1383,6 @@ export const evaluationService = {
 };
 
 export const notificationService = {
-  list: () => notifications,
   async listLive(): Promise<NotificationRecord[]> {
     const userId = await currentUserId();
     const { data, error } = await createClient().from("notification_recipients")
@@ -1374,6 +1415,28 @@ export const notificationService = {
   },
   async markAllRead(): Promise<void> {
     const { error } = await createClient().rpc("mark_all_notifications_read");
+    if (error) throw new Error(error.message);
+  },
+  async getPreferences(): Promise<{ emailNotifications: boolean; weeklyProgressSummary: boolean; monitoringNotices: boolean }> {
+    const userId = await currentUserId();
+    const { data, error } = await createClient().from("notification_preferences")
+      .select("email_notifications,weekly_progress_summary,monitoring_notices").eq("user_id", userId).maybeSingle();
+    if (error) throw new Error(error.message);
+    return {
+      emailNotifications: data?.email_notifications ?? true,
+      weeklyProgressSummary: data?.weekly_progress_summary ?? true,
+      monitoringNotices: data?.monitoring_notices ?? false,
+    };
+  },
+  async savePreferences(preferences: { emailNotifications: boolean; weeklyProgressSummary: boolean; monitoringNotices: boolean }): Promise<void> {
+    const userId = await currentUserId();
+    const { error } = await createClient().from("notification_preferences").upsert({
+      user_id: userId,
+      email_notifications: preferences.emailNotifications,
+      weekly_progress_summary: preferences.weeklyProgressSummary,
+      monitoring_notices: preferences.monitoringNotices,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id" });
     if (error) throw new Error(error.message);
   },
 };
@@ -1446,10 +1509,153 @@ export const adminService = {
     const { error } = await createClient().auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo });
     if (error) throw new Error(error.message);
   },
+  async listRolePolicies(): Promise<RolePolicyRecord[]> {
+    const supabase = createClient();
+    const [rolesResult, assignmentsResult] = await Promise.all([
+      supabase.from("roles").select("id,code,name,description,is_active,allows_global_scope,role_permissions(permissions(code,description))").order("name"),
+      supabase.from("role_assignments").select("role_id").is("deleted_at", null),
+    ]);
+    if (rolesResult.error) throw new Error(rolesResult.error.message);
+    if (assignmentsResult.error) throw new Error(assignmentsResult.error.message);
+    const counts = new Map<string, number>();
+    for (const row of (assignmentsResult.data ?? []) as Array<{ role_id: string }>) counts.set(row.role_id, (counts.get(row.role_id) ?? 0) + 1);
+    type RoleRow = { id: string; code: string; name: string; description: string | null; is_active: boolean; allows_global_scope: boolean; role_permissions?: Array<{ permissions?: { code: string; description: string | null } | Array<{ code: string; description: string | null }> | null }> | null };
+    return ((rolesResult.data ?? []) as unknown as RoleRow[]).map((role) => ({
+      id: role.id,
+      name: role.name,
+      description: role.description ?? "No policy description has been configured.",
+      scope: role.allows_global_scope ? "Global when explicitly assigned" : role.code === "student_intern" ? "Own internship record" : role.code === "hte_supervisor" ? "Assigned HTE and interns" : "Authorized organization/program scope",
+      accounts: counts.get(role.id) ?? 0,
+      active: role.is_active,
+      permissions: (role.role_permissions ?? []).flatMap((item) => {
+        const permission = joinedOne(item.permissions);
+        return permission ? [{ code: permission.code, description: permission.description ?? "" }] : [];
+      }).sort((left, right) => left.code.localeCompare(right.code)),
+    }));
+  },
+  async listAuditLogs(): Promise<AuditLogRecord[]> {
+    const { data, error } = await createClient().from("audit_logs")
+      .select("id,actor_user_id,action,entity_schema,entity_type,entity_id,metadata,occurred_at")
+      .order("occurred_at", { ascending: false }).limit(500);
+    if (error) throw new Error(error.message);
+    type AuditRow = { id: string; actor_user_id: string | null; action: string; entity_schema: string; entity_type: string; entity_id: string | null; metadata: Record<string, unknown> | null; occurred_at: string };
+    const rows = (data ?? []) as AuditRow[];
+    const names = await namesForUsers(rows.flatMap((row) => row.actor_user_id ? [row.actor_user_id] : []));
+    return rows.map((row) => ({
+      id: row.id,
+      action: row.action.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      actor: row.actor_user_id ? names.get(row.actor_user_id) ?? "Authorized user" : "System",
+      entity: `${row.entity_schema}.${row.entity_type}${row.entity_id ? ` · ${row.entity_id.slice(0, 8)}` : ""}`,
+      occurredAt: row.occurred_at,
+      metadata: row.metadata ?? {},
+    }));
+  },
+  async reviewHteOrganization(hteId: string, decision: "verified" | "rejected", notes: string): Promise<void> {
+    const { error } = await createClient().rpc("review_hte_organization", {
+      p_hte_id: hteId,
+      p_decision: decision,
+      p_notes: notes.trim() || null,
+    });
+    if (error) throw new Error(error.message);
+  },
 };
-export const feedbackService = { list: () => feedbackThreads };
+
+export const coordinatorService = {
+  async listPartnerHtes(): Promise<PartnerHteRecord[]> {
+    const supabase = createClient();
+    const [hteResult, assignmentResult] = await Promise.all([
+      supabase.from("hte_organizations").select("id,name,trade_name,industry,city_municipality,province,verification_status,hte_representatives(user_id,is_primary,starts_on,ends_on,deleted_at)").is("deleted_at", null).order("name"),
+      supabase.from("internship_assignments").select("hte_id").is("deleted_at", null).not("status", "in", "(draft,cancelled)"),
+    ]);
+    if (hteResult.error) throw new Error(hteResult.error.message);
+    if (assignmentResult.error) throw new Error(assignmentResult.error.message);
+    type HteRow = { id: string; name: string; trade_name: string | null; industry: string | null; city_municipality: string | null; province: string | null; verification_status: string; hte_representatives?: Array<{ user_id: string; is_primary: boolean; starts_on: string | null; ends_on: string | null; deleted_at: string | null }> | null };
+    const hteRows = (hteResult.data ?? []) as unknown as HteRow[];
+    const today = new Date().toISOString().slice(0, 10);
+    const representatives = hteRows.flatMap((hte) => (hte.hte_representatives ?? []).filter((row) => !row.deleted_at && (!row.starts_on || row.starts_on <= today) && (!row.ends_on || row.ends_on >= today)));
+    const names = await namesForUsers(representatives.map((row) => row.user_id));
+    const counts = new Map<string, number>();
+    for (const row of (assignmentResult.data ?? []) as Array<{ hte_id: string }>) counts.set(row.hte_id, (counts.get(row.hte_id) ?? 0) + 1);
+    return hteRows.map((hte) => {
+      const representative = [...(hte.hte_representatives ?? [])].filter((row) => !row.deleted_at && (!row.starts_on || row.starts_on <= today) && (!row.ends_on || row.ends_on >= today)).sort((a, b) => Number(b.is_primary) - Number(a.is_primary))[0];
+      return {
+        id: hte.id,
+        name: hte.trade_name ?? hte.name,
+        representative: representative ? names.get(representative.user_id) ?? "Authorized representative" : "Not assigned",
+        assignedInterns: counts.get(hte.id) ?? 0,
+        status: hte.verification_status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
+        industry: hte.industry ?? "Not specified",
+        location: [hte.city_municipality, hte.province].filter(Boolean).join(", ") || "Not specified",
+      };
+    });
+  },
+  async createPartnerHte(input: { name: string; registrationNumber: string; industry: string; address: string; city: string; province: string; email: string; phone: string }): Promise<void> {
+    const { error } = await createClient().rpc("create_partner_hte", {
+      p_name: input.name,
+      p_registration_number: input.registrationNumber || null,
+      p_industry: input.industry || null,
+      p_address_line: input.address,
+      p_city_municipality: input.city || null,
+      p_province: input.province || null,
+      p_contact_email: input.email || null,
+      p_contact_phone: input.phone || null,
+    });
+    if (error) throw new Error(error.message);
+  },
+  async getAssignmentOptions(): Promise<AssignmentOptions> {
+    const { data, error } = await createClient().rpc("get_coordinator_assignment_options");
+    if (error) throw new Error(error.message);
+    const payload = (data ?? {}) as { students?: AssignmentOption[]; htes?: AssignmentOption[]; terms?: Array<AssignmentOption & { startsOn: string; endsOn: string }> };
+    return { students: payload.students ?? [], htes: payload.htes ?? [], terms: payload.terms ?? [] };
+  },
+  async createAssignment(input: CreateAssignmentInput): Promise<void> {
+    const { error } = await createClient().rpc("create_coordinator_assignment", {
+      p_student_user_id: input.studentUserId,
+      p_hte_id: input.hteId,
+      p_academic_term_id: input.academicTermId,
+      p_required_hours: input.requiredHours,
+      p_start_date: input.startDate,
+      p_expected_end_date: input.expectedEndDate,
+      p_submit_for_approval: input.submitForApproval,
+    });
+    if (error) throw new Error(error.message);
+  },
+};
+
+export const feedbackService = {
+  async listLive(): Promise<FeedbackRecord[]> {
+    const { data, error } = await createClient().from("internship_feedback")
+      .select("id,internship_assignment_id,author_user_id,subject,message,status,created_at,internship_assignments(student_user_id)")
+      .is("deleted_at", null).order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    type Row = { id: string; internship_assignment_id: string; author_user_id: string; subject: string; message: string; status: string; created_at: string; internship_assignments?: { student_user_id: string } | Array<{ student_user_id: string }> | null };
+    const rows = (data ?? []) as unknown as Row[];
+    const userIds = rows.flatMap((row) => [row.author_user_id, ...(joinedOne(row.internship_assignments)?.student_user_id ? [joinedOne(row.internship_assignments)!.student_user_id] : [])]);
+    const names = await namesForUsers(userIds);
+    return rows.map((row) => {
+      const studentId = joinedOne(row.internship_assignments)?.student_user_id;
+      return {
+        id: row.id,
+        assignmentId: row.internship_assignment_id,
+        studentName: studentId ? names.get(studentId) ?? "Assigned intern" : "Assigned intern",
+        subject: row.subject,
+        message: row.message,
+        authorName: names.get(row.author_user_id) ?? "Authorized user",
+        createdAt: row.created_at,
+        status: row.status === "resolved" ? "Resolved" : row.status === "in_progress" ? "In Progress" : "Open",
+      };
+    });
+  },
+  async create(input: { assignmentId: string; subject: string; message: string }): Promise<void> {
+    const { error } = await createClient().rpc("create_internship_feedback", {
+      p_assignment_id: input.assignmentId,
+      p_subject: input.subject,
+      p_message: input.message,
+    });
+    if (error) throw new Error(error.message);
+  },
+};
 export const registrationService = {
-  listPending: () => pendingRegistrations,
   async listLivePending(): Promise<RegistrationRecord[]> {
     const { data, error } = await createClient()
       .from("registration_applications")
