@@ -277,13 +277,13 @@ function LandingPage() {
         <section className="landing-section stakeholders" id="how-it-works"><span className="eyebrow dark">How it works</span><div className="landing-section-heading"><h2>Four roles, a shared internship process.</h2></div><div className="stakeholder-grid"><article><UserRound /><strong>Student Intern</strong><p>Records attendance, logs, documents, and progress.</p></article><article><UsersRound /><strong>Internship Coordinator</strong><p>Coordinates placements and program monitoring.</p></article><article><BriefcaseBusiness /><strong>HTE Representative</strong><p>Reviews assigned interns and evaluates performance.</p></article><article><ShieldCheck /><strong>System Administrator</strong><p>Maintains verified accounts, institutional data, and access policies.</p></article></div></section>
         <ContactSection />
       </main>
-      <footer className="landing-footer"><Logo /><span>© 2026 Partido State University · PRAXIZ</span><nav><a href="#about">About</a><a href="#sdgs">SDGs</a><a href="#contact">Contact</a><Link href="/signin">Sign in</Link></nav></footer>
+      <footer className="landing-footer"><div className="landing-footer-placeholder"><Logo /><span className="landing-footer-credit">© 2026 Partido State University · PRAXIZ. All rights reserved.</span><nav><a href="#about">About</a><a href="#sdgs">SDGs</a><a href="#contact">Contact</a><Link href="/signin">Sign in</Link></nav></div></footer>
     </div>
   );
 }
 
 function ContactPage() {
-  return <div className="landing contact-page"><PublicHeader /><main><ContactSection /></main><footer className="landing-footer"><Logo /><span>© 2026 Partido State University · PRAXIZ</span><nav><a href="/#about">About</a><a href="/#sdgs">SDGs</a><a href="/contact">Contact</a><Link href="/signin">Sign in</Link></nav></footer></div>;
+  return <div className="landing contact-page"><PublicHeader /><main><ContactSection /></main><footer className="landing-footer"><div className="landing-footer-placeholder"><Logo /><span className="landing-footer-credit">© 2026 Partido State University · PRAXIZ. All rights reserved.</span><nav><a href="/#about">About</a><a href="/#sdgs">SDGs</a><a href="/contact">Contact</a><Link href="/signin">Sign in</Link></nav></div></footer></div>;
 }
 
 function AuthAside({ title, copy, children }: { title: string; copy: string; children?: ReactNode }) {
