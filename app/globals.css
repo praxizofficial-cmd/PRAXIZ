@@ -777,14 +777,15 @@ html[data-accent="gold"] .button-primary { color: #241900; }
 /* Keep public navigation centered while the account actions stay at the right. */
 .public-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: clamp(18px, 3vw, 42px); }
 .public-header-brand { min-width: 0; }
-.public-header nav { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: clamp(18px, 3vw, 42px); min-width: 0; }
-.public-nav-links { display: flex; align-items: center; justify-content: center; gap: 2px; min-width: 0; }
+.public-header nav { display: contents; }
+.public-nav-links { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; gap: 2px; min-width: 0; white-space: nowrap; }
 .public-nav-actions, .public-header-actions { display: flex; align-items: center; gap: 12px; }
+.public-nav-actions { grid-column: 2; justify-self: end; }
 .public-header-actions { margin-left: 0; }
 .public-menu-toggle { display: none; }
 @media (max-width: 1100px) {
   .public-header { gap: 18px; padding-inline: 24px; }
-  .public-header nav { gap: 18px; }.public-nav-actions { gap: 8px; }.public-header-actions { gap: 8px; }
+  .public-nav-actions { gap: 8px; }.public-header-actions { gap: 8px; }
   .public-link { padding-inline: 10px; }.public-nav-actions .button { padding-inline: 14px; }
 }
 @media (max-width: 980px) {
@@ -793,8 +794,8 @@ html[data-accent="gold"] .button-primary { color: #241900; }
   .public-menu-toggle { display: grid; }
   .public-header nav { display: none; width: 100%; order: 3; grid-template-columns: 1fr; gap: 12px; }
   .public-header nav.public-navigation-open { display: grid; }
-  .public-nav-links { flex-wrap: wrap; justify-content: center; }
-  .public-nav-actions { justify-content: center; flex-wrap: wrap; }
+  .public-nav-links { position: static; transform: none; flex-wrap: wrap; justify-content: center; white-space: normal; }
+  .public-nav-actions { grid-column: auto; justify-self: auto; justify-content: center; flex-wrap: wrap; }
 }
 @media (max-width: 520px) {
   .public-header { padding-inline: 16px; }.public-header .brand { gap: 8px; }.public-header .wordmark-frame { width: 128px; }
