@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
+import Image from "next/image";
 import { createClient } from "../../lib/supabase/client";
 import { getSiteOrigin } from "../../lib/site-url";
 import type { AuthUser, RoleId } from "../types";
@@ -39,6 +40,7 @@ export type RegistrationInput = {
 type AuthContextValue = {
   user: AuthUser | null;
   ready: boolean;
+  refreshProfile: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<AuthUser>;
   signOut: () => Promise<void>;
   register: (input: RegistrationInput) => Promise<void>;
@@ -130,7 +132,7 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
   const supabase = createClient();
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("id,email,first_name,middle_name,last_name,preferred_name,account_status,metadata")
+    .select("id,email,first_name,middle_name,last_name,preferred_name,phone,avatar_path,account_status,metadata")
     .eq("id", authUser.id)
     .single();
 
@@ -167,7 +169,7 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
   const assignmentRows = (assignments ?? []) as RoleAssignmentRow[];
   const roleIds = [...new Set(assignmentRows.map((assignment) => assignment.role_id))];
   const { data: roleRows, error: rolesError } = roleIds.length
-    ? await supabase.from("roles").select("id,code").in("id", roleIds)
+    ? await supabase.from("roles").select("id,code").in("id", roleIds).eq("is_active", true)
     : { data: [], error: null };
 
   if (rolesError) {
@@ -289,6 +291,9 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
     id: profile.id,
     email: profile.email,
     fullName,
+    preferredName: profile.preferred_name ?? undefined,
+    phone: profile.phone ?? undefined,
+    avatarPath: profile.avatar_path ?? undefined,
     ...institutionalIdentity,
     scopeProgramId: selectedRoleAssignment?.scopeAcademicProgramId ?? undefined,
     scopeProgramCode: selectedCode === "internship_coordinator" ? program?.code : undefined,
@@ -342,6 +347,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(() => ({
     user,
     ready,
+    async refreshProfile() {
+      const { data, error } = await createClient().auth.getUser();
+      if (error || !data.user) throw new Error('Please sign in again.');
+      setUser(await resolveAuthUser(data.user));
+    },
     async signIn(email, password) {
       const supabase = createClient();
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -427,7 +437,7 @@ export function ProtectedRoute({ role, children }: { role: RoleId; children: Rea
   }, [ready, role, user]);
 
   if (!ready || !user || !user.roles.includes(role)) {
-    return <main className="route-loading" aria-live="polite" aria-busy="true"><span className="route-loading-mark" aria-hidden="true"><span /></span><strong>PRAXIZ</strong><span>Preparing your secure workspace…</span></main>;
+    return <main className="route-loading" aria-live="polite" aria-busy="true"><span className="loading-wordmark"><Image unoptimized src="/branding/praxiz-logo.png" alt="PRAXIZ" width={260} height={260} priority /></span><span className="route-loading-mark" aria-hidden="true"><span /></span><span>Preparing your secure workspace…</span></main>;
   }
   return children;
 }

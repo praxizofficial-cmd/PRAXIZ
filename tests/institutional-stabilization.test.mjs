@@ -20,13 +20,13 @@ const programs = [
   ["CSCE", "BSHM", "Bachelor of Science in Hospitality Management", true], ["CSCE", "BSBIO-CRE", "Bachelor of Science in Biology, major in Conservation and Restoration Ecology", true], ["CSCE", "BSTM-ECO", "Bachelor of Science in Tourism Management, major in Ecotourism", true],
   ["CSCE", "BAT", "Bachelor of Automotive Technology", false], ["CSCE", "BET-MET", "Bachelor of Engineering Technology, major in Mechanical Engineering Technology, specialization in Automotive Technology", false],
 ].map(([owningOrgUnitId, code, name, isActive], index) => ({ id: `program-${index}`, owningOrgUnitId, code, name, isActive }));
-const units = [...campuses, ...colleges, { id: "CECS", parentId: "goa", unitType: "college", code: "CECS", name: "College of Engineering and Computational Sciences", shortName: "CEC" }, { id: "dit", parentId: "CECS", unitType: "department", code: "DIT", name: "Computational Sciences Department", shortName: "Computational Sciences Department" }, { id: "engineering", parentId: "CECS", unitType: "department", code: "CEC-ENG", name: "Engineering Department", shortName: "Engineering Department" }];
+const units = [...campuses, ...colleges, { id: "CECS", parentId: "goa", unitType: "college", code: "CECS", name: "College of Engineering and Computational Sciences", shortName: "CEC" }, { id: "dcs", parentId: "CECS", unitType: "department", code: "DCS", name: "Computational Sciences Department", shortName: "Computational Sciences Department" }, { id: "engineering", parentId: "CECS", unitType: "department", code: "CEC-ENG", name: "Engineering Department", shortName: "Engineering Department" }];
 const goaUnits = units;
 const goaPrograms = [
-  { id: "40000000-0000-0000-0000-000000000001", owningOrgUnitId: "dit", code: "BSIT", name: "Bachelor of Science in Information Technology", isActive: true },
-  { id: "40000000-0000-0000-0000-000000000002", owningOrgUnitId: "dit", code: "BSCS", name: "Bachelor of Science in Computer Science", isActive: true },
-  { id: "40000000-0000-0000-0000-000000000003", owningOrgUnitId: "dit", code: "BSIS", name: "Bachelor of Science in Information Systems", isActive: false },
-  { id: "goa-bsmath", owningOrgUnitId: "dit", code: "BSMath", name: "Bachelor of Science in Mathematics", isActive: true },
+  { id: "40000000-0000-0000-0000-000000000001", owningOrgUnitId: "dcs", code: "BSIT", name: "Bachelor of Science in Information Technology", isActive: true },
+  { id: "40000000-0000-0000-0000-000000000002", owningOrgUnitId: "dcs", code: "BSCS", name: "Bachelor of Science in Computer Science", isActive: true },
+  { id: "40000000-0000-0000-0000-000000000003", owningOrgUnitId: "dcs", code: "BSIS", name: "Bachelor of Science in Information Systems", isActive: false },
+  { id: "goa-bsmath", owningOrgUnitId: "dcs", code: "BSMath", name: "Bachelor of Science in Mathematics", isActive: true },
   { id: "goa-bsce", owningOrgUnitId: "engineering", code: "BSCE", name: "Bachelor of Science in Civil Engineering", isActive: true },
   { id: "goa-bsse", owningOrgUnitId: "engineering", code: "BSSE", name: "Bachelor of Science in Sanitary Engineering", isActive: true },
   { id: "goa-bat", owningOrgUnitId: "engineering", code: "BAT", name: "Bachelor of Automotive Technology", isActive: true },
@@ -41,22 +41,22 @@ test("institutional fixture contains exactly seven campuses", () => {
 
 test("CEC preserves department ownership and display abbreviation", () => {
   assert.equal(units.find((unit) => unit.code === "CECS")?.shortName, "CEC");
-  assert.equal(units.find((unit) => unit.code === "DIT")?.id, "dit");
-  assert.equal(units.find((unit) => unit.code === "DIT")?.name, "Computational Sciences Department");
+  assert.equal(units.find((unit) => unit.code === "DCS")?.id, "dcs");
+  assert.equal(units.find((unit) => unit.code === "DCS")?.name, "Computational Sciences Department");
   assert.equal(units.find((unit) => unit.code === "CEC-ENG")?.parentId, "CECS");
 });
 
 test("BSIT and BSCS remain under the preserved Computational Sciences department", () => {
-  assert.deepEqual(goaPrograms.filter((program) => ["BSIT", "BSCS"].includes(program.code)).map((program) => [program.id, program.owningOrgUnitId]), [["40000000-0000-0000-0000-000000000001", "dit"], ["40000000-0000-0000-0000-000000000002", "dit"]]);
+  assert.deepEqual(goaPrograms.filter((program) => ["BSIT", "BSCS"].includes(program.code)).map((program) => [program.id, program.owningOrgUnitId]), [["40000000-0000-0000-0000-000000000001", "dcs"], ["40000000-0000-0000-0000-000000000002", "dcs"]]);
   assert.equal(new Set(goaPrograms.filter((program) => ["BSIT", "BSCS"].includes(program.code)).map((program) => program.code)).size, 2);
   assert.equal(goaPrograms.find((program) => program.code === "BSIS")?.isActive, false);
 });
 
-test("university college count excludes DIT and includes all eleven colleges", () => {
+test("university college count excludes DCS and includes all eleven colleges", () => {
   const goaColleges = ["CAH", "CBM", "CED", "CECS", "COS"].map((code) => ({ id: code, parentId: "goa", unitType: "college", code, name: code, shortName: code }));
   assert.equal([...goaColleges, ...colleges].filter((unit) => unit.unitType === "college").length, 11);
-  assert.equal(units.find((unit) => unit.code === "DIT")?.unitType, "department");
-  assert.equal(units.find((unit) => unit.code === "DIT")?.parentId, "CECS");
+  assert.equal(units.find((unit) => unit.code === "DCS")?.unitType, "department");
+  assert.equal(units.find((unit) => unit.code === "DCS")?.parentId, "CECS");
 });
 
 test("campus and unit selections expose the intended programs", () => {
@@ -85,7 +85,7 @@ test("changing a registration campus or college clears downstream values", () =>
 test("registration lookup exposes only active colleges and programs", () => {
   const registrationUnits = units.filter((unit) => ["campus", "college", "department"].includes(unit.unitType));
   assert.equal(registrationUnits.filter((unit) => unit.unitType === "campus").length, 7);
-  assert.equal(registrationUnits.filter((unit) => unit.unitType === "college").some((unit) => ["DIT", "CEC-ENG"].includes(unit.code)), false);
+  assert.equal(registrationUnits.filter((unit) => unit.unitType === "college").some((unit) => ["DCS", "CEC-ENG"].includes(unit.code)), false);
   assert.equal(programsForCollege(goaUnits, goaPrograms, "CECS").some((program) => program.code === "BSIS"), false);
   assert.deepEqual(programsForCollege(goaUnits, goaPrograms, "CECS").map((program) => program.code), ["BSIT", "BSCS", "BSMath", "BSCE", "BSSE", "BAT", "BET-EET", "BET-MET-AUTO", "BET-MET-RAC"]);
 });

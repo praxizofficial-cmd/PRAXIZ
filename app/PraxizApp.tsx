@@ -1,8 +1,9 @@
 "use client";
 
 import type { AnchorHTMLAttributes, ChangeEvent, FormEvent, ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import Image from "next/image";
 import {
   Activity,
   AlertTriangle,
@@ -14,7 +15,6 @@ import {
   ChartNoAxesCombined,
   Check,
   CheckCircle2,
-  ChevronDown,
   ChevronRight,
   Clock3,
   Download,
@@ -22,6 +22,7 @@ import {
   EyeOff,
   FileCheck2,
   FileText,
+  Flag,
   Gauge,
   GraduationCap,
   LayoutDashboard,
@@ -30,6 +31,7 @@ import {
   LockKeyhole,
   LogOut,
   Menu,
+  Ellipsis,
   MessageSquareText,
   Plus,
   Search,
@@ -45,8 +47,15 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { roles } from "./data";
+import { EvaluationWorkspace } from "./components/EvaluationWorkspace";
+import { Dialog } from "./components/Dialog";
+import { ThemeControls } from "./components/ThemeControls";
+import { ProfileDetails, ProfileAvatar } from "./components/ProfileDetails";
+import { StudentAttendanceHistory } from "./components/StudentAttendanceHistory";
+import { InstitutionalBrowser } from "./components/InstitutionalBrowser";
+import { userError } from "../lib/user-error";
+import { summarizeCompliance } from "../lib/compliance-summary";
 import { AuthProvider, ProtectedRoute, useAuth } from "./auth/supabase-auth";
-import { formatCoordinatorSidebarSubtitle, formatStudentSidebarSubtitle } from "./auth/student-stabilization";
 import { hasPermission } from "./permissions";
 import {
   adminService,
@@ -69,7 +78,6 @@ import {
   type DocumentRecord,
   type DocumentTemplateRecord,
   type EvaluationAssignment,
-  type EvaluationCriterionRecord,
   type EvaluationRecord,
   type EvaluationTemplateRecord,
   type FeedbackRecord,
@@ -90,7 +98,6 @@ function Link({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorEleme
 }
 
 const attendanceRecords = attendanceService.listHistory();
-const currentAcademicTerm = { academicYear: "Current term", term: "Authorized assignments" } as const;
 
 const iconMap: Record<string, LucideIcon> = {
   dashboard: LayoutDashboard,
@@ -141,12 +148,10 @@ function downloadCsv(filename: string, headers: string[], rows: Array<Array<stri
 }
 
 function Logo({ compact = false }: { compact?: boolean }) {
-  return (
-    <div className={`brand ${compact ? "brand-compact" : ""}`}>
-      <span className="brand-mark"><GraduationCap size={24} strokeWidth={1.8} /></span>
-      {!compact && <span><strong>PRAXIZ</strong><small>PARTIDO STATE UNIVERSITY</small></span>}
-    </div>
-  );
+  return <div className={`brand official-brand ${compact ? "brand-compact" : ""}`}>
+    <Image unoptimized className="university-seal" src="/branding/parsu-logo.png" alt="Partido State University" width={48} height={48} />
+    {!compact && <span className="wordmark-frame"><Image unoptimized src="/branding/praxiz-logo.png" alt="PRAXIZ" width={150} height={150} /></span>}
+  </div>;
 }
 
 function ActionButton({ children, variant = "primary", icon: Icon, onClick, type = "button", disabled = false }: {
@@ -162,7 +167,7 @@ function ActionButton({ children, variant = "primary", icon: Icon, onClick, type
 
 function StatusBadge({ status }: { status: string }) {
   const key = status.toLowerCase();
-  const tone = key.includes("approved") || key.includes("verified") || key.includes("active") || key.includes("complete") || key.includes("resolved") || key.includes("finalized") || key.includes("available") || key === "good"
+  const tone = /^(approved|verified|active|complete|completed|resolved|finalized|available|good)(\s|$)/.test(key)
     ? "success"
     : key.includes("revision") || key.includes("missing") || key.includes("rejected") || key.includes("flagged")
       ? "danger"
@@ -195,18 +200,54 @@ function StatCard({ label, value, detail, icon: Icon, tone = "blue", progress }:
 }
 
 function PublicHeader() {
-  return (
-    <header className="public-header">
-      <Link href="/" aria-label="PRAXIZ home"><Logo /></Link>
-      <nav aria-label="Public navigation">
-        <Link href="/#about" className="public-link">About</Link>
-        <Link href="/#sdgs" className="public-link">Sustainable Goals</Link>
-        <Link href="/#contact" className="public-link">Contact</Link>
-        <Link href="/signin" className="public-link">Sign in</Link>
-        <Link href="/register" className="button button-light">Create account</Link>
-      </nav>
-    </header>
-  );
+  const [menuOpen, setMenuOpen] = useState(false);
+  return <header className="public-header">
+    <Link href="/" aria-label="PRAXIZ home"><Logo /></Link>
+    <ThemeControls compact />
+    <button className="icon-button public-menu-toggle" aria-expanded={menuOpen} aria-controls="public-navigation" aria-label={menuOpen ? "Close navigation" : "Open navigation"} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
+    <nav id="public-navigation" className={menuOpen ? "public-navigation-open" : ""} aria-label="Public navigation">
+      <Link href="/#about" className="public-link" onClick={() => setMenuOpen(false)}>About</Link>
+      <Link href="/#sdgs" className="public-link" onClick={() => setMenuOpen(false)}>SDGs</Link>
+      <Link href="/#how-it-works" className="public-link" onClick={() => setMenuOpen(false)}>How it works</Link>
+      <Link href="/#contact" className="public-link" onClick={() => setMenuOpen(false)}>Contact</Link>
+      <Link href="/signin" className="button button-secondary">Sign in</Link>
+      <Link href="/register" className="button button-primary">Create account</Link>
+    </nav>
+  </header>;
+}
+
+function ContactMessageForm() {
+  const [form, setForm] = useState({ name: '', email: '', subject: '', message: '' });
+  const [notice, setNotice] = useState('');
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const subject = form.subject.trim() || 'PRAXIZ inquiry';
+    const body = 'Name: ' + form.name.trim() + '\\nReply email: ' + form.email.trim() + '\\n\\n' + form.message.trim();
+    window.location.href = 'mailto:praxiz.official@gmail.com?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+    setNotice('Your email app should open with the message addressed to PRAXIZ.');
+  }
+  return <form className="contact-form" onSubmit={submit}>
+    <h3>Send us a message</h3>
+    <div className="contact-form-grid">
+      <label className="field"><span>Your name</span><input required maxLength={120} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Enter name here…" /></label>
+      <label className="field"><span>Email address</span><input required type="email" maxLength={160} value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} placeholder="Email address" /></label>
+    </div>
+    <label className="field"><span>Subject</span><input required maxLength={160} value={form.subject} onChange={event => setForm({ ...form, subject: event.target.value })} placeholder="Subject" /></label>
+    <label className="field"><span>Message</span><textarea required minLength={10} maxLength={5000} value={form.message} onChange={event => setForm({ ...form, message: event.target.value })} placeholder="How can we help?" /></label>
+    {notice && <p className="form-success" role="status">{notice}</p>}
+    <button className="button button-primary contact-submit" type="submit">Open email draft <Send size={17} /></button>
+    <small className="contact-form-note">This opens your email app with PRAXIZ’s official address; no message is stored by this page.</small>
+  </form>;
+}
+
+function ContactSection() {
+  return <section className="landing-contact" id="contact">
+    <div className="contact-heading"><span className="eyebrow">Contact us</span><h2>Get in touch with PRAXIZ.</h2><p>Have questions, feedback, or access concerns? Send a message and the PRAXIZ team will get back to you.</p></div>
+    <div className="contact-content">
+      <div className="contact-details"><Logo /><h3>Contact information</h3><a className="contact-email" href="mailto:praxiz.official@gmail.com">praxiz.official@gmail.com</a><p>Partido State University<br />PRAXIZ Internship Monitoring Platform</p><Link className="button button-light" href="/forgot-password">Recover access</Link></div>
+      <ContactMessageForm />
+    </div>
+  </section>;
 }
 
 function LandingPage() {
@@ -215,29 +256,34 @@ function LandingPage() {
       <PublicHeader />
       <main>
         <section className="hero">
-          <div className="hero-orb hero-orb-one" /><div className="hero-orb hero-orb-two" />
+
           <span className="semester"><span /> Partido State University · Internship Monitoring</span>
           <p className="eyebrow">What is PRAXIZ?</p>
           <h1>The complete internship journey, <em>clearly monitored.</em></h1>
           <p className="hero-copy">PRAXIZ is Partido State University’s secure internship monitoring and management platform—connecting attendance, daily activities, document submissions, evaluations, progress, and institutional reporting in one trusted workspace.</p>
           <div className="hero-actions">
-            <Link className="button button-light button-large" href="/signin">Sign in to PRAXIZ <ChevronRight size={19} /></Link>
-            <Link className="button button-outline-light button-large" href="/register">Create an account</Link>
+            <Link className="button button-primary button-large" href="/signin">Sign in to PRAXIZ <ChevronRight size={19} /></Link>
+            <Link className="button button-secondary button-large" href="/register">Create an account</Link>
           </div>
         </section>
         <section className="landing-section landing-about" id="about"><span className="eyebrow dark">About PRAXIZ</span><div className="landing-section-heading"><h2>Internship learning, documented with integrity.</h2><p>The platform supports the complete monitored internship process while keeping each stakeholder inside an authorized workspace.</p></div><div className="feature-grid" aria-label="Platform capabilities"><article><span><CalendarCheck2 size={21} /></span><h3>Attendance</h3><p>Server-recorded Time In and Time Out events with verified hours.</p></article><article><span><FileText size={21} /></span><h3>Logs & requirements</h3><p>Traceable daily activities, documents, and reviewer decisions.</p></article><article><span><Star size={21} /></span><h3>Evaluation</h3><p>Configured criteria, authorized scoring, and finalized results.</p></article><article><span><ChartNoAxesCombined size={21} /></span><h3>Progress & reports</h3><p>Program-scoped monitoring grounded in verified records.</p></article></div></section>
-        <section className="landing-section landing-sdgs" id="sdgs"><span className="eyebrow">Sustainable Development Goals</span><div className="landing-section-heading"><h2>Education strengthened through responsible digital partnership.</h2><p>PRAXIZ supports three closely related United Nations Sustainable Development Goals through its academic and industry internship workflow.</p></div><div className="sdg-grid"><article className="sdg-four"><b>04</b><div><h3>Quality Education</h3><p>Structured internship learning, documented activities, feedback, and evaluation support experiential education.</p></div></article><article className="sdg-nine"><b>09</b><div><h3>Industry, Innovation and Infrastructure</h3><p>A secure digital workflow helps PSU and industry partners manage internship records consistently.</p></div></article><article className="sdg-seventeen"><b>17</b><div><h3>Partnerships for the Goals</h3><p>Students, coordinators, administrators, and Host Training Establishments collaborate through shared, role-appropriate processes.</p></div></article></div></section>
-        <section className="landing-section stakeholders"><span className="eyebrow dark">How it works</span><div className="landing-section-heading"><h2>One process, four trusted stakeholders.</h2></div><div className="stakeholder-grid"><article><UserRound /><strong>Student Intern</strong><p>Records attendance, logs, documents, and progress.</p></article><article><UsersRound /><strong>Internship Coordinator</strong><p>Coordinates placements and program monitoring.</p></article><article><BriefcaseBusiness /><strong>HTE Representative</strong><p>Reviews assigned interns and evaluates performance.</p></article><article><ShieldCheck /><strong>System Administrator</strong><p>Verifies access and maintains controlled configuration.</p></article></div></section>
-        <section className="landing-contact" id="contact"><div><span className="eyebrow">Support</span><h2>Need help accessing PRAXIZ?</h2><p>Use the account recovery page for sign-in issues or contact your authorized internship coordinator through your official university channel.</p></div><div className="hero-actions"><Link className="button button-light" href="/forgot-password">Recover access</Link><Link className="button button-outline-light" href="/register">Create an account</Link></div></section>
+        <section className="landing-section landing-sdgs" id="sdgs"><span className="eyebrow">Sustainable Development Goals</span><div className="landing-section-heading"><h2>Education strengthened through responsible digital partnership.</h2><p>PRAXIZ supports three closely related United Nations Sustainable Development Goals through its academic and industry internship workflow.</p></div><div className="sdg-grid"><article className="sdg-four"><Image unoptimized src="/sdgs/sdg-4.png" alt="SDG 4: Quality Education" width={144} height={144} /><div><h3>Quality Education</h3><p>Structured internship learning, documented activities, feedback, and evaluation support experiential education.</p></div></article><article className="sdg-nine"><Image unoptimized src="/sdgs/sdg-9.png" alt="SDG 9: Industry, Innovation and Infrastructure" width={144} height={144} /><div><h3>Industry, Innovation and Infrastructure</h3><p>A secure digital workflow helps PSU and industry partners manage internship records consistently.</p></div></article><article className="sdg-seventeen"><Image unoptimized src="/sdgs/sdg-17.png" alt="SDG 17: Partnerships for the Goals" width={144} height={144} /><div><h3>Partnerships for the Goals</h3><p>Students, coordinators, and Host Training Establishments collaborate through shared, role-appropriate processes.</p></div></article></div></section>
+        <section className="landing-section stakeholders" id="how-it-works"><span className="eyebrow dark">How it works</span><div className="landing-section-heading"><h2>Four roles, a shared internship process.</h2></div><div className="stakeholder-grid"><article><UserRound /><strong>Student Intern</strong><p>Records attendance, logs, documents, and progress.</p></article><article><UsersRound /><strong>Internship Coordinator</strong><p>Coordinates placements and program monitoring.</p></article><article><BriefcaseBusiness /><strong>HTE Representative</strong><p>Reviews assigned interns and evaluates performance.</p></article><article><ShieldCheck /><strong>System Administrator</strong><p>Maintains verified accounts, institutional data, and access policies.</p></article></div></section>
+        <ContactSection />
       </main>
-      <footer className="landing-footer"><span>© 2026 Partido State University · PRAXIZ</span><nav><a href="#about">About</a><a href="#sdgs">SDGs</a><a href="#contact">Contact</a><Link href="/signin">Sign in</Link></nav></footer>
+      <footer className="landing-footer"><Logo /><span>© 2026 Partido State University · PRAXIZ</span><nav><a href="#about">About</a><a href="#sdgs">SDGs</a><a href="#contact">Contact</a><Link href="/signin">Sign in</Link></nav></footer>
     </div>
   );
+}
+
+function ContactPage() {
+  return <div className="landing contact-page"><PublicHeader /><main><ContactSection /></main><footer className="landing-footer"><Logo /><span>© 2026 Partido State University · PRAXIZ</span><nav><a href="/#about">About</a><a href="/#sdgs">SDGs</a><a href="/contact">Contact</a><Link href="/signin">Sign in</Link></nav></footer></div>;
 }
 
 function AuthAside({ title, copy, children }: { title: string; copy: string; children?: ReactNode }) {
   return (
     <aside className="auth-aside">
+      <ThemeControls compact />
       <Link href="/" className="back-link"><ArrowLeft size={17} /> Back to welcome</Link>
       <Logo />
       <div className="auth-aside-copy"><h1>{title}</h1><p>{copy}</p>{children}</div>
@@ -269,7 +315,7 @@ function SignInPage() {
       const account = await signIn(email, password);
       window.location.href = `/${account.role}/dashboard`;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Sign in was unsuccessful.");
+      setError(userError(reason, "Sign in was unsuccessful."));
       setLoading(false);
     }
   }
@@ -310,7 +356,7 @@ function ForgotPasswordPage() {
       await requestPasswordReset(email);
       setSubmitted(true);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The reset request could not be sent.");
+      setError(userError(reason, "The reset request could not be sent."));
     } finally {
       setLoading(false);
     }
@@ -343,7 +389,7 @@ function ResetPasswordPage() {
       await updatePassword(password);
       setComplete(true);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The password could not be updated.");
+      setError(userError(reason, "The password could not be updated."));
     } finally {
       setLoading(false);
     }
@@ -449,7 +495,7 @@ function RegisterPage() {
       });
       window.location.href = "/register/success";
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Registration could not be submitted.");
+      setError(userError(reason, "Registration could not be submitted."));
       setLoading(false);
     }
   }
@@ -481,43 +527,64 @@ function AppShell({ role, page, children }: { role: RoleId; page: string; childr
   const { signOut, user } = useAuth();
   const [mobileNav, setMobileNav] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
+  const [notificationError, setNotificationError] = useState("");
+  const [markingRead, setMarkingRead] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
   const [shellNotifications, setShellNotifications] = useState<NotificationRecord[]>([]);
   const current = roles[role];
-  const visibleNavigation = current.nav.filter((item) => !item.permission || hasPermission(role, item.permission));
+  const visibleNavigation = current.nav.filter((item) => !['Notifications', 'System Settings', 'Profile'].includes(item.label) && (!item.permission || hasPermission(role, item.permission)));
   const active = visibleNavigation.find((item) => item.href.endsWith(`/${page}`));
-  const title = active?.label ?? "Dashboard";
+  const title = active?.label ?? ({ settings: 'Settings', profile: 'Profile', notifications: 'Notifications' }[page] ?? 'Dashboard');
   const displayName = user?.fullName ?? current.user;
-  const displayInitials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || current.initials;
-  const displaySubtitle = role === "student"
-    ? formatStudentSidebarSubtitle(user?.academicProgram, user?.yearLevel, current.subtitle)
-    : role === "coordinator"
-      ? formatCoordinatorSidebarSubtitle(user?.college, user?.scopeProgramCode, current.subtitle)
-      : current.subtitle;
+
+  function expandSidebar() { if (collapseTimer.current) clearTimeout(collapseTimer.current); setExpanded(true); }
+  function collapseSidebar() { collapseTimer.current = setTimeout(() => { if (!sidebarRef.current?.contains(document.activeElement)) setExpanded(false); }, 180); }
+  useEffect(() => {
+    const close = (event: PointerEvent) => { if (!(event.target as HTMLElement).closest('.sidebar-account, .popover-wrap')) { setMenu(false); setBellOpen(false); } };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setMenu(false); setBellOpen(false); setMobileNav(false); if (mobileNav) document.querySelector<HTMLButtonElement>('.mobile-menu')?.focus(); else if (menu) menuTrigger.current?.focus(); }
+      if (event.key === 'Tab' && mobileNav) {
+        const controls = sidebarRef.current?.querySelectorAll<HTMLElement>('a[href],button:not([disabled])');
+        const first = controls?.[0]; const last = controls?.[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    document.addEventListener('pointerdown', close); document.addEventListener('keydown', escape);
+    if (mobileNav) sidebarRef.current?.querySelector<HTMLElement>('a')?.focus();
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', escape); };
+  }, [mobileNav, menu]);
+  useEffect(() => () => { if (collapseTimer.current) clearTimeout(collapseTimer.current); }, []);
   const unread = shellNotifications.filter((item) => item.unread).length;
   useEffect(() => {
     let activeRequest = true;
     if (user) {
       void notificationService.listLive().then((items) => {
         if (activeRequest) setShellNotifications(items);
-      }).catch(() => undefined);
+      }).catch(() => { if (activeRequest) setNotificationError('Notifications could not be loaded. Open all notifications to retry.'); });
     }
     return () => { activeRequest = false; };
   }, [user]);
   async function markShellNotificationsRead() {
+    if (markingRead) return;
+    setMarkingRead(true); setNotificationError('');
     try {
       await notificationService.markAllRead();
       setShellNotifications(shellNotifications.map((item) => ({ ...item, unread: false })));
-    } catch { /* The full notifications page displays recoverable errors. */ }
+    } catch { setNotificationError('Could not mark notifications as read. Please try again.'); }
+    finally { setMarkingRead(false); }
   }
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobileNav ? "sidebar-open" : ""}`}>
+      <aside ref={sidebarRef} className={`sidebar ${mobileNav ? "sidebar-open" : ""} ${expanded ? 'sidebar-expanded' : ''}`} onPointerEnter={expandSidebar} onPointerLeave={collapseSidebar} onFocusCapture={expandSidebar} onBlurCapture={collapseSidebar}>
         <div className="sidebar-top"><Link href={`/${role}/dashboard`}><Logo /></Link><button className="sidebar-close" onClick={() => setMobileNav(false)} aria-label="Close menu"><X size={20} /></button></div>
         <div className="role-label">{current.label}</div>
-        <nav className="side-nav" aria-label={`${current.label} navigation`}>{visibleNavigation.map((item) => { const Icon = iconMap[item.icon] ?? Gauge; const selected = item.href.endsWith(`/${page}`); return <Link className={selected ? "active" : ""} href={item.href} key={item.href}><Icon size={20} /><span>{item.label}</span></Link>; })}</nav>
-        <div className="sidebar-user"><span className={`avatar avatar-${current.accent}`}>{displayInitials}</span><span><strong>{displayName}</strong><small>{displaySubtitle}</small></span></div>
-        <Link className={`settings-link ${page === "settings" ? "active" : ""}`} href={`/${role}/settings`}><Settings size={20} /> Settings</Link>
+        <nav className="side-nav" aria-label={`${current.label} navigation`}>{visibleNavigation.map((item) => { const Icon = iconMap[item.icon] ?? Gauge; const selected = item.href.endsWith(`/${page}`); return <Link className={selected ? "active" : ""} href={item.href} key={item.href} title={item.label} aria-label={item.label} aria-current={selected ? 'page' : undefined}><Icon size={20} /><span>{item.label}</span></Link>; })}</nav>
+        <div className="sidebar-account"><button ref={menuTrigger} className="sidebar-user" onClick={() => setMenu(!menu)} aria-label={`Account menu for ${displayName}`} aria-expanded={menu}><ProfileAvatar name={displayName} path={user?.avatarPath} /><span className="sidebar-identity"><strong>{displayName}</strong><small>{current.label}</small></span><Ellipsis className="account-ellipsis" size={20} /></button>{menu && <div className="header-popover sidebar-account-menu">{user?.roles.filter(availableRole => availableRole !== role).map(availableRole => <Link href={`/${availableRole}/dashboard`} key={availableRole}><ShieldCheck size={17} />{roles[availableRole].label} workspace</Link>)}<Link href={`/${role}/profile`}><UserRound size={17} />Profile</Link><Link href={`/${role}/settings`}><Settings size={17} />Settings</Link><button onClick={() => { void signOut().then(() => { window.location.href = '/signin'; }).catch(() => setNotificationError('Sign out failed. Please try again.')); }}><LogOut size={17} />Sign out</button></div>}</div>
       </aside>
       {mobileNav && <button className="nav-scrim" onClick={() => setMobileNav(false)} aria-label="Close navigation" />}
       <section className="app-area">
@@ -525,8 +592,8 @@ function AppShell({ role, page, children }: { role: RoleId; page: string; childr
           <button className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open menu"><Menu size={22} /></button>
           <div className="crumb"><strong>{title}</strong><small>PRAXIZ <ChevronRight size={12} /> {title}</small></div>
           <div className="header-actions">
-            <div className="popover-wrap"><button className="icon-button" aria-label={`${unread} unread notifications`} onClick={() => setBellOpen(!bellOpen)}><Bell size={21} />{unread > 0 && <b>{unread}</b>}</button>{bellOpen && <div className="header-popover notification-popover"><strong>Notifications</strong>{shellNotifications.slice(0, 3).map((item) => <Link href={`/${role}/notifications`} key={item.id}><span className={`mini-dot dot-${item.tone}`} /><span><b>{item.title}</b><small>{item.time}</small></span></Link>)}{shellNotifications.length === 0 && <small>No notifications yet.</small>}{unread > 0 && <button onClick={() => { void markShellNotificationsRead(); }}>Mark all as read</button>}</div>}</div>
-            <div className="popover-wrap"><button className="user-trigger" onClick={() => setMenu(!menu)} aria-expanded={menu}><span className={`avatar avatar-${current.accent}`}>{displayInitials}</span><span><strong>{displayName}</strong><small>{current.label}</small></span><ChevronDown size={16} /></button>{menu && <div className="header-popover user-popover">{user?.roles.filter((availableRole) => availableRole !== role).map((availableRole) => <Link href={`/${availableRole}/dashboard`} key={availableRole}><ShieldCheck size={17} /> {roles[availableRole].label} workspace</Link>)}<Link href={`/${role}/profile`}><UserRound size={17} /> Profile</Link><Link href={`/${role}/settings`}><Settings size={17} /> Settings</Link><hr /><button className="sign-out" onClick={() => { void signOut().finally(() => { window.location.href = "/signin"; }); }}><LogOut size={17} /> Sign out</button></div>}</div>
+            <ThemeControls compact />
+            <div className="popover-wrap"><button className="icon-button" aria-expanded={bellOpen} aria-label={`${unread} unread notifications`} onClick={() => setBellOpen(!bellOpen)}><Bell size={21} />{unread > 0 && <b>{unread}</b>}</button>{bellOpen && <div className="header-popover notification-popover"><strong>Notifications</strong>{shellNotifications.slice(0, 3).map((item) => <Link href={`/${role}/notifications`} key={item.id}><Bell size={16} /><span><b>{item.title}</b><small>{item.unread ? 'Unread · ' : 'Read · '}{item.time}</small></span><Eye size={16} /></Link>)}{shellNotifications.length === 0 && !notificationError && <small>No notifications yet.</small>}{notificationError && <p role="alert" className="form-error">{notificationError}</p>}{unread > 0 && <button disabled={markingRead} onClick={() => { void markShellNotificationsRead(); }}>{markingRead ? 'Updating…' : 'Mark all as read'}</button>}<Link href={`/${role}/notifications`}><Eye size={16} />View all notifications</Link></div>}</div>
           </div>
         </header>
         <main className="app-main">{children}</main>
@@ -539,8 +606,8 @@ function EmptyAction({ icon: Icon, title, copy, action }: { icon: LucideIcon; ti
   return <div className="empty-action"><span><Icon size={26} /></span><h3>{title}</h3><p>{copy}</p>{action}</div>;
 }
 
-function ConfirmDialog({ title, message, confirmLabel, onConfirm, onCancel }: { title: string; message: string; confirmLabel: string; onConfirm: () => void; onCancel: () => void }) {
-  return <div className="modal-backdrop" role="presentation"><section className="modal confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message"><span className="modal-icon"><Clock3 /></span><h2 id="confirm-title">{title}</h2><p id="confirm-message">{message}</p><div className="modal-actions"><ActionButton variant="secondary" onClick={onCancel}>Cancel</ActionButton><ActionButton onClick={onConfirm}>{confirmLabel}</ActionButton></div></section></div>;
+function ConfirmDialog({ title, message, confirmLabel, onConfirm, onCancel, busy = false }: { title: string; message: string; confirmLabel: string; onConfirm: () => void; onCancel: () => void; busy?: boolean }) {
+  return <Dialog title={title} onClose={onCancel} busy={busy}><p>{message}</p><div className="modal-actions"><ActionButton variant="secondary" disabled={busy} onClick={onCancel}>Cancel</ActionButton><ActionButton disabled={busy} onClick={onConfirm}>{confirmLabel}</ActionButton></div></Dialog>;
 }
 
 function StudentDashboard() {
@@ -556,7 +623,7 @@ function StudentDashboard() {
       setData(summary);
       setRecent(notifications.slice(0, 5));
     }).catch((reason) => {
-      if (activeRequest) setError(reason instanceof Error ? reason.message : "Your internship dashboard could not be loaded.");
+      if (activeRequest) setError(userError(reason, "Your internship dashboard could not be loaded."));
     }).finally(() => {
       if (activeRequest) setLoading(false);
     });
@@ -594,7 +661,7 @@ function HteDashboard() {
       setEvaluationRows(liveEvaluations);
       setAttendanceRows(liveAttendance);
     }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "The supervision dashboard could not be loaded.");
+      if (active) setError(userError(reason, "The supervision dashboard could not be loaded."));
     });
     return () => { active = false; };
   }, []);
@@ -610,14 +677,15 @@ function HteDashboard() {
 
 function CoordinatorDashboard() {
   const { user } = useAuth();
+  const [compliance, setCompliance] = useState<ReturnType<typeof summarizeCompliance> | null>(null);
   const [rows, setRows] = useState<Intern[]>([]);
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void internshipService.listCoordinatorInterns().then((records) => {
-      if (active) setRows(records);
+    void Promise.all([internshipService.listCoordinatorInterns(), documentService.complianceSummary()]).then(([records, summaries]) => {
+      if (active) { setRows(records); setCompliance(summarizeCompliance(summaries)); }
     }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "The coordinator dashboard could not be loaded.");
+      if (active) setError(userError(reason, "The coordinator dashboard could not be loaded."));
     });
     return () => { active = false; };
   }, []);
@@ -627,10 +695,6 @@ function CoordinatorDashboard() {
   const completedInterns = rows.filter((intern) => intern.status === "Completed").length;
   const assignedRows = rows.filter((intern) => intern.status !== "Awaiting Assignment");
   const partnerHtes = new Set(assignedRows.map((intern) => intern.hte).filter((hte) => hte !== "Not assigned")).size;
-  const requirementCounts = assignedRows.map((intern) => intern.requirements.split("/").map(Number)).map(([approved = 0, required = 0]) => ({ approved, required }));
-  const completeDocuments = requirementCounts.filter((item) => item.required > 0 && item.approved >= item.required).length;
-  const partialDocuments = requirementCounts.filter((item) => item.approved > 0 && item.approved < item.required).length;
-  const missingDocuments = Math.max(0, assignedRows.length - completeDocuments - partialDocuments);
   const averageAttendance = assignedRows.length ? Math.round(assignedRows.reduce((sum, row) => sum + row.attendance, 0) / assignedRows.length) : 0;
   const hteCounts = [...assignedRows.reduce((counts, intern) => counts.set(intern.hte, (counts.get(intern.hte) ?? 0) + 1), new Map<string, number>()).entries()].sort((left, right) => right[1] - left[1]);
   const maxHteCount = Math.max(1, ...hteCounts.map(([, count]) => count));
@@ -641,7 +705,7 @@ function CoordinatorDashboard() {
   return <><PageHeader title={`Good day, ${user?.fullName ?? "Internship Coordinator"}`} subtitle="Live internship overview for your authorized academic-program scope." />
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
     <div className="stats-grid five"><StatCard label="Program students" value={String(totalInterns)} detail="matched by academic program" icon={UsersRound} /><StatCard label="Awaiting assignment" value={String(awaitingAssignment)} detail="registered without a placement" icon={Clock3} tone="orange" /><StatCard label="Active interns" value={String(activeInterns)} detail={totalInterns ? `${Math.round(activeInterns / totalInterns * 100)}% of program students` : "No students yet"} icon={CheckCircle2} /><StatCard label="Completed" value={String(completedInterns)} detail={totalInterns ? `${Math.round(completedInterns / totalInterns * 100)}% completed` : "No students yet"} icon={GraduationCap} tone="green" /><StatCard label="Partner HTEs" value={String(partnerHtes)} detail="with visible assignments" icon={BriefcaseBusiness} tone="violet" /></div>
-    <div className="chart-grid"><section className="card"><h2>Portfolio attendance verification</h2><div className="progress-card"><div className="metric-row"><span>Average verified-session rate</span><strong>{averageAttendance}%</strong></div><ProgressBar value={averageAttendance} /><p className="muted-note">Calculated from the attendance sessions visible within your coordinator scope.</p></div></section><section className="card donut-card"><h2>Document compliance</h2><div className="donut"><strong>{assignedRows.length}<small>assignments</small></strong></div><ul className="legend"><li><i className="green" /> Complete <b>{completeDocuments}</b></li><li><i className="orange" /> Partial <b>{partialDocuments}</b></li><li><i className="red" /> Missing <b>{missingDocuments}</b></li></ul></section></div>
+    <div className="chart-grid"><section className="card"><h2>Portfolio attendance verification</h2><div className="progress-card"><div className="metric-row"><span>Average verified-session rate</span><strong>{averageAttendance}%</strong></div><ProgressBar value={averageAttendance} /><p className="muted-note">Calculated from the attendance sessions visible within your coordinator scope.</p></div></section><section className="card donut-card"><h2>Document compliance</h2>{compliance ? <><div className="donut" role="img" aria-label={`${compliance.total} required documents: ${compliance.complete} complete, ${compliance.pending} pending review, ${compliance.missing} missing or needing correction`} style={{ background: compliance.background }}><strong>{compliance.total}<small>required documents</small></strong></div><ul className="legend"><li><i className="green" />Complete <b>{compliance.complete}</b></li><li><i className="orange" />Pending review <b>{compliance.pending}</b></li><li><i className="red" />Missing / correction needed <b>{compliance.missing}</b></li></ul>{compliance.total === 0 && <p className="muted-note">No required documents are configured in your assignment scope.</p>}<p className="muted-note">All authorized assignments and terms. Optional documents excluded; waived requirements count as satisfied.</p></> : <p role="status">{error ? "Compliance data unavailable." : "Loading compliance…"}</p>}</section></div>
     <section className="card hte-bars-card"><h2>Interns by host training establishment</h2><div className="horizontal-bars">{hteCounts.map(([label, value]) => <div key={label}><span>{label}</span><b style={{ width: `${value / maxHteCount * 100}%` }} /><em>{value}</em></div>)}{hteCounts.length === 0 && <p className="muted-note">No HTE assignments are visible yet.</p>}</div></section>
     <section className="card table-card"><div className="card-title"><h2>Interns needing attention</h2><Link className="text-link" href="/coordinator/interns">Open monitoring</Link></div><InternTable rows={attentionRows.slice(0, 6)} />{attentionRows.length === 0 && <p className="muted-note">No interns currently meet the follow-up criteria.</p>}</section></>;
 }
@@ -654,34 +718,36 @@ function AdminDashboard() {
     void adminService.getSummary().then((summary) => {
       if (active) setData(summary);
     }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Administrative totals could not be loaded.");
+      if (active) setError(userError(reason, "Administrative totals could not be loaded."));
     });
     return () => { active = false; };
   }, []);
-  return <><PageHeader title="System administration" subtitle="Manage access, registrations, institutional master data, and system activity." action={<Link className="button button-primary" href="/admin/registrations"><UserCheck size={18} /> Review registrations</Link>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid four"><StatCard label="Active accounts" value={String(data.activeAccounts)} detail="live Supabase profiles" icon={UsersRound} /><StatCard label="Pending registrations" value={String(data.pendingRegistrations)} icon={Clock3} tone="orange" /><StatCard label="Role assignments" value={String(data.roleAssignments)} detail="active scopes" icon={ShieldCheck} tone="green" /><StatCard label="Audit events" value={String(data.securityEvents)} detail="last 24 hours" icon={LockKeyhole} tone="violet" /></div><div className="dashboard-grid"><section className="card table-card"><h2>Pending registrations</h2><RegistrationTable /></section><aside className="card"><h2>System health</h2><div className="health-list"><div><CheckCircle2 /><span><strong>Supabase services</strong><small>Connected</small></span><StatusBadge status="Healthy" /></div><div><CheckCircle2 /><span><strong>Row Level Security</strong><small>45 public tables protected</small></span><StatusBadge status="Healthy" /></div><div><CheckCircle2 /><span><strong>Private file storage</strong><small>Signed access only</small></span><StatusBadge status="Healthy" /></div></div></aside></div></>;
+  return <><PageHeader title="System administration" subtitle="Manage access, registrations, institutional master data, and system activity." action={<Link className="button button-primary" href="/admin/registrations"><UserCheck size={18} /> Review registrations</Link>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid four"><StatCard label="Active accounts" value={String(data.activeAccounts)} detail="live Supabase profiles" icon={UsersRound} /><StatCard label="Pending registrations" value={String(data.pendingRegistrations)} icon={Clock3} tone="orange" /><StatCard label="Role assignments" value={String(data.roleAssignments)} detail="active scopes" icon={ShieldCheck} tone="green" /><StatCard label="Audit events" value={String(data.securityEvents)} detail="last 24 hours" icon={LockKeyhole} tone="violet" /></div><div className="dashboard-grid"><section className="card table-card"><h2>Pending registrations</h2><RegistrationTable /></section><aside className="card"><h2>Administration controls</h2><p className="muted-note">Review the configured role policies and audit trail. This panel does not run a live security or storage health check.</p><div className="quick-actions"><Link href="/admin/roles"><ShieldCheck />Review roles and permissions</Link><Link href="/admin/audit-logs"><FileText />Review audit history</Link></div></aside></div></>;
 }
 
-function InternTable({ rows, compact = false }: { rows: Intern[]; compact?: boolean }) {
-  return <div className="table-scroll"><table className={`data-table ${compact ? "compact-table" : ""}`}><thead><tr><th>Student</th>{!compact && <th>Campus</th>}{!compact && <th>Program</th>}<th>HTE</th>{!compact && <th>HTE representative</th>}<th>Hours</th><th>Attendance</th>{!compact && <th>Requirements</th>}<th>Status</th></tr></thead><tbody>{rows.map((intern) => { const requiredHours = intern.requiredHours ?? 400; const awaitingAssignment = intern.status === "Awaiting Assignment"; return <tr key={intern.studentUserId ?? intern.name}><td><span className="person-cell"><i>{intern.initials}</i><b>{intern.name}</b></span></td>{!compact && <td>{intern.campus}</td>}{!compact && <td>{intern.program}</td>}<td>{intern.hte}</td>{!compact && <td>{intern.hteRepresentative}</td>}<td>{awaitingAssignment ? "—" : <span className="hours-cell">{intern.hours}/{requiredHours}<ProgressBar value={requiredHours ? Math.min(100, intern.hours / requiredHours * 100) : 0} /></span>}</td><td>{awaitingAssignment ? "—" : `${intern.attendance}%`}</td>{!compact && <td>{awaitingAssignment ? "—" : intern.requirements}</td>}<td><StatusBadge status={intern.status} /></td></tr>; })}</tbody></table></div>;
+function InternTable({ rows, compact = false, onView }: { rows: Intern[]; compact?: boolean; onView?: (intern: Intern) => void }) {
+  return <div className="table-scroll"><table className={`data-table ${compact ? "compact-table" : ""}`}><thead><tr><th>Student</th>{!compact && <th>Campus</th>}{!compact && <th>Program</th>}<th>HTE</th>{!compact && <th>HTE representative</th>}<th>Hours</th><th>Attendance</th>{!compact && <th>Requirements</th>}<th>Status</th></tr></thead><tbody>{rows.map((intern) => { const requiredHours = intern.requiredHours ?? 0; const awaitingAssignment = intern.status === "Awaiting Assignment"; return <tr key={intern.studentUserId ?? intern.name}><td><span className="person-cell"><i>{intern.initials}</i><b>{onView ? <button className="table-link" onClick={() => onView(intern)}>{intern.name} · View</button> : intern.name}</b></span></td>{!compact && <td>{intern.campus}</td>}{!compact && <td>{intern.program}</td>}<td>{intern.hte}</td>{!compact && <td>{intern.hteRepresentative}</td>}<td>{awaitingAssignment ? "—" : <span className="hours-cell">{intern.hours}/{requiredHours}<ProgressBar value={requiredHours ? Math.min(100, intern.hours / requiredHours * 100) : 0} /></span>}</td><td>{awaitingAssignment ? "—" : `${intern.attendance}%`}</td>{!compact && <td>{awaitingAssignment ? "—" : intern.requirements}</td>}<td><StatusBadge status={intern.status} /></td></tr>; })}</tbody></table></div>;
 }
 
 function AttendanceReviewDialog({ record, close, onSaved }: { record: AttendanceHistoryRow; close: () => void; onSaved: () => void }) {
   const [remarks, setRemarks] = useState(record.remarks === "—" ? "" : record.remarks);
+  const [confirmation, setConfirmation] = useState<"verified" | "flagged" | "rejected" | null>(null);
+  const lock = useRef(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   async function decide(decision: "verified" | "flagged" | "rejected") {
-    if (decision !== "verified" && !remarks.trim()) return;
+    if (lock.current || (decision !== "verified" && !remarks.trim())) return;
+    lock.current = true;
     setLoading(true);
     setError("");
     try {
       await attendanceService.review(record.id, decision, remarks);
       onSaved();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The attendance decision could not be saved.");
-      setLoading(false);
-    }
+      setError(userError(reason, "The attendance decision could not be saved."));
+    } finally { lock.current = false; setLoading(false); setConfirmation(null); }
   }
-  return <div className="modal-backdrop" role="presentation"><section className="modal attendance-review-modal" role="dialog" aria-modal="true" aria-label="Review attendance session"><button className="modal-close" onClick={close} aria-label="Close attendance review"><X size={20} /></button><span className="modal-icon"><ShieldCheck /></span><h2>Review attendance session</h2><p><strong>{record.studentName}</strong> · {record.date}</p><div className="readonly-event-grid"><div><span>Time In</span><strong>{record.timeIn}</strong><small>Original event · read-only</small></div><div><span>Time Out</span><strong>{record.timeOut}</strong><small>Original event · read-only</small></div></div><label className="field"><span>Verification remarks</span><textarea value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Add the basis for your review decision…" /></label><p className="form-hint">A reason is required when flagging or rejecting a session.</p>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("verified")}>Verify</ActionButton><ActionButton variant="secondary" disabled={loading || !remarks.trim()} onClick={() => void decide("flagged")}>Flag</ActionButton><ActionButton variant="danger" disabled={loading || !remarks.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></section></div>;
+  return <Dialog title="Review attendance session" onClose={close} busy={loading} wide><span className="modal-icon"><ShieldCheck /></span><p><strong>{record.studentName}</strong> · {record.date}</p><div className="readonly-event-grid"><div><span>Time In</span><strong>{record.timeIn}</strong><small>Original event · read-only</small></div><div><span>Time Out</span><strong>{record.timeOut}</strong><small>Original event · read-only</small></div></div><label className="field"><span>Verification remarks</span><textarea value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Add the basis for your review decision…" /></label><p className="form-hint">A reason is required when flagging or rejecting a session.</p>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading} icon={Check} onClick={() => setConfirmation("verified")}>Verify</ActionButton><ActionButton variant="secondary" disabled={loading || !remarks.trim()} icon={Flag} onClick={() => setConfirmation("flagged")}>Flag</ActionButton><ActionButton variant="danger" disabled={loading || !remarks.trim()} icon={X} onClick={() => setConfirmation("rejected")}>Reject</ActionButton></div>{confirmation && <Dialog title={`${confirmation === "verified" ? "Verify" : confirmation === "flagged" ? "Flag" : "Reject"} this attendance session?`} onClose={() => setConfirmation(null)} busy={loading} protectChanges={false}><p>{record.studentName} · {record.date}</p><p>{confirmation === "verified" ? "This session will count toward verified internship hours." : "This session will not count toward verified internship hours until an authorized review resolves it."} The original timestamps and review history are retained.</p><div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => setConfirmation(null)}>Keep reviewing</ActionButton><ActionButton disabled={loading} onClick={() => void decide(confirmation)}>{loading ? "Saving…" : confirmation === "verified" ? "Verify session" : confirmation === "flagged" ? "Flag session" : "Reject session"}</ActionButton></div></Dialog>}</Dialog>;
 }
 
 function AttendancePage({ role }: { role: RoleId }) {
@@ -689,6 +755,10 @@ function AttendancePage({ role }: { role: RoleId }) {
   const hte = role === "hte";
   const [currentSession, setCurrentSession] = useState<AttendanceSession | null>(null);
   const [attendanceRows, setAttendanceRows] = useState(attendanceRecords);
+  const [confirmTimeIn, setConfirmTimeIn] = useState(false);
+  const [attendanceSuccess, setAttendanceSuccess] = useState("");
+  const [historyStudent, setHistoryStudent] = useState<{ id: string; name: string } | null>(null);
+  const attendanceLock = useRef(false);
   const [confirmTimeOut, setConfirmTimeOut] = useState(false);
   const [attendanceLoading, setAttendanceLoading] = useState(true);
   const [attendanceError, setAttendanceError] = useState("");
@@ -709,7 +779,7 @@ function AttendancePage({ role }: { role: RoleId }) {
       setCurrentSession(session);
       setAttendanceRows(rows);
     }).catch((reason) => {
-      if (active) setAttendanceError(reason instanceof Error ? reason.message : "Attendance could not be loaded.");
+      if (active) setAttendanceError(userError(reason, "Attendance could not be loaded."));
     }).finally(() => {
       if (active) setAttendanceLoading(false);
     });
@@ -722,35 +792,45 @@ function AttendancePage({ role }: { role: RoleId }) {
     void internshipService.getStudentProgress().then((summary) => {
       if (active) setProgress(summary);
     }).catch((reason) => {
-      if (active) setAttendanceError(reason instanceof Error ? reason.message : "Progress totals could not be loaded.");
+      if (active) setAttendanceError(userError(reason, "Progress totals could not be loaded."));
     });
     return () => { active = false; };
   }, [student]);
 
   async function recordTimeIn() {
+    if (attendanceLock.current) return;
+    attendanceLock.current = true;
     setAttendanceLoading(true);
     setAttendanceError("");
     try {
-      setCurrentSession(await attendanceService.timeIn());
+      const session = await attendanceService.timeIn();
+      setCurrentSession(session);
+      setConfirmTimeIn(false);
+      setAttendanceSuccess(`Time In recorded: ${formatTimestamp(session.timeIn.occurredAt)}`);
       setAttendanceRows(await attendanceService.listLiveHistory());
     } catch (reason) {
-      setAttendanceError(reason instanceof Error ? reason.message : "Time In could not be recorded.");
+      setAttendanceError(userError(reason, "Time In could not be recorded."));
     } finally {
+      attendanceLock.current = false;
       setAttendanceLoading(false);
     }
   }
 
   async function recordTimeOut() {
-    if (!currentSession) return;
+    if (!currentSession || attendanceLock.current) return;
+    attendanceLock.current = true;
     setAttendanceLoading(true);
     setAttendanceError("");
     try {
-      setCurrentSession(await attendanceService.timeOut(currentSession));
+      const session = await attendanceService.timeOut(currentSession);
+      setCurrentSession(session);
+      setAttendanceSuccess(`Time Out recorded: ${formatTimestamp(session.timeOut!.occurredAt)}`);
       setAttendanceRows(await attendanceService.listLiveHistory());
       setConfirmTimeOut(false);
     } catch (reason) {
-      setAttendanceError(reason instanceof Error ? reason.message : "Time Out could not be recorded.");
+      setAttendanceError(userError(reason, "Time Out could not be recorded."));
     } finally {
+      attendanceLock.current = false;
       setAttendanceLoading(false);
     }
   }
@@ -762,15 +842,16 @@ function AttendancePage({ role }: { role: RoleId }) {
       setAttendanceRows(await attendanceService.listLiveHistory());
       setSelectedReview(null);
     } catch (reason) {
-      setAttendanceError(reason instanceof Error ? reason.message : "Attendance could not be refreshed.");
+      setAttendanceError(userError(reason, "Attendance could not be refreshed."));
     } finally {
+      attendanceLock.current = false;
       setAttendanceLoading(false);
     }
   }
 
   function exportAttendanceCsv() {
     const escape = (value: string) => `"${(/^[=+\-@]/.test(value) ? "'" : "")}${value.replaceAll('"', '""')}"`;
-    const header = ["Student", "Date", "Day", "Time In", "Time Out", "Rendered Hours", "Status", "Verified By", "Remarks"];
+    const header = ["Student", "Date", "Day", "Time In", "Time Out", "Verified Hours", "Status", "Verified By", "Remarks"];
     const rows = attendanceRows.map((record) => [record.studentName, record.date, record.day, record.timeIn, record.timeOut, record.hours, record.status, record.verifiedBy, record.remarks]);
     const blob = new Blob([[header, ...rows].map((row) => row.map(escape).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -782,9 +863,9 @@ function AttendancePage({ role }: { role: RoleId }) {
   }
 
   return <><PageHeader title={student ? "Attendance" : hte ? "Attendance verification" : "Attendance monitoring"} subtitle={student ? "Record immutable Time In and Time Out events and follow their verification status." : "Review attendance sessions without changing the original event timestamps."} />
-    {attendanceError && <p className="form-error"><AlertTriangle size={16} /> {attendanceError}</p>}
-    {student ? <><section className={`attendance-action-card card ${currentSession?.status === "Active" ? "session-active" : ""}`}><div className="attendance-action-copy"><span className="eyebrow dark">Today’s attendance session</span><h2>{!currentSession ? "Ready to record Time In" : currentSession.status === "Active" ? "Attendance session active" : "Attendance submitted for verification"}</h2><p>{!currentSession ? "Press Time In when you begin work at your assigned HTE. Supabase will record the authoritative server timestamp." : currentSession.status === "Active" ? "Your original Time In event is locked. Press Time Out only when your work session ends." : "Both original events are locked. Verified hours will be added to progress only after an authorized reviewer confirms this session."}</p><div className="integrity-note"><ShieldCheck size={18} /><span>Attendance timestamps cannot be typed or edited. They are generated and protected by the PRAXIZ database.</span></div></div><div className="attendance-action-panel">{!currentSession ? <><Clock3 size={32} /><strong>{attendanceLoading ? "Checking today’s session…" : "No active session"}</strong><ActionButton icon={Clock3} disabled={attendanceLoading || !progress} onClick={recordTimeIn}>{attendanceLoading ? "Please wait…" : "Time In"}</ActionButton></> : <><StatusBadge status={currentSession.status} /><dl><div><dt>Time In</dt><dd>{formatTimestamp(currentSession.timeIn.occurredAt)}</dd></div><div><dt>Time Out</dt><dd>{currentSession.timeOut ? formatTimestamp(currentSession.timeOut.occurredAt) : "Not recorded"}</dd></div></dl>{currentSession.status === "Active" && <ActionButton icon={Clock3} disabled={attendanceLoading} onClick={() => setConfirmTimeOut(true)}>Time Out</ActionButton>}{currentSession.status === "Pending Verification" && <span className="pending-copy"><Clock3 size={17} /> Awaiting authorized review</span>}</>}</div></section><section className="card hours-overview"><div><strong>{renderedHours} hrs</strong><span>Verified rendered hours</span></div><div><strong>{requiredHours} hrs</strong><span>Required internship hours</span></div><div><strong className="orange-text">{remainingHours} hrs</strong><span>Remaining verified hours</span></div><div className="hours-progress"><div className="metric-row"><span>{renderedHours} of {requiredHours} verified hours</span><strong>{hoursPercent}%</strong></div><ProgressBar value={hoursPercent} /></div></section><div className="stats-grid three"><StatCard label="Attendance rate" value={`${progress?.attendanceRate ?? 0}%`} icon={CalendarCheck2} /><StatCard label="Recorded sessions" value={String(attendanceRows.length)} detail="loaded from Supabase" icon={CheckCircle2} tone="green" /><StatCard label="Timestamp source" value="Server" icon={Clock3} tone="violet" /></div></> : <><div className="verification-principle"><ShieldCheck size={20} /><p><strong>Original event protection:</strong> reviewers may verify, flag, or reject a session and add remarks. Time In and Time Out values are read-only.</p></div><div className="stats-grid three"><StatCard label="Visible sessions" value={String(attendanceRows.length)} icon={Clock3} tone="orange" /><StatCard label="Verified" value={String(attendanceRows.filter((row) => row.status === "Verified").length)} icon={CheckCircle2} tone="green" /><StatCard label="Flagged or rejected" value={String(attendanceRows.filter((row) => row.status === "Flagged" || row.status === "Rejected").length)} icon={AlertTriangle} tone="red" /></div></>}
-    <section className="card table-card"><div className="card-title"><h2>{student ? "Attendance history" : "Sessions for review"}</h2><div className="inline-actions"><ActionButton variant="secondary" icon={Download} disabled={attendanceRows.length === 0} onClick={exportAttendanceCsv}>Export CSV</ActionButton></div></div><div className="table-scroll"><table className="data-table"><thead><tr>{!student && <th>Student</th>}<th>Date</th><th>Day</th><th>Time In</th><th>Time Out</th><th>Rendered hours</th><th>Status</th><th>Verified by</th><th>Remarks</th>{!student && <th>Action</th>}</tr></thead><tbody>{attendanceRows.map((record) => <tr key={record.id}>{!student && <td><b>{record.studentName}</b></td>}<td><b>{record.date}</b></td><td>{record.day}</td><td>{record.timeIn}</td><td>{record.timeOut}</td><td>{record.hours}</td><td><StatusBadge status={record.status} /></td><td>{record.verifiedBy}</td><td>{record.remarks}</td>{!student && <td><button className="table-link" onClick={() => setSelectedReview(record)}>Review</button></td>}</tr>)}{!attendanceLoading && attendanceRows.length === 0 && <tr><td colSpan={student ? 8 : 10}>No attendance sessions are available yet.</td></tr>}</tbody></table></div></section>{confirmTimeOut && <ConfirmDialog title="End attendance session?" message="Time Out will be recorded using the Supabase server timestamp. The resulting event cannot be edited." confirmLabel={attendanceLoading ? "Recording…" : "Record Time Out"} onCancel={() => setConfirmTimeOut(false)} onConfirm={recordTimeOut} />}{selectedReview && <AttendanceReviewDialog record={selectedReview} close={() => setSelectedReview(null)} onSaved={() => { void refreshAttendance(); }} />}</>;
+    {attendanceSuccess && <p className="inline-success" role="status">{attendanceSuccess}</p>}{attendanceError && <p className="form-error"><AlertTriangle size={16} /> {attendanceError}</p>}
+    {student ? <><section className={`attendance-action-card card ${currentSession?.status === "Active" ? "session-active" : ""}`}><div className="attendance-action-copy"><span className="eyebrow dark">Today’s attendance session</span><h2>{!currentSession ? "Ready to record Time In" : currentSession.status === "Active" ? "Attendance session active" : "Attendance submitted for verification"}</h2><p>{!currentSession ? "Press Time In when you begin work at your assigned HTE. Supabase will record the authoritative server timestamp." : currentSession.status === "Active" ? "Your original Time In event is locked. Press Time Out only when your work session ends." : "Both original events are locked. Verified hours will be added to progress only after an authorized reviewer confirms this session."}</p><div className="integrity-note"><ShieldCheck size={18} /><span>Attendance timestamps cannot be typed or edited. They are generated and protected by the PRAXIZ database.</span></div></div><div className="attendance-action-panel">{!currentSession ? <><Clock3 size={32} /><strong>{attendanceLoading ? "Checking today’s session…" : "No active session"}</strong><ActionButton icon={Clock3} disabled={attendanceLoading || !progress} onClick={() => setConfirmTimeIn(true)}>{attendanceLoading ? "Please wait…" : "Time In"}</ActionButton></> : <><StatusBadge status={currentSession.status} /><dl><div><dt>Time In</dt><dd>{formatTimestamp(currentSession.timeIn.occurredAt)}</dd></div><div><dt>Time Out</dt><dd>{currentSession.timeOut ? formatTimestamp(currentSession.timeOut.occurredAt) : "Not recorded"}</dd></div></dl>{currentSession.status === "Active" && <ActionButton icon={Clock3} disabled={attendanceLoading} onClick={() => setConfirmTimeOut(true)}>Time Out</ActionButton>}{currentSession.status === "Pending Verification" && <span className="pending-copy"><Clock3 size={17} /> Awaiting authorized review</span>}</>}</div></section><section className="card hours-overview"><div><strong>{renderedHours} hrs</strong><span>Verified rendered hours</span></div><div><strong>{requiredHours} hrs</strong><span>Required internship hours</span></div><div><strong className="orange-text">{remainingHours} hrs</strong><span>Remaining verified hours</span></div><div className="hours-progress"><div className="metric-row"><span>{renderedHours} of {requiredHours} verified hours</span><strong>{hoursPercent}%</strong></div><ProgressBar value={hoursPercent} /></div></section><div className="stats-grid three"><StatCard label="Attendance rate" value={`${progress?.attendanceRate ?? 0}%`} icon={CalendarCheck2} /><StatCard label="Recorded sessions" value={String(attendanceRows.length)} detail="loaded from Supabase" icon={CheckCircle2} tone="green" /><StatCard label="Timestamp source" value="Server" icon={Clock3} tone="violet" /></div></> : <><div className="verification-principle"><ShieldCheck size={20} /><p><strong>Original event protection:</strong> reviewers may verify, flag, or reject a session and add remarks. Time In and Time Out values are read-only.</p></div><div className="stats-grid three"><StatCard label="Visible sessions" value={String(attendanceRows.length)} icon={Clock3} tone="orange" /><StatCard label="Verified" value={String(attendanceRows.filter((row) => row.status === "Verified").length)} icon={CheckCircle2} tone="green" /><StatCard label="Flagged or rejected" value={String(attendanceRows.filter((row) => row.status === "Flagged" || row.status === "Rejected").length)} icon={AlertTriangle} tone="red" /></div></>}
+    <section className="card table-card"><div className="card-title"><h2>{student ? "Attendance history" : "Sessions for review"}</h2><div className="inline-actions"><ActionButton variant="secondary" icon={Download} disabled={attendanceRows.length === 0} onClick={exportAttendanceCsv}>Export CSV</ActionButton></div></div><div className="table-scroll"><table className="data-table"><thead><tr>{!student && <th>Student</th>}<th>Date</th><th>Day</th><th>Time In</th><th>Time Out</th><th>Verified hours</th><th>Status</th><th>Verified by</th><th>Remarks</th>{!student && <th>Action</th>}</tr></thead><tbody>{attendanceRows.map((record) => <tr key={record.id}>{!student && <td><button className="table-link" disabled={!record.studentUserId} onClick={() => setHistoryStudent({ id: record.studentUserId!, name: record.studentName })}>{record.studentName} · View history</button></td>}<td><b>{record.date}</b></td><td>{record.day}</td><td>{record.timeIn}</td><td>{record.timeOut}</td><td>{record.hours}</td><td><StatusBadge status={record.status} /></td><td>{record.verifiedBy}</td><td>{record.remarks}</td>{!student && <td><button className="table-link" onClick={() => setSelectedReview(record)}>Review</button></td>}</tr>)}{!attendanceLoading && attendanceRows.length === 0 && <tr><td colSpan={student ? 8 : 10}>No attendance sessions are available yet.</td></tr>}</tbody></table></div></section>{confirmTimeIn && <ConfirmDialog title="Record Time In?" message="Your Time In will use the server timestamp at confirmation. This event cannot be edited." confirmLabel={attendanceLoading ? "Recording…" : "Record Time In"} busy={attendanceLoading} onCancel={() => setConfirmTimeIn(false)} onConfirm={recordTimeIn} />}{historyStudent && <StudentAttendanceHistory studentId={historyStudent.id} name={historyStudent.name} onClose={() => setHistoryStudent(null)} />}{confirmTimeOut && <ConfirmDialog busy={attendanceLoading} title="End attendance session?" message="Time Out will be recorded using the Supabase server timestamp. The resulting event cannot be edited." confirmLabel={attendanceLoading ? "Recording…" : "Record Time Out"} onCancel={() => setConfirmTimeOut(false)} onConfirm={recordTimeOut} />}{selectedReview && <AttendanceReviewDialog record={selectedReview} close={() => setSelectedReview(null)} onSaved={() => { void refreshAttendance(); }} />}</>;
 }
 
 function StudentDailyLogDialog({ log, close, onSaved }: { log: DailyLogRecord | null; close: () => void; onSaved: () => void }) {
@@ -795,19 +876,24 @@ function StudentDailyLogDialog({ log, close, onSaved }: { log: DailyLogRecord | 
   const [challenges, setChallenges] = useState(log?.challenges ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const saveLock = useRef(false);
   async function save(status: "draft" | "submitted") {
+    if (saveLock.current) return;
+    saveLock.current = true;
     setLoading(true);
     setError("");
     try {
       await dailyLogService.save({ id: log?.id, logDate, hours: Number(hours), activities, learnings, challenges }, status);
       onSaved();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The daily log could not be saved.");
+      setError(userError(reason, "The daily log could not be saved."));
+    } finally {
+      saveLock.current = false;
       setLoading(false);
     }
   }
-  if (log && !["Draft", "Needs Revision"].includes(log.status)) return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label="View daily log"><button className="modal-close" onClick={close} aria-label="Close daily log"><X size={20} /></button><span className="modal-icon"><FileText /></span><h2>Daily log</h2><p><strong>{log.date}</strong> · {log.hours} hours · <StatusBadge status={log.status} /></p><div className="readonly-summary"><strong>Activities performed</strong><p>{log.summary}</p>{log.learnings && <><strong>Key learnings</strong><p>{log.learnings}</p></>}{log.challenges && <><strong>Challenges</strong><p>{log.challenges}</p></>}{log.latestFeedback && <><strong>Latest reviewer feedback</strong><p>{log.latestFeedback}</p></>}</div><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></section></div>;
-  return <div className="modal-backdrop" role="presentation"><section className="modal daily-log-modal" role="dialog" aria-modal="true" aria-label={log ? "Edit daily log" : "Add daily log"}><button className="modal-close" onClick={close} aria-label="Close daily log form"><X size={20} /></button><header className="modal-heading"><span className="modal-icon"><FileText /></span><div><span className="settings-kicker">Internship activity record</span><h2>{log ? "Edit daily log" : "Add daily log"}</h2><p>Save a private draft, or submit the entry to your authorized reviewers.</p></div></header><form onSubmit={(event) => { event.preventDefault(); void save("submitted"); }}><fieldset className="daily-log-section"><legend>1. Log information</legend><p>Use the actual work date and hours completed at your assigned HTE.</p><div className="two-fields"><label className="field"><span>Work date *</span><input required type="date" value={logDate} onChange={(event) => setLogDate(event.target.value)} /></label><label className="field"><span>Rendered hours *</span><input required type="number" min="0.25" max="24" step="0.25" value={hours} onChange={(event) => setHours(event.target.value)} /></label></div></fieldset><fieldset className="daily-log-section"><legend>2. Work and learning</legend><label className="field"><span>Activities performed *</span><textarea required minLength={3} value={activities} onChange={(event) => setActivities(event.target.value)} placeholder="Describe the work you completed and your responsibilities for the day." /></label><div className="two-fields"><label className="field"><span>Key learnings</span><textarea value={learnings} onChange={(event) => setLearnings(event.target.value)} placeholder="Skills, knowledge, or insights gained" /></label><label className="field"><span>Challenges encountered</span><textarea value={challenges} onChange={(event) => setChallenges(event.target.value)} placeholder="Optional blockers or issues that need follow-up" /></label></div></fieldset>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="daily-log-actions"><p><strong>Draft</strong> stays editable. <strong>Submit</strong> sends this entry for review.</p><div className="modal-actions"><ActionButton type="button" variant="ghost" onClick={close}>Cancel</ActionButton><ActionButton type="button" variant="secondary" disabled={loading || !activities.trim()} onClick={() => void save("draft")}>Save Draft</ActionButton><ActionButton type="submit" disabled={loading || !activities.trim()}>{loading ? "Saving…" : "Submit daily log"}</ActionButton></div></div></form></section></div>;
+  if (log && !["Draft", "Needs Revision"].includes(log.status)) return <Dialog title="View daily log" onClose={close} busy={loading}><span className="modal-icon"><FileText /></span><p><strong>{log.date}</strong> · {log.hours} hours · <StatusBadge status={log.status} /></p><div className="readonly-summary"><strong>Activities performed</strong><p>{log.summary}</p>{log.learnings && <><strong>Key learnings</strong><p>{log.learnings}</p></>}{log.challenges && <><strong>Challenges</strong><p>{log.challenges}</p></>}{log.latestFeedback && <><strong>Latest reviewer feedback</strong><p>{log.latestFeedback}</p></>}</div><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></Dialog>;
+  return <Dialog title={log ? "Edit daily log" : "Add daily log"} onClose={close} busy={loading} wide><header className="modal-heading"><span className="modal-icon"><FileText /></span><div><span className="settings-kicker">Internship activity record</span><p>Save a private draft, or submit the entry to your authorized reviewers.</p></div></header><form onSubmit={(event) => { event.preventDefault(); void save("submitted"); }}><fieldset className="daily-log-section"><legend>1. Log information</legend><p>Use the actual work date and hours completed at your assigned HTE.</p><div className="two-fields"><label className="field"><span>Work date *</span><input required type="date" value={logDate} onChange={(event) => setLogDate(event.target.value)} /></label><label className="field"><span>Rendered hours *</span><input required type="number" min="0.25" max="24" step="0.25" value={hours} onChange={(event) => setHours(event.target.value)} /></label></div></fieldset><fieldset className="daily-log-section"><legend>2. Work and learning</legend><label className="field"><span>Activities performed *</span><textarea required minLength={3} value={activities} onChange={(event) => setActivities(event.target.value)} placeholder="Describe the work you completed and your responsibilities for the day." /></label><div className="two-fields"><label className="field"><span>Key learnings</span><textarea value={learnings} onChange={(event) => setLearnings(event.target.value)} placeholder="Skills, knowledge, or insights gained" /></label><label className="field"><span>Challenges encountered</span><textarea value={challenges} onChange={(event) => setChallenges(event.target.value)} placeholder="Optional blockers or issues that need follow-up" /></label></div></fieldset>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="daily-log-actions"><p><strong>Draft</strong> stays editable. <strong>Submit</strong> sends this entry for review.</p><div className="modal-actions"><ActionButton type="button" variant="ghost" onClick={close}>Cancel</ActionButton><ActionButton type="button" variant="secondary" disabled={loading || !activities.trim()} onClick={() => void save("draft")}>Save Draft</ActionButton><ActionButton type="submit" disabled={loading || !activities.trim()}>{loading ? "Saving…" : "Submit daily log"}</ActionButton></div></div></form></Dialog>;
 }
 
 function DailyLogDialog({ log, student, close, onSaved }: { log: DailyLogRecord | null; student: boolean; close: () => void; onSaved: () => void }) {
@@ -827,14 +913,14 @@ function DailyLogDialog({ log, student, close, onSaved }: { log: DailyLogRecord 
       await dailyLogService.review(log.id, decision, feedback);
       onSaved();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The review decision could not be recorded.");
+      setError(userError(reason, "The review decision could not be recorded."));
       setLoading(false);
     }
   }
 
   if (student) return <StudentDailyLogDialog log={log} close={close} onSaved={onSaved} />;
 
-  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label="Review daily log"><button className="modal-close" onClick={close} aria-label="Close daily log review"><X size={20} /></button><span className="modal-icon"><ShieldCheck /></span><h2>Review daily log</h2>{log && <><p><strong>{log.studentName}</strong> · {log.date} · {log.hours} hours</p><div className="readonly-summary"><strong>Activities performed</strong><p>{log.summary}</p>{log.learnings && <><strong>Key learnings</strong><p>{log.learnings}</p></>}{log.challenges && <><strong>Challenges</strong><p>{log.challenges}</p></>}</div><label className="field"><span>Review feedback</span><textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Enter clear, traceable feedback…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void review("approved")}>Approve</ActionButton><ActionButton variant="secondary" disabled={loading || !feedback.trim()} onClick={() => void review("needs_revision")}>Request revision</ActionButton><ActionButton variant="danger" disabled={loading || !feedback.trim()} onClick={() => void review("rejected")}>Reject</ActionButton></div></>}</section></div>;
+  return <Dialog title="Review daily log" onClose={close} busy={loading}><span className="modal-icon"><ShieldCheck /></span>{log && <><p><strong>{log.studentName}</strong> · {log.date} · {log.hours} hours</p><div className="readonly-summary"><strong>Activities performed</strong><p>{log.summary}</p>{log.learnings && <><strong>Key learnings</strong><p>{log.learnings}</p></>}{log.challenges && <><strong>Challenges</strong><p>{log.challenges}</p></>}</div><label className="field"><span>Review feedback</span><textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Enter clear, traceable feedback…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void review("approved")}>Approve</ActionButton><ActionButton variant="secondary" disabled={loading || !feedback.trim()} onClick={() => void review("needs_revision")}>Request revision</ActionButton><ActionButton variant="danger" disabled={loading || !feedback.trim()} onClick={() => void review("rejected")}>Reject</ActionButton></div></>}</Dialog>;
 }
 
 function DailyLogsPage({ role }: { role: RoleId }) {
@@ -843,9 +929,10 @@ function DailyLogsPage({ role }: { role: RoleId }) {
   const [selected, setSelected] = useState<DailyLogRecord | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   async function load() {
     try { setRecords(await dailyLogService.listLive()); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Daily logs could not be loaded."); }
+    catch (reason) { setError(userError(reason, "Daily logs could not be loaded.")); }
     finally { setLoading(false); }
   }
   useEffect(() => {
@@ -853,7 +940,7 @@ function DailyLogsPage({ role }: { role: RoleId }) {
     void dailyLogService.listLive().then((result) => {
       if (active) setRecords(result);
     }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Daily logs could not be loaded.");
+      if (active) setError(userError(reason, "Daily logs could not be loaded."));
     }).finally(() => {
       if (active) setLoading(false);
     });
@@ -861,7 +948,7 @@ function DailyLogsPage({ role }: { role: RoleId }) {
   }, []);
   const approved = records.filter((log) => log.status === "Approved").length;
   const pending = records.filter((log) => log.status === "Submitted").length;
-  return <><PageHeader title="Daily logs" subtitle={student ? "Record and track your daily internship activities." : "Review internship activities submitted by your assigned interns."} action={student ? <ActionButton icon={Plus} onClick={() => setSelected(null)}>Add daily log</ActionButton> : undefined} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Total records" value={String(records.length)} detail="loaded from Supabase" icon={FileText} /><StatCard label="Approved" value={String(approved)} detail="by an authorized reviewer" icon={CheckCircle2} tone="green" /><StatCard label="Pending review" value={String(pending)} detail="awaiting feedback" icon={Clock3} tone="orange" /></div><section className="card table-card"><h2>Log history</h2><div className="table-scroll"><table className="data-table"><thead><tr>{!student && <th>Student</th>}<th>Date</th><th>Hours</th><th>Activities summary</th><th>Submitted</th><th>Status</th><th>Actions</th></tr></thead><tbody>{records.map((log) => <tr key={log.id}>{!student && <td><b>{log.studentName}</b></td>}<td><b>{log.date}</b></td><td>{log.hours}</td><td className="summary-cell">{log.summary}</td><td>{log.submitted}</td><td><StatusBadge status={log.status} /></td><td>{student && ["Draft", "Needs Revision"].includes(log.status) ? <button className="table-link" onClick={() => setSelected(log)}>Edit</button> : <button className="table-link" onClick={() => setSelected(log)}>{student ? "View" : "Review"}</button>}</td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={student ? 6 : 7}>No daily logs are available yet.</td></tr>}</tbody></table></div></section>{selected !== undefined && <DailyLogDialog log={selected} student={student} close={() => setSelected(undefined)} onSaved={() => { setSelected(undefined); setLoading(true); setError(""); void load(); }} />}</>;
+  return <><PageHeader title="Daily logs" subtitle={student ? "Record and track your daily internship activities." : "Review internship activities submitted by your assigned interns."} action={student ? <ActionButton icon={Plus} onClick={() => setSelected(null)}>Add daily log</ActionButton> : undefined} />{notice && <p className="form-success" role="status">{notice}</p>}{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Total records" value={String(records.length)} detail="loaded from Supabase" icon={FileText} /><StatCard label="Approved" value={String(approved)} detail="by an authorized reviewer" icon={CheckCircle2} tone="green" /><StatCard label="Pending review" value={String(pending)} detail="awaiting feedback" icon={Clock3} tone="orange" /></div><section className="card table-card"><h2>Log history</h2><div className="table-scroll"><table className="data-table"><thead><tr>{!student && <th>Student</th>}<th>Date</th><th>Hours</th><th>Activities summary</th><th>Submitted</th><th>Status</th><th>Actions</th></tr></thead><tbody>{records.map((log) => <tr key={log.id}>{!student && <td><b>{log.studentName}</b></td>}<td><b>{log.date}</b></td><td>{log.hours}</td><td className="summary-cell">{log.summary}</td><td>{log.submitted}</td><td><StatusBadge status={log.status} /></td><td>{student && ["Draft", "Needs Revision"].includes(log.status) ? <button className="table-link" onClick={() => setSelected(log)}>Edit</button> : <button className="table-link" onClick={() => setSelected(log)}>{student ? "View" : "Review"}</button>}</td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={student ? 6 : 7}>No daily logs are available yet.</td></tr>}</tbody></table></div></section>{selected !== undefined && <DailyLogDialog log={selected} student={student} close={() => setSelected(undefined)} onSaved={() => { setNotice("Daily log changes saved."); setSelected(undefined); setLoading(true); setError(""); void load(); }} />}</>;
 }
 
 function DocumentUploadDialog({ record, close, onSaved }: { record: DocumentRecord; close: () => void; onSaved: () => void }) {
@@ -878,11 +965,11 @@ function DocumentUploadDialog({ record, close, onSaved }: { record: DocumentReco
       await documentService.upload(record, selectedFile, notes);
       onSaved();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The document could not be uploaded.");
+      setError(userError(reason, "The document could not be uploaded."));
       setLoading(false);
     }
   }
-  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={`Upload ${record.templateName}`}><button className="modal-close" onClick={close} aria-label="Close document upload"><X size={20} /></button><span className="modal-icon"><Upload /></span><h2>{record.status === "Needs Revision" ? "Replace" : "Upload"} {record.templateName}</h2><p>The file will be stored in the private PRAXIZ document bucket and submitted as a new immutable version.</p><form onSubmit={submit}><label className="field"><span>Document file</span><input type="file" required accept={record.allowedMimeTypes.join(",")} onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} /><small>Maximum {Math.round(record.maxFileSizeBytes / 1024 / 1024)} MB · {record.allowedMimeTypes.join(", ")}</small></label><label className="field"><span>Submission notes (optional)</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add context for the reviewer…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !selectedFile}>{loading ? "Uploading…" : "Upload and submit"}</ActionButton></div></form></section></div>;
+  return <Dialog title={`Upload ${record.templateName}`} onClose={close} busy={loading}><span className="modal-icon"><Upload /></span><p>The file will be stored in the private PRAXIZ document bucket and submitted as a new immutable version.</p><form onSubmit={submit}><label className="field"><span>Document file</span><input type="file" required accept={record.allowedMimeTypes.join(",")} onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} /><small>Maximum {Math.round(record.maxFileSizeBytes / 1024 / 1024)} MB · {record.allowedMimeTypes.join(", ")}</small></label><label className="field"><span>Submission notes (optional)</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add context for the reviewer…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !selectedFile}>{loading ? "Uploading…" : "Upload and submit"}</ActionButton></div></form></Dialog>;
 }
 
 function DocumentReviewDialog({ record, close, onSaved }: { record: DocumentRecord; close: () => void; onSaved: () => void }) {
@@ -897,11 +984,11 @@ function DocumentReviewDialog({ record, close, onSaved }: { record: DocumentReco
       await documentService.review(record, decision, feedback);
       onSaved();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The document decision could not be saved.");
+      setError(userError(reason, "The document decision could not be saved."));
       setLoading(false);
     }
   }
-  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={`Review ${record.templateName}`}><button className="modal-close" onClick={close} aria-label="Close document review"><X size={20} /></button><span className="modal-icon"><FileCheck2 /></span><h2>Review document</h2><p><strong>{record.studentName}</strong><br />{record.templateName} · {record.fileName}</p><div className="inline-actions"><ActionButton variant="secondary" icon={Eye} onClick={() => { void documentService.open(record); }}>Open submitted file</ActionButton></div><label className="field"><span>Review feedback</span><textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Enter clear, traceable feedback…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("approved")}>Approve</ActionButton><ActionButton variant="secondary" disabled={loading || !feedback.trim()} onClick={() => void decide("needs_revision")}>Request revision</ActionButton><ActionButton variant="danger" disabled={loading || !feedback.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></section></div>;
+  return <Dialog title={`Review ${record.templateName}`} onClose={close} busy={loading}><span className="modal-icon"><FileCheck2 /></span><p><strong>{record.studentName}</strong><br />{record.templateName} · {record.fileName}</p><div className="inline-actions"><ActionButton variant="secondary" icon={Eye} onClick={() => { void documentService.open(record); }}>Open submitted file</ActionButton></div><label className="field"><span>Review feedback</span><textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Enter clear, traceable feedback…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("approved")}>Approve</ActionButton><ActionButton variant="secondary" disabled={loading || !feedback.trim()} onClick={() => void decide("needs_revision")}>Request revision</ActionButton><ActionButton variant="danger" disabled={loading || !feedback.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></Dialog>;
 }
 
 function DocumentsPage({ role }: { role: RoleId }) {
@@ -915,7 +1002,7 @@ function DocumentsPage({ role }: { role: RoleId }) {
     setLoading(true);
     setError("");
     try { setRecords(await documentService.listLive()); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Documents could not be loaded."); }
+    catch (reason) { setError(userError(reason, "Documents could not be loaded.")); }
     finally { setLoading(false); }
   }
   useEffect(() => {
@@ -923,7 +1010,7 @@ function DocumentsPage({ role }: { role: RoleId }) {
     void documentService.listLive().then((result) => {
       if (active) setRecords(result);
     }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Documents could not be loaded.");
+      if (active) setError(userError(reason, "Documents could not be loaded."));
     }).finally(() => {
       if (active) setLoading(false);
     });
@@ -935,101 +1022,12 @@ function DocumentsPage({ role }: { role: RoleId }) {
   async function openDocument(record: DocumentRecord, download = false) {
     setError("");
     try { await documentService.open(record, download); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "The secure document link could not be opened."); }
+    catch (reason) { setError(userError(reason, "The secure document link could not be opened.")); }
   }
   return <><PageHeader title={role === "coordinator" ? "Document compliance" : "Documents"} subtitle={canUpload ? "Manage your internship requirements and secure document submissions." : "Review live requirement status and follow up on incomplete records."} action={canUpload && nextUpload ? <ActionButton icon={Upload} onClick={() => setUploadRecord(nextUpload)}>Upload next requirement</ActionButton> : undefined} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card compliance-card"><div className="metric-row"><span>Approved document requirements</span><strong>{completed} of {records.length} ({percent}%)</strong></div><ProgressBar value={percent} /></section>{(["Pre-Internship", "During Internship", "Post-Internship"] as const).map((phase) => <section className="card document-group" key={phase}><h2>{phase}</h2>{records.filter((record) => record.phase === phase).map((record) => <article className="document-row" key={record.id}><span className={`document-icon document-${record.status.toLowerCase().replaceAll(" ", "-")}`}><FileText size={21} /></span><div><strong>{record.templateName}</strong><small>{!canUpload && `${record.studentName} · `}{record.fileName} · {record.dueAt}</small><p>{record.latestFeedback || (record.objectPath ? "Submitted securely to PRAXIZ." : "A file has not been submitted yet.")}</p></div><StatusBadge status={record.status} /><div className="document-actions">{record.objectPath && <ActionButton variant="secondary" onClick={() => { void openDocument(record); }}>Preview</ActionButton>}{record.objectPath && <ActionButton variant="secondary" icon={Download} onClick={() => { void openDocument(record, true); }}>Download</ActionButton>}{canUpload && (record.status === "Missing" || record.status === "Needs Revision" || record.status === "Rejected") && <ActionButton onClick={() => setUploadRecord(record)}>{record.status === "Missing" ? "Upload" : "Replace"}</ActionButton>}{!canUpload && record.submissionId && (record.status === "Under Review" || record.status === "Submitted") && <ActionButton onClick={() => setReviewRecord(record)}>Review</ActionButton>}</div></article>)}{!loading && records.filter((record) => record.phase === phase).length === 0 && <p className="muted-note">No visible requirements in this phase.</p>}</section>)}{uploadRecord && <DocumentUploadDialog record={uploadRecord} close={() => setUploadRecord(null)} onSaved={() => { setUploadRecord(null); void load(); }} />}{reviewRecord && <DocumentReviewDialog record={reviewRecord} close={() => setReviewRecord(null)} onSaved={() => { setReviewRecord(null); void load(); }} />}</>;
 }
 
-function EvaluationEditorDialog({ record, assignments, template, close, onSaved }: { record: EvaluationRecord | null; assignments: EvaluationAssignment[]; template: { id: string; name: string; criteria: EvaluationCriterionRecord[] }; close: () => void; onSaved: () => void }) {
-  const startingCriteria = record?.criteria.length ? record.criteria : template.criteria;
-  const [assignmentId, setAssignmentId] = useState(record?.assignmentId ?? assignments[0]?.id ?? "");
-  const [criteria, setCriteria] = useState(startingCriteria);
-  const [strengths, setStrengths] = useState(record?.strengths ?? "");
-  const [areas, setAreas] = useState(record?.areasForImprovement ?? "");
-  const [remarks, setRemarks] = useState(record?.overallRemarks ?? "");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const complete = Boolean(assignmentId) && criteria.length > 0 && criteria.every((criterion) => criterion.score >= criterion.minimumScore && criterion.score <= criterion.maximumScore);
-  async function save(submit: boolean) {
-    if (!assignmentId || (submit && !complete)) return;
-    setLoading(true);
-    setError("");
-    try {
-      await evaluationService.save({ id: record?.id, assignmentId, templateId: record?.templateId ?? template.id, strengths, areasForImprovement: areas, overallRemarks: remarks, criteria: criteria.map((criterion) => ({ id: criterion.id, score: criterion.score })), submit });
-      onSaved();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The evaluation could not be saved.");
-      setLoading(false);
-    }
-  }
-  return <div className="modal-backdrop" role="presentation"><section className="modal evaluation-editor-modal" role="dialog" aria-modal="true" aria-label="Evaluate intern"><button className="modal-close" onClick={close} aria-label="Close evaluation editor"><X size={20} /></button><span className="modal-icon"><Star /></span><h2>{record ? "Edit evaluation" : template.name}</h2>{record?.status === "Returned" && <div className="evaluation-feedback"><AlertTriangle size={19} /><div><strong>Returned for revision</strong><p>{record.reviewFeedback}</p>{record.reviewedAt && <small>Reviewed {record.reviewedAt}</small>}</div></div>}<label className="field"><span>Intern</span><select value={assignmentId} disabled={Boolean(record)} onChange={(event) => setAssignmentId(event.target.value)}><option value="" disabled>Select an assigned intern</option>{assignments.map((assignment) => <option key={assignment.id} value={assignment.id}>{assignment.studentName}</option>)}</select></label><div className="criteria-list">{criteria.map((criterion, index) => <div className="criterion" key={criterion.id}><div><strong>{criterion.label}</strong><small>{criterion.description}</small></div><div className="score-selector" aria-label={`${criterion.label} score`}>{Array.from({ length: criterion.maximumScore - criterion.minimumScore + 1 }, (_, offset) => criterion.minimumScore + offset).map((score) => <button type="button" className={score <= criterion.score ? "filled" : ""} key={score} onClick={() => setCriteria(criteria.map((item, itemIndex) => itemIndex === index ? { ...item, score } : item))}>{score}</button>)}</div><span className="score-text">{criterion.score || "—"} / {criterion.maximumScore}</span></div>)}</div><div className="evaluation-notes"><label className="field"><span>Strengths</span><textarea value={strengths} onChange={(event) => setStrengths(event.target.value)} /></label><label className="field"><span>Areas for improvement</span><textarea value={areas} onChange={(event) => setAreas(event.target.value)} /></label><label className="field full"><span>Overall remarks</span><textarea value={remarks} onChange={(event) => setRemarks(event.target.value)} /></label></div>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" disabled={loading || !assignmentId} onClick={() => void save(false)}>Save draft</ActionButton><ActionButton icon={Send} disabled={loading || !complete} onClick={() => void save(true)}>{loading ? "Saving…" : record?.status === "Returned" ? "Resubmit evaluation" : "Submit evaluation"}</ActionButton></div></section></div>;
-}
-
-function EvaluationDetail({ record, canFinalize, onReviewed }: { record: EvaluationRecord; canFinalize: boolean; onReviewed: () => void }) {
-  const [loading, setLoading] = useState(false);
-  const [feedback, setFeedback] = useState("");
-  const [error, setError] = useState("");
-  const calculated = record.criteria.length ? record.criteria.reduce((sum, criterion) => sum + criterion.score * criterion.weight, 0) / record.criteria.reduce((sum, criterion) => sum + criterion.weight, 0) : 0;
-  const average = (record.weightedScore ?? calculated).toFixed(1);
-  async function review(decision: "finalized" | "returned") {
-    if (decision === "returned" && !feedback.trim()) {
-      setError("Enter clear feedback before returning this evaluation.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try { await evaluationService.review(record.id, decision, feedback); setFeedback(""); onReviewed(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "The evaluation review could not be saved."); setLoading(false); }
-  }
-  return <><section className="card evaluation-card"><div className="evaluation-heading"><div><h2>{record.templateName} — {record.studentName}</h2><p>{record.status} · {record.evaluatorName} · {record.submittedAt}</p></div><div><strong>{average}</strong><span>out of 5.0</span></div></div>{record.status === "Returned" && <div className="evaluation-feedback"><AlertTriangle size={19} /><div><strong>Coordinator feedback</strong><p>{record.reviewFeedback}</p>{record.reviewedAt && <small>Reviewed {record.reviewedAt}</small>}</div></div>}<div className="criteria-list">{record.criteria.map((criterion) => <div className="criterion" key={criterion.id}><div><strong>{criterion.label}</strong><small>{criterion.description}</small></div><div className="score-selector" aria-label={`${criterion.label} score`}>{Array.from({ length: criterion.maximumScore - criterion.minimumScore + 1 }, (_, offset) => criterion.minimumScore + offset).map((score) => <button disabled className={score <= criterion.score ? "filled" : ""} key={score}>{score}</button>)}</div><span className="score-text">{criterion.score}.0 / {criterion.maximumScore}</span></div>)}</div>{canFinalize && record.status === "Submitted" && <div className="evaluation-review-panel"><label className="field"><span>Coordinator feedback <small>(required when returning)</small></span><textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Explain what the evaluator should revise…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="evaluation-submit"><ActionButton variant="secondary" disabled={loading} onClick={() => void review("returned")}>Return for revision</ActionButton><ActionButton icon={ShieldCheck} disabled={loading} onClick={() => void review("finalized")}>{loading ? "Saving review…" : "Finalize evaluation"}</ActionButton></div></div>}{error && !(canFinalize && record.status === "Submitted") && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}</section><div className="evaluation-notes"><section className="card"><h3>Strengths</h3><p>{record.strengths || "No strengths were entered."}</p></section><section className="card"><h3>Areas for improvement</h3><p>{record.areasForImprovement || "No areas for improvement were entered."}</p></section><section className="card full"><h3>Overall remarks</h3><p>{record.overallRemarks || "No overall remarks were entered."}</p></section></div></>;
-}
-
-function EvaluationsPage({ role }: { role: RoleId }) {
-  const student = role === "student";
-  const canEvaluate = hasPermission(role, "evaluations:score");
-  const canFinalize = role === "coordinator" || role === "admin";
-  const [records, setRecords] = useState<EvaluationRecord[]>([]);
-  const [assignments, setAssignments] = useState<EvaluationAssignment[]>([]);
-  const [template, setTemplate] = useState<{ id: string; name: string; criteria: EvaluationCriterionRecord[] } | null>(null);
-  const [selectedId, setSelectedId] = useState("");
-  const [editorRecord, setEditorRecord] = useState<EvaluationRecord | null | undefined>(undefined);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  async function load() {
-    setLoading(true);
-    setError("");
-    try {
-      const [liveRecords, liveAssignments, liveTemplate] = await Promise.all([evaluationService.listLive(), student ? Promise.resolve([]) : evaluationService.listAssignments(), student ? Promise.resolve(null) : evaluationService.getActiveTemplate()]);
-      setRecords(liveRecords);
-      setAssignments(liveAssignments);
-      setTemplate(liveTemplate);
-      setSelectedId((current) => liveRecords.some((record) => record.id === current) ? current : liveRecords[0]?.id ?? "");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Evaluations could not be loaded.");
-    } finally {
-      setLoading(false);
-    }
-  }
-  useEffect(() => {
-    let active = true;
-    const request = Promise.all([evaluationService.listLive(), student ? Promise.resolve([]) : evaluationService.listAssignments(), student ? Promise.resolve(null) : evaluationService.getActiveTemplate()]);
-    void request.then(([liveRecords, liveAssignments, liveTemplate]) => {
-      if (!active) return;
-      setRecords(liveRecords);
-      setAssignments(liveAssignments);
-      setTemplate(liveTemplate);
-      setSelectedId(liveRecords[0]?.id ?? "");
-    }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Evaluations could not be loaded.");
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => { active = false; };
-  }, [student]);
-  const selected = records.find((record) => record.id === selectedId) ?? null;
-  if (!student && !canEvaluate) return <EmptyAction icon={ShieldCheck} title="Evaluation access is restricted" copy="Your current permissions do not allow scoring or viewing evaluator workspaces." />;
-  return <><PageHeader title="Evaluations" subtitle={student ? "Access finalized internship evaluations and verified scores." : "Create, submit, review, and finalize traceable internship evaluations."} action={!student && template && assignments.length ? <ActionButton icon={Star} onClick={() => setEditorRecord(null)}>Evaluate intern</ActionButton> : undefined} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}{student && <div className="verification-principle"><ShieldCheck size={20} /><p>Your evaluation scores are read-only. Draft evaluator responses are never shown; only coordinator-finalized evaluations appear here.</p></div>}{records.length > 0 && <section className="card table-card"><div className="card-title"><h2>{student ? "Finalized evaluations" : "Evaluation records"}</h2><StatusBadge status={`${records.length} record${records.length === 1 ? "" : "s"}`} /></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Intern</th><th>Template</th><th>Evaluator</th><th>Status</th><th>Score</th><th>Action</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}><td><b>{record.studentName}</b></td><td>{record.templateName}</td><td>{record.evaluatorName}</td><td><StatusBadge status={record.status} /></td><td>{record.weightedScore == null ? "Pending finalization" : `${record.weightedScore.toFixed(1)} / 5.0`}</td><td><button className="table-link" onClick={() => setSelectedId(record.id)}>View</button>{!student && (record.status === "Draft" || record.status === "Returned") && <button className="table-link" onClick={() => setEditorRecord(record)}>Edit</button>}</td></tr>)}</tbody></table></div></section>}{selected && <EvaluationDetail record={selected} canFinalize={canFinalize} onReviewed={() => { void load(); }} />}{!loading && records.length === 0 && <EmptyAction icon={Star} title={student ? "No finalized evaluations yet" : "No evaluations yet"} copy={student ? "Finalized results will appear here after coordinator review." : "Choose Evaluate intern to create the first evaluation for an assigned intern."} />}{editorRecord !== undefined && template && <EvaluationEditorDialog record={editorRecord} assignments={assignments} template={template} close={() => setEditorRecord(undefined)} onSaved={() => { setEditorRecord(undefined); void load(); }} />}</>;
-}
+function EvaluationsPage({ role }: { role: RoleId }) { return <EvaluationWorkspace role={role} />; }
 
 function ProgressPage() {
   const [data, setData] = useState<StudentProgressSummary | null>(null);
@@ -1040,7 +1038,7 @@ function ProgressPage() {
     void internshipService.getStudentProgress().then((summary) => {
       if (active) setData(summary);
     }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Internship progress could not be loaded.");
+      if (active) setError(userError(reason, "Internship progress could not be loaded."));
     }).finally(() => {
       if (active) setLoading(false);
     });
@@ -1060,7 +1058,7 @@ function ProgressPage() {
     { title: "Account verified", date: "PRAXIZ account active", done: true },
     { title: "Internship assignment confirmed", date: `${data.hte} · ${data.startDate}`, done: ["Active", "Completed"].includes(data.status) },
     { title: "Pre-internship requirements complete", date: preInternshipRequirements.length ? `${completedPreInternshipRequirements} of ${preInternshipRequirements.length} requirements approved` : "No pre-internship requirements configured", done: preInternshipRequirements.length > 0 && completedPreInternshipRequirements === preInternshipRequirements.length },
-    { title: "Performance evaluation recorded", date: data.evaluationAverage == null ? "Awaiting finalized evaluation" : `${data.evaluationAverage.toFixed(2)} average score`, done: data.evaluationAverage != null },
+    { title: "Performance evaluation recorded", date: data.finalizedEvaluationCount ? `${data.finalizedEvaluationCount} finalized report(s) available` : "Awaiting finalized evaluation", done: data.finalizedEvaluationCount > 0 },
     { title: `Complete ${data.requiredHours} required hours`, date: `${data.renderedHours} of ${data.requiredHours} verified hours`, done: hoursPercent >= 100 },
     { title: "Final evaluation and clearance", date: `Expected completion ${data.endDate}`, done: data.status === "Completed" },
   ];
@@ -1070,70 +1068,68 @@ function ProgressPage() {
 function NotificationsPage() {
   const [items, setItems] = useState<NotificationRecord[]>([]);
   const [filter, setFilter] = useState<"all" | "unread">("all");
+  const [selected, setSelected] = useState<NotificationRecord | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void notificationService.listLive().then((records) => {
-      if (active) setItems(records);
-    }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Notifications could not be loaded.");
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
+    void notificationService.listLive().then(records => { if (active) setItems(records); })
+      .catch(reason => { if (active) setError(userError(reason, "Notifications could not be loaded.")); })
+      .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
-  const shown = filter === "unread" ? items.filter((item) => item.unread) : items;
-  async function markOne(item: NotificationRecord) {
+  async function view(item: NotificationRecord) {
+    setSelected(item); setError("");
     if (!item.unread) return;
-    setError("");
-    try {
-      await notificationService.markRead(item.id);
-      setItems(items.map((old) => old.id === item.id ? { ...old, unread: false } : old));
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "The notification could not be marked as read."); }
+    try { await notificationService.markRead(item.id); setItems(old => old.map(r => r.id === item.id ? { ...r, unread: false } : r)); }
+    catch (reason) { setError(userError(reason, "The notification could not be marked as read.")); }
   }
   async function markAll() {
-    setError("");
-    try {
-      await notificationService.markAllRead();
-      setItems(items.map((item) => ({ ...item, unread: false })));
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Notifications could not be updated."); }
+    if (lock.current) return;
+    lock.current = true; setBusy(true); setError("");
+    try { await notificationService.markAllRead(); setItems(old => old.map(r => ({ ...r, unread: false }))); }
+    catch (reason) { setError(userError(reason)); }
+    finally { lock.current = false; setBusy(false); }
   }
-  return <><PageHeader title="Notifications" subtitle={`${items.filter((item) => item.unread).length} unread notifications`} action={<div className="notification-controls"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>All</button><button className={filter === "unread" ? "active" : ""} onClick={() => setFilter("unread")}>Unread</button><button disabled={!items.some((item) => item.unread)} onClick={() => { void markAll(); }}>Mark all read</button></div>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="notification-list">{shown.map((item) => <button key={item.id} className={`notification-item notification-${item.tone} ${item.unread ? "unread" : ""}`} onClick={() => { void markOne(item); }}><span className="notification-symbol">{item.tone === "success" ? <CheckCircle2 /> : item.tone === "warning" || item.tone === "error" ? <AlertTriangle /> : <MessageSquareText />}</span><span><strong>{item.title}</strong><p>{item.message}</p></span><small>{item.time}</small></button>)}{!loading && shown.length === 0 && <EmptyAction icon={Bell} title="You’re all caught up" copy={filter === "unread" ? "There are no unread notifications." : "No notifications have been sent to this account yet."} />}</div></>;
-}
-
-type ThemeMode = "light" | "dark" | "system";
-type AccentMode = "blue" | "pink" | "gold";
-
-function applyTheme(mode: ThemeMode, accent: AccentMode) {
-  const dark = mode === "dark" || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.dataset.theme = dark ? "dark" : "light";
-  document.documentElement.dataset.themeMode = mode;
-  document.documentElement.dataset.accent = accent;
-  localStorage.setItem("praxiz-theme", mode);
-  localStorage.setItem("praxiz-accent", accent);
+  const unread = items.filter(r => r.unread).length;
+  const shown = filter === "unread" ? items.filter(r => r.unread) : items;
+  return <><PageHeader title="Notifications" subtitle={unread + " unread notifications"} action={<div className="notification-controls"><button aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All ({items.length})</button><button aria-pressed={filter === "unread"} onClick={() => setFilter("unread")}>Unread ({unread})</button><button disabled={!unread || busy} onClick={() => void markAll()}>{busy ? "Updating…" : "Mark all read"}</button></div>} />
+    {error && <p className="form-error" role="alert">{error}</p>}
+    {loading ? <div className="card page-skeleton" role="status" aria-label="Loading notifications"><span /><span /></div> : <div className="notification-list">{shown.map(item => <article key={item.id} className={"notification-item notification-" + item.tone + (item.unread ? " unread" : "")}><span className="notification-symbol"><Bell /></span><div><strong>{item.title}</strong><p>{item.message}</p><small>{item.time}{item.unread ? " · Unread" : ""}</small></div><button className="table-link" aria-label={"View notification: " + item.title} title="View notification" onClick={() => void view(item)}><Eye size={18} />View</button></article>)}{!shown.length && <EmptyAction icon={Bell} title="You’re all caught up" copy={filter === "unread" ? "There are no unread notifications." : "No notifications have been sent to this account yet."} />}</div>}
+    {selected && <Dialog title={selected.title} onClose={() => setSelected(null)}><p className="muted-note">{selected.time}</p><p className="preserve-text">{selected.message}</p>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><ActionButton onClick={() => setSelected(null)}>Done</ActionButton></div></Dialog>}
+  </>;
 }
 
 function SettingsPanel() {
+  const { user } = useAuth();
+  const saveLock = useRef(false);
   const [preferences, setPreferences] = useState({ emailNotifications: true, weeklyProgressSummary: true, monitoringNotices: false });
-  const [theme, setTheme] = useState<ThemeMode>(() => typeof window === "undefined" ? "system" : (localStorage.getItem("praxiz-theme") as ThemeMode | null) ?? "system"); const [accent, setAccent] = useState<AccentMode>(() => typeof window === "undefined" ? "blue" : (localStorage.getItem("praxiz-accent") as AccentMode | null) ?? "blue"); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [notice, setNotice] = useState(""); const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [notice, setNotice] = useState(""); const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void notificationService.getPreferences().then((result) => { if (active) setPreferences(result); }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Preferences could not be loaded."); }).finally(() => { if (active) setLoading(false); });
+    void notificationService.getPreferences().then(result => { if (active) setPreferences(result); }).catch(reason => { if (active) setError(userError(reason)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
-  function chooseTheme(value: ThemeMode) { setTheme(value); applyTheme(value, accent); }
-  function chooseAccent(value: AccentMode) { setAccent(value); applyTheme(theme, value); }
-  async function save() { setSaving(true); setError(""); setNotice(""); try { await notificationService.savePreferences(preferences); setNotice("Notification preferences saved."); } catch (reason) { setError(reason instanceof Error ? reason.message : "Preferences could not be saved."); } finally { setSaving(false); } }
-  const toggle = (key: keyof typeof preferences) => setPreferences((current) => ({ ...current, [key]: !current[key] }));
-  // Checkbox and radio inputs are nested inside their visible text labels.
-  // eslint-disable-next-line jsx-a11y/label-has-associated-control
-  return <div className="settings-stack"><section className="settings-section"><div><span className="settings-kicker">Notifications</span><h2>Communication preferences</h2><p>These choices are stored in your PRAXIZ account.</p></div><div><label className="toggle-row"><span><strong>Email notifications</strong><small>Submission, verification, and account updates</small></span><input type="checkbox" checked={preferences.emailNotifications} disabled={loading} onChange={() => toggle("emailNotifications")} /></label><label className="toggle-row"><span><strong>Weekly progress summary</strong><small>A concise digest of verified internship progress</small></span><input type="checkbox" checked={preferences.weeklyProgressSummary} disabled={loading} onChange={() => toggle("weeklyProgressSummary")} /></label><label className="toggle-row"><span><strong>Monitoring notices</strong><small>Rules-based attendance and compliance reminders</small></span><input type="checkbox" checked={preferences.monitoringNotices} disabled={loading} onChange={() => toggle("monitoringNotices")} /></label></div></section><section className="settings-section"><div><span className="settings-kicker">Appearance</span><h2>Theme and accent</h2><p>Visual preferences stay on this device.</p></div><div className="appearance-controls"><label className="field"><span>Color mode</span><select value={theme} onChange={(event) => chooseTheme(event.target.value as ThemeMode)}><option value="system">Use system setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label><fieldset className="accent-picker"><legend>Accent color</legend>{(["blue", "pink", "gold"] as AccentMode[]).map((color) => <label key={color} className={`accent-option accent-${color}`}><input type="radio" name="accent" value={color} checked={accent === color} onChange={() => chooseAccent(color)} /><span />{color === "blue" ? "PRAXIZ Blue" : color === "pink" ? "Pink" : "Gold"}</label>)}</fieldset></div></section>{notice && <p className="form-success"><CheckCircle2 size={16} /> {notice}</p>}{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<ActionButton disabled={loading || saving} onClick={() => void save()}>{saving ? "Saving…" : "Save notification preferences"}</ActionButton></div>;
+  useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 6000); return () => clearTimeout(timer); }, [notice]);
+  async function save() {
+    if (saveLock.current) return; saveLock.current = true; setSaving(true); setError(""); setNotice("");
+    try { await notificationService.savePreferences(preferences); setNotice("Notification preferences saved."); }
+    catch (reason) { setError(userError(reason, "Preferences could not be saved.")); }
+    finally { saveLock.current = false; setSaving(false); }
+  }
+  const choices = [{ key: 'emailNotifications', label: 'Email notifications', hint: 'Submission, verification, and account updates' }, { key: 'weeklyProgressSummary', label: 'Weekly progress summary', hint: 'A digest of verified internship progress' }, { key: 'monitoringNotices', label: 'Monitoring notices', hint: 'Attendance and compliance reminders' }] as const;
+  return <div className="settings-stack">
+    <section className="settings-section"><div><UserRound /><h2>Account</h2><p>Your verified institutional identity.</p></div><div><strong>{user?.fullName}</strong><p>{user?.email}</p><Link className="text-link" href={user ? `/${user.role}/profile` : '/signin'}>View and edit your profile</Link></div></section>
+    <section className="settings-section"><div><Bell /><h2>Notifications</h2><p>Preferences are stored in your account.</p></div><div>{choices.map(choice => <label className="toggle-row" key={choice.key} htmlFor={choice.key}><span><strong>{choice.label}</strong><small>{choice.hint}</small></span><input id={choice.key} type="checkbox" checked={preferences[choice.key]} disabled={loading || saving} onChange={() => setPreferences(value => ({ ...value, [choice.key]: !value[choice.key] }))} /></label>)}{notice && <p className="form-success" role="status">{notice}</p>}{error && <p className="form-error" role="alert">{error}</p>}<ActionButton disabled={loading || saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save notification preferences'}</ActionButton></div></section>
+    <section className="settings-section"><div><Settings /><h2>Appearance</h2><p>Four accents and light, dark, or system mode. Saved on this device.</p></div><ThemeControls /></section>
+    <section className="settings-section"><div><LockKeyhole /><h2>Security</h2><p>Passwords are managed by secure account recovery.</p></div><Link className="text-link" href="/forgot-password">Reset your password</Link></section>
+  </div>;
 }
 
 function ProfilePage({ role, settings = false }: { role: RoleId; settings?: boolean }) {
-  const { user } = useAuth(); const current = roles[role]; const student = role === "student"; const displayName = user?.fullName ?? current.user; const displayInitials = displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || current.initials;
-  return <><PageHeader title={settings ? "Settings" : "Profile"} subtitle={settings ? "Manage notification and appearance preferences." : "Review the official details linked to your PRAXIZ account."} /><div className="profile-grid"><section className="card profile-summary"><span className={`avatar avatar-${current.accent}`}>{displayInitials}</span><h2>{displayName}</h2><p>{current.label}</p><StatusBadge status="Verified account" /></section><section className="card profile-form">{settings ? <SettingsPanel /> : <><h2>Official account information</h2><div className="two-fields"><label className="field"><span>Full name</span><input value={displayName} readOnly /></label><label className="field"><span>Role</span><input value={current.label} readOnly /></label></div><div className="two-fields"><label className="field"><span>Official email</span><input value={user?.email ?? ""} readOnly /></label><label className="field"><span>Account status</span><input value="Active and verified" readOnly /></label></div>{student && <><div className="two-fields"><label className="field"><span>Student number</span><input value={user?.studentNumber ?? "Not available"} readOnly /></label><label className="field"><span>Year level</span><input value={user?.yearLevel ? String(user.yearLevel) : "Not available"} readOnly /></label></div><div className="two-fields"><label className="field"><span>Academic program</span><input value={user?.academicProgram ?? "Not available"} readOnly /></label><label className="field"><span>Campus</span><input value={user?.campus ?? "Not available"} readOnly /></label></div></>}{role === "coordinator" && <><div className="two-fields"><label className="field"><span>Coordinated program</span><input value={user?.scopeProgramCode && user?.scopeProgramName ? `${user.scopeProgramCode} — ${user.scopeProgramName}` : "Not available"} readOnly /></label><label className="field"><span>College / department</span><input value={user?.college ?? "Not available"} readOnly /></label></div></>}<div className="verification-principle"><ShieldCheck size={20} /><p>Institutional identity fields are read-only so official changes remain traceable.</p></div></>}</section></div></>;
+  return <><PageHeader title={settings ? "Settings" : "Profile"} subtitle={settings ? "Manage your account, notifications, appearance, and security." : "Your identity and institutional account information."} />{settings ? <section className="card"><SettingsPanel /></section> : <ProfileDetails role={role} />}</>;
 }
 
 function FilterBar({ search, setSearch, campus, setCampus, campusOptions, program, setProgram, programOptions, status, setStatus }: { search: string; setSearch: (value: string) => void; campus: string; setCampus: (value: string) => void; campusOptions: string[]; program: string; setProgram: (value: string) => void; programOptions: string[]; status: string; setStatus: (value: string) => void }) {
@@ -1142,6 +1138,7 @@ function FilterBar({ search, setSearch, campus, setCampus, campusOptions, progra
 
 function InternManagementPage({ role }: { role: RoleId }) {
   const { user } = useAuth();
+  const [historyStudent, setHistoryStudent] = useState<Intern | null>(null);
   const [search, setSearch] = useState(""); const [campus, setCampus] = useState("All Campuses"); const [program, setProgram] = useState("All Programs"); const [status, setStatus] = useState("All Statuses");
   const [rows, setRows] = useState<Intern[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1152,7 +1149,7 @@ function InternManagementPage({ role }: { role: RoleId }) {
     void request.then((records) => {
       if (active) setRows(records);
     }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Intern assignments could not be loaded.");
+      if (active) setError(userError(reason, "Intern assignments could not be loaded."));
     }).finally(() => {
       if (active) setLoading(false);
     });
@@ -1161,7 +1158,7 @@ function InternManagementPage({ role }: { role: RoleId }) {
   const campusOptions = useMemo(() => [...new Set([user?.campus, ...rows.map((intern) => intern.campus)].filter((value): value is string => Boolean(value)))], [rows, user?.campus]);
   const programOptions = useMemo(() => [...new Set([user?.scopeProgramCode, ...rows.map((intern) => intern.program)].filter((value): value is string => Boolean(value)))], [rows, user?.scopeProgramCode]);
   const visible = useMemo(() => rows.filter((intern) => (!search || `${intern.name} ${intern.hte}`.toLowerCase().includes(search.toLowerCase())) && (campus === "All Campuses" || intern.campus === campus) && (program === "All Programs" || intern.program === program) && (status === "All Statuses" || intern.status === status)), [rows, search, campus, program, status]);
-  return <><PageHeader title={role === "coordinator" ? "Intern management" : "Assigned interns"} subtitle={role === "coordinator" ? "Students are routed here automatically by academic program; placement details appear after assignment." : "View interns assigned to your authorized supervision scope."} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading interns…" : `${visible.length} intern${visible.length === 1 ? "" : "s"}`}</h2><FilterBar search={search} setSearch={setSearch} campus={campus} setCampus={setCampus} campusOptions={campusOptions} program={program} setProgram={setProgram} programOptions={programOptions} status={status} setStatus={setStatus} /></div><InternTable rows={visible} />{!loading && visible.length === 0 && <p className="muted-note">No students match the selected filters within your academic-program scope.</p>}</section></>;
+  return <><PageHeader title={role === "coordinator" ? "Intern management" : "Assigned interns"} subtitle={role === "coordinator" ? "Students are routed here automatically by academic program; placement details appear after assignment." : "View interns assigned to your authorized supervision scope."} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading interns…" : `${visible.length} intern${visible.length === 1 ? "" : "s"}`}</h2><FilterBar search={search} setSearch={setSearch} campus={campus} setCampus={setCampus} campusOptions={campusOptions} program={program} setProgram={setProgram} programOptions={programOptions} status={status} setStatus={setStatus} /></div><InternTable rows={visible} onView={intern => setHistoryStudent(intern)} />{!loading && visible.length === 0 && <p className="muted-note">No students match the selected filters within your academic-program scope.</p>}</section>{historyStudent?.studentUserId && <StudentAttendanceHistory studentId={historyStudent.studentUserId} name={historyStudent.name} onClose={() => setHistoryStudent(null)} />}</>;
 }
 
 function AnalyticsPage() {
@@ -1177,7 +1174,7 @@ function AnalyticsPage() {
       setRows(internRows.filter((row) => row.status !== "Awaiting Assignment"));
       setEvaluations(evaluationRows);
       setLogs(logRows);
-    }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Analytics could not be loaded."); }).finally(() => { if (active) setLoading(false); });
+    }).catch((reason) => { if (active) setError(userError(reason, "Analytics could not be loaded.")); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
   const average = (values: number[]) => values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
@@ -1187,29 +1184,64 @@ function AnalyticsPage() {
   const documentCompliance = required ? Math.round(approved / required * 100) : 0;
   const submittedLogs = logs.filter((log) => ["Submitted", "Approved"].includes(log.status)).length;
   const logApproval = logs.length ? Math.round(logs.filter((log) => log.status === "Approved").length / logs.length * 100) : 0;
-  const scored = evaluations.flatMap((item) => item.weightedScore == null ? [] : [item.weightedScore]);
-  const evaluationAverage = average(scored);
-  const metrics = [["Attendance verification", attendance, rows.length ? "Live" : "No data"], ["Daily log approval", logApproval, logs.length ? `${submittedLogs} submitted/approved` : "No data"], ["Evaluation average", evaluationAverage, scored.length ? `${scored.length} scored` : "No data"], ["Document compliance", documentCompliance, required ? `${approved} of ${required}` : "Not configured"]] as const;
+  const finalizedCount = evaluations.filter(item => item.status === "Finalized").length;
+  const evaluationFinalization = evaluations.length ? Math.round(finalizedCount / evaluations.length * 100) : 0;
+  const metrics = [["Attendance verification", attendance, rows.length ? "Live" : "No data"], ["Daily log approval", logApproval, logs.length ? `${submittedLogs} submitted/approved` : "No data"], ["Evaluation finalization", evaluationFinalization, evaluations.length ? `${finalizedCount} of ${evaluations.length} reports finalized; not a grade` : "No data"], ["Document compliance", documentCompliance, required ? `${approved} of ${required}` : "Not configured"]] as const;
   const concerns = rows.filter((row) => row.status === "Needs Attention");
-  return <><PageHeader title="Performance analytics" subtitle={`Live, rules-based indicators for ${currentAcademicTerm.academicYear} · ${currentAcademicTerm.term}.`} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="ai-disclaimer"><ShieldCheck size={20} /><p><strong>Verified-data analytics.</strong> Values are calculated from records visible inside your authorized program scope. No AI model or synthetic data is used.</p></div>{loading ? <EmptyAction icon={Clock3} title="Loading analytics" copy="Calculating indicators from authorized Supabase records." /> : <div className="analytics-grid"><div><section className="card insight-summary"><h2>Portfolio summary</h2><p>{rows.length ? `${rows.length} assigned intern${rows.length === 1 ? " is" : "s are"} represented in this view. ${concerns.length} currently meet the existing follow-up rule.` : "No assigned interns are available for the current coordinator scope."}</p><div className="standing">Monitoring state <StatusBadge status={concerns.length ? "Needs Attention" : rows.length ? "Good Standing" : "No Data"} /></div></section><section className="card"><h2>Key indicators</h2><div className="indicator-cards">{metrics.map(([label, value, detail]) => <article key={label}><span>{label.startsWith("Attendance") ? <CheckCircle2 /> : label.startsWith("Daily") ? <FileText /> : label.startsWith("Evaluation") ? <Star /> : <FileCheck2 />}</span><div><strong>{label}</strong><p>{value}% · {detail}</p><ProgressBar value={value} /></div></article>)}</div></section></div><aside className="card radar-card"><h2>Current program indicators</h2><div className="indicator-list compact">{metrics.map(([label, value, detail]) => <div key={label}><span>{label}</span><b>{value}%</b><ProgressBar value={value} /><small>{detail}</small></div>)}</div></aside></div>}</>;
+  return <><PageHeader title="Performance analytics" subtitle="Live, rules-based indicators across your authorized assignments." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="ai-disclaimer"><ShieldCheck size={20} /><p><strong>Verified-data analytics.</strong> Values are calculated from records visible inside your authorized program scope. No AI model or synthetic data is used.</p></div>{loading ? <EmptyAction icon={Clock3} title="Loading analytics" copy="Calculating indicators from authorized Supabase records." /> : <div className="analytics-grid"><div><section className="card insight-summary"><h2>Portfolio summary</h2><p>{rows.length ? `${rows.length} assigned intern${rows.length === 1 ? " is" : "s are"} represented in this view. ${concerns.length} currently meet the existing follow-up rule.` : "No assigned interns are available for the current coordinator scope."}</p><div className="standing">Monitoring state <StatusBadge status={concerns.length ? "Needs Attention" : rows.length ? "Good Standing" : "No Data"} /></div></section><section className="card"><h2>Key indicators</h2><div className="indicator-cards">{metrics.map(([label, value, detail]) => <article key={label}><span>{label.startsWith("Attendance") ? <CheckCircle2 /> : label.startsWith("Daily") ? <FileText /> : label.startsWith("Evaluation") ? <Star /> : <FileCheck2 />}</span><div><strong>{label}</strong><p>{value}% · {detail}</p><ProgressBar value={value} /></div></article>)}</div></section></div><aside className="card radar-card"><h2>Current program indicators</h2><div className="indicator-list compact">{metrics.map(([label, value, detail]) => <div key={label}><span>{label}</span><b>{value}%</b><ProgressBar value={value} /><small>{detail}</small></div>)}</div></aside></div>}</>;
 }
 
 function ReportsPage() {
   const { user } = useAuth();
-  const [rows, setRows] = useState<Intern[]>([]);
+  const [interns, setInterns] = useState<Intern[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceHistoryRow[]>([]);
+  const [documents, setDocuments] = useState<DocumentRecord[]>([]);
+  const [evaluations, setEvaluations] = useState<EvaluationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [selected, setSelected] = useState("Attendance Report");
+  const [type, setType] = useState("Internship progress");
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("All");
+  const [campus, setCampus] = useState("All");
+  const [program, setProgram] = useState("All");
   useEffect(() => {
     let active = true;
-    void internshipService.listCoordinatorInterns().then((items) => { if (active) setRows(items); }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Report data could not be loaded."); }).finally(() => { if (active) setLoading(false); });
+    void Promise.all([internshipService.listCoordinatorInterns(), attendanceService.listLiveHistory(), documentService.listLive(), evaluationService.listLive()])
+      .then(([i,a,d,e]) => { if (active) { setInterns(i); setAttendance(a); setDocuments(d); setEvaluations(e); } })
+      .catch(reason => { if (active) setError(userError(reason, "Report data could not be loaded.")); })
+      .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
-  const reports = [{ title: "Attendance Report", copy: "Daily time records, rates, and hour summaries", icon: CalendarCheck2 },{ title: "Internship Progress Report", copy: "Rendered hours, completion, and timeline", icon: LineChart },{ title: "Document Compliance Report", copy: "Submission status and missing requirements", icon: FileCheck2 },{ title: "Evaluation Report", copy: "Scores, criteria breakdown, and remarks", icon: Star },{ title: "Intern Performance Summary", copy: "Comprehensive individual performance overview", icon: UserRound },{ title: "Internship Completion Report", copy: "End-of-internship summary and readiness", icon: GraduationCap }];
-  function exportReport() {
-    downloadCsv(`praxiz-${selected.toLowerCase().replaceAll(" ", "-")}-${new Date().toISOString().slice(0, 10)}.csv`, ["Student", "Campus", "Program", "HTE", "Rendered Hours", "Required Hours", "Attendance %", "Requirements", "Status"], rows.map((row) => [row.name, row.campus, row.program, row.hte, row.hours, row.requiredHours ?? 400, row.attendance, row.requirements, row.status]));
+  let headers: string[];
+  let reportRows: Array<{ id: string; status: string; cells: Array<string | number> }>;
+  if (type === "Attendance") {
+    headers = ["Student", "Date", "Time In", "Time Out", "Verified Hours", "Status", "Reviewer", "Remarks"];
+    reportRows = attendance.map(r => ({ id: r.id, status: r.status, cells: [r.studentName, r.date, r.timeIn, r.timeOut, r.hours, r.status, r.verifiedBy, r.remarks] }));
+  } else if (type === "Document compliance") {
+    headers = ["Student", "Requirement", "Phase", "Due", "Status", "File", "Feedback"];
+    reportRows = documents.map(r => ({ id: r.id, status: r.status, cells: [r.studentName, r.templateName, r.phase, r.dueAt, r.status, r.fileName, r.latestFeedback] }));
+  } else if (type === "Evaluations") {
+    headers = ["Student", "Template", "Evaluator", "Status", "Rating period", "Rated criteria", "Finalized", "Remarks"];
+    reportRows = evaluations.map(r => ({ id: r.id, status: r.status, cells: [r.studentName, r.templateName, r.evaluatorName, r.status, r.context.ratingPeriod || "", r.criteria.filter(c => c.score > 0).length + "/" + r.criteria.length, r.status === "Finalized" ? r.reviewedAt : "", r.overallRemarks] }));
+  } else {
+    headers = ["Student", "Campus", "Program", "HTE", "Verified Hours", "Required Hours", "Attendance verification %", "Requirements", "Status"];
+    reportRows = interns.filter(r => (campus === "All" || r.campus === campus) && (program === "All" || r.program === program)).map((r, i) => ({ id: r.studentUserId || String(i), status: r.status, cells: [r.name,r.campus,r.program,r.hte,r.hours,r.requiredHours ?? "",r.attendance,r.requirements,r.status] }));
   }
-  return <><PageHeader title="Reports" subtitle="Export real internship records inside your authorized program scope." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card report-filters"><h2>Authorized scope</h2><div className="report-filter-grid"><label className="field"><span>Academic term</span><input value={`${currentAcademicTerm.academicYear} · ${currentAcademicTerm.term}`} readOnly /></label><label className="field"><span>Campus</span><input value={user?.campus ?? "Assigned campus"} readOnly /></label><label className="field"><span>Department / college</span><input value={user?.college ?? "Assigned organizational unit"} readOnly /></label><label className="field"><span>Program</span><input value={user?.scopeProgramCode && user.scopeProgramName ? `${user.scopeProgramCode} — ${user.scopeProgramName}` : "Assigned program"} readOnly /></label></div><p className="form-hint">The available organizational scope comes from your active role assignment; it cannot be broadened from this screen.</p></section><h2 className="section-label">Select report type</h2><div className="report-grid">{reports.map((report) => { const Icon = report.icon; return <button className={selected === report.title ? "selected" : ""} onClick={() => setSelected(report.title)} key={report.title}><Icon /><strong>{report.title}</strong><span>{report.copy}</span>{selected === report.title && <CheckCircle2 className="report-check" />}</button>; })}</div><section className="report-generate"><div><span>Selected report</span><strong>{selected} · {loading ? "Loading…" : `${rows.length} record${rows.length === 1 ? "" : "s"}`}</strong></div><ActionButton icon={Download} disabled={loading || rows.length === 0} onClick={exportReport}>Export CSV</ActionButton></section></>;
+  const statuses = [...new Set(reportRows.map(r => r.status))];
+  const visible = reportRows.filter(r => (status === "All" || r.status === status) && r.cells.join(" ").toLowerCase().includes(search.trim().toLowerCase()));
+  function chooseType(value: string) { setType(value); setStatus("All"); setSearch(""); }
+  function exportReport() { downloadCsv("praxiz-" + type.toLowerCase().replaceAll(" ", "-") + "-" + new Date().toISOString().slice(0,10) + ".csv", headers, visible.map(r => r.cells)); }
+  return <><PageHeader title="Reports" subtitle="Review and export authorized records. Each report uses its own live data source." />
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <section className="card report-filters"><h2>Report filters</h2><p className="muted-note">Academic scope: {user?.college || user?.scopeProgramName || "your active role assignment"}. Database permissions apply to every result. These reports include all visible assignment terms.</p>
+      <div className="report-filter-grid"><label className="field"><span>Report type</span><select value={type} onChange={e => chooseType(e.target.value)}>{["Internship progress","Attendance","Document compliance","Evaluations"].map(t => <option key={t}>{t}</option>)}</select></label>
+      <label className="field"><span>Status</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="All">All statuses</option>{statuses.map(s => <option key={s} value={s}>{s}</option>)}</select></label>
+      <label className="field"><span>Search report</span><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Student or report detail" /></label>
+      {type === "Internship progress" && <><label className="field"><span>Campus</span><select value={campus} onChange={e => setCampus(e.target.value)}><option value="All">All authorized campuses</option>{[...new Set(interns.map(r => r.campus))].map(c => <option key={c}>{c}</option>)}</select></label><label className="field"><span>Program</span><select value={program} onChange={e => setProgram(e.target.value)}><option value="All">All authorized programs</option>{[...new Set(interns.map(r => r.program))].map(p => <option key={p}>{p}</option>)}</select></label></>}
+      </div></section>
+    <section className="card table-card"><div className="card-title"><div><h2>{type}</h2><p>{loading ? "Loading records…" : visible.length + " matching records"}</p></div><ActionButton icon={Download} disabled={loading || !!error || !visible.length} onClick={exportReport}>Export filtered CSV</ActionButton></div><div className="table-scroll"><table className="data-table"><thead><tr>{headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{visible.map(r => <tr key={r.id}>{r.cells.map((c,i) => <td key={i}>{c || "—"}</td>)}</tr>)}{!loading && !visible.length && <tr><td colSpan={headers.length}>No authorized records match these filters.</td></tr>}</tbody></table></div></section>
+    {type === "Evaluations" && <p className="muted-note">Individual criterion ratings are available in the finalized PDF on the Evaluations page. No percentage is calculated for the official PSU form.</p>}
+  </>;
 }
 
 function FeedbackDialog({ assignments, close, onSaved }: { assignments: EvaluationAssignment[]; close: () => void; onSaved: () => void }) {
@@ -1221,9 +1253,9 @@ function FeedbackDialog({ assignments, close, onSaved }: { assignments: Evaluati
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setLoading(true); setError("");
     try { await feedbackService.create({ assignmentId, subject, message }); onSaved(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Feedback could not be saved."); setLoading(false); }
+    catch (reason) { setError(userError(reason, "Feedback could not be saved.")); setLoading(false); }
   }
-  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label="Create internship feedback"><button className="modal-close" onClick={close} aria-label="Close feedback form"><X size={20} /></button><span className="modal-icon"><MessageSquareText /></span><h2>New feedback</h2><p>Feedback is permanently associated with the selected internship assignment and its authorized reviewers.</p><form onSubmit={submit}><label className="field"><span>Internship assignment *</span><select required value={assignmentId} onChange={(event) => setAssignmentId(event.target.value)}><option value="" disabled>Select an intern</option>{assignments.map((item) => <option key={item.id} value={item.id}>{item.studentName}</option>)}</select></label><label className="field"><span>Subject *</span><input required minLength={3} maxLength={160} value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="Concise follow-up topic" /></label><label className="field"><span>Feedback *</span><textarea required minLength={3} maxLength={5000} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Give specific, constructive, and actionable guidance…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !assignmentId}>{loading ? "Saving…" : "Save feedback"}</ActionButton></div></form></section></div>;
+  return <Dialog title="Create internship feedback" onClose={close} busy={loading}><span className="modal-icon"><MessageSquareText /></span><p>Feedback is permanently associated with the selected internship assignment and its authorized reviewers.</p><form onSubmit={submit}><label className="field"><span>Internship assignment *</span><select required value={assignmentId} onChange={(event) => setAssignmentId(event.target.value)}><option value="" disabled>Select an intern</option>{assignments.map((item) => <option key={item.id} value={item.id}>{item.studentName}</option>)}</select></label><label className="field"><span>Subject *</span><input required minLength={3} maxLength={160} value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="Concise follow-up topic" /></label><label className="field"><span>Feedback *</span><textarea required minLength={3} maxLength={5000} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Give specific, constructive, and actionable guidance…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !assignmentId}>{loading ? "Saving…" : "Save feedback"}</ActionButton></div></form></Dialog>;
 }
 
 function FeedbackPage() {
@@ -1234,7 +1266,7 @@ function FeedbackPage() {
   const [adding, setAdding] = useState(false);
   const load = useCallback(async () => {
     try { const [items, options] = await Promise.all([feedbackService.listLive(), evaluationService.listAssignments()]); setRecords(items); setAssignments(options); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Feedback records could not be loaded."); }
+    catch (reason) { setError(userError(reason, "Feedback records could not be loaded.")); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
@@ -1255,24 +1287,25 @@ function UserAccessDialog({ account, close }: { account: UserAccountRecord; clos
       setSent(true);
       setConfirming(false);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The reset email could not be sent.");
+      setError(userError(reason, "The reset email could not be sent."));
     } finally {
       setSending(false);
     }
   }
 
-  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={`Manage access for ${account.name}`}><button className="modal-close" onClick={close} aria-label="Close account access details"><X size={20} /></button><span className="modal-icon"><LockKeyhole /></span><h2>{account.name}</h2><p>Review the account identity before starting access recovery.</p><dl className="info-list"><div><dt>Email</dt><dd>{account.email}</dd></div><div><dt>Role</dt><dd>{account.role}</dd></div><div><dt>Reference</dt><dd>{account.reference}</dd></div><div><dt>Status</dt><dd>{account.status}</dd></div></dl>
+  return <Dialog title={`Manage access for ${account.name}`} onClose={close}><span className="modal-icon"><LockKeyhole /></span><p>Review the account identity before starting access recovery.</p><dl className="info-list"><div><dt>Email</dt><dd>{account.email}</dd></div><div><dt>Role</dt><dd>{account.role}</dd></div><div><dt>Reference</dt><dd>{account.reference}</dd></div><div><dt>Status</dt><dd>{account.status}</dd></div></dl>
     {sent && <div className="inline-success"><CheckCircle2 /><div><strong>Reset link sent</strong><p>Supabase sent a secure password-reset link to {account.email}.</p></div></div>}
     {confirming && !sent && <div className="access-recovery-warning"><AlertTriangle size={19} /><p><strong>Send a password-reset email?</strong><span>The link goes only to {account.email}. The administrator cannot view or choose the user’s password.</span></p></div>}
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
     <div className="modal-actions"><ActionButton variant="secondary" disabled={sending} onClick={close}>{sent ? "Done" : "Cancel"}</ActionButton>{!sent && !confirming && <ActionButton icon={Send} onClick={() => setConfirming(true)}>Send password reset</ActionButton>}{!sent && confirming && <ActionButton disabled={sending} onClick={() => void sendReset()}>{sending ? "Sending…" : "Confirm and send"}</ActionButton>}</div>
-  </section></div>;
+  </Dialog>;
 }
 
 function UserAccountsPage() {
   const [records, setRecords] = useState<UserAccountRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<UserAccountRecord | null>(null);
 
@@ -1281,18 +1314,18 @@ function UserAccountsPage() {
     void adminService.listUserAccounts().then((result) => {
       if (active) setRecords(result);
     }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "User accounts could not be loaded.");
+      if (active) setError(userError(reason, "User accounts could not be loaded."));
     }).finally(() => {
       if (active) setLoading(false);
     });
     return () => { active = false; };
   }, []);
 
-  const visibleRecords = records.filter((record) => !search || `${record.name} ${record.email} ${record.role} ${record.reference} ${record.status}`.toLowerCase().includes(search.toLowerCase()));
+  const visibleRecords = records.filter((record) => (statusFilter === "All" || record.status === statusFilter) && (!search || `${record.name} ${record.email} ${record.role} ${record.reference} ${record.status}`.toLowerCase().includes(search.toLowerCase())));
   return <><PageHeader title="User accounts" subtitle="View live identities and help users recover access without exposing or replacing their passwords." action={<Link className="button button-primary" href="/admin/registrations"><UserCheck size={18} /> Review registrations</Link>} />
     <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Safe access recovery:</strong> administrators can send a one-time reset link to the registered email address, but cannot view or set a user’s password.</p></div>
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading accounts…" : `${visibleRecords.length} account${visibleRecords.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, or reference…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>User</th><th>Role</th><th>Reference</th><th>Status</th><th>Action</th></tr></thead><tbody>{visibleRecords.map((record) => <tr key={record.id}><td><b>{record.name}</b><small>{record.email}</small></td><td>{record.role}</td><td>{record.reference}</td><td><StatusBadge status={record.status} /></td><td><button className="table-link" onClick={() => setSelected(record)}>Manage access</button></td></tr>)}{!loading && visibleRecords.length === 0 && <tr><td colSpan={5}>No live user accounts match this view.</td></tr>}</tbody></table></div></section>
+    <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading accounts…" : `${visibleRecords.length} account${visibleRecords.length === 1 ? "" : "s"}`}</h2><div className="filter-bar"><select aria-label="Account status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="All">All statuses</option>{[...new Set(records.map(r => r.status))].map(status => <option key={status} value={status}>{status}</option>)}</select><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, or reference…" /></label></div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Reference</th><th>Status</th><th>Action</th></tr></thead><tbody>{visibleRecords.map((record) => <tr key={record.id}><td><b>{record.name}</b></td><td className="email-cell" title={record.email}>{record.email}</td><td>{record.role}</td><td>{record.reference}</td><td><StatusBadge status={record.status} /></td><td><button className="table-link" onClick={() => setSelected(record)}>Manage access</button></td></tr>)}{!loading && visibleRecords.length === 0 && <tr><td colSpan={6}>No live user accounts match this view.</td></tr>}</tbody></table></div></section>
     {selected && <UserAccessDialog account={selected} close={() => setSelected(null)} />}
   </>;
 }
@@ -1301,50 +1334,46 @@ function PartnerHteDialog({ close, onSaved }: { close: () => void; onSaved: () =
   const [form, setForm] = useState({ name: "", registrationNumber: "", industry: "", address: "", city: "", province: "", email: "", phone: "" });
   const [loading, setLoading] = useState(false); const [error, setError] = useState("");
   const field = (key: keyof typeof form) => (event: ChangeEvent<HTMLInputElement>) => setForm((current) => ({ ...current, [key]: event.target.value }));
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setLoading(true); setError(""); try { await coordinatorService.createPartnerHte(form); onSaved(); } catch (reason) { setError(reason instanceof Error ? reason.message : "The HTE could not be created."); setLoading(false); } }
-  return <div className="modal-backdrop" role="presentation"><section className="modal master-data-modal" role="dialog" aria-modal="true" aria-label="Add partner HTE"><button className="modal-close" onClick={close} aria-label="Close partner HTE form"><X size={20} /></button><span className="modal-icon"><BriefcaseBusiness /></span><h2>Add partner HTE</h2><p>New organizations begin as Pending and require administrator verification before they can receive internship assignments.</p><form onSubmit={submit}><label className="field"><span>Legal organization name *</span><input required value={form.name} onChange={field("name")} /></label><div className="two-fields"><label className="field"><span>Registration number</span><input value={form.registrationNumber} onChange={field("registrationNumber")} /></label><label className="field"><span>Industry</span><input value={form.industry} onChange={field("industry")} /></label></div><label className="field"><span>Address *</span><input required value={form.address} onChange={field("address")} /></label><div className="two-fields"><label className="field"><span>City / municipality</span><input value={form.city} onChange={field("city")} /></label><label className="field"><span>Province</span><input value={form.province} onChange={field("province")} /></label></div><div className="two-fields"><label className="field"><span>Contact email</span><input type="email" value={form.email} onChange={field("email")} /></label><label className="field"><span>Contact phone</span><input value={form.phone} onChange={field("phone")} /></label></div>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading}>{loading ? "Saving…" : "Create pending HTE"}</ActionButton></div></form></section></div>;
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setLoading(true); setError(""); try { await coordinatorService.createPartnerHte(form); onSaved(); } catch (reason) { setError(userError(reason, "The HTE could not be created.")); setLoading(false); } }
+  return <Dialog title="Add partner HTE" onClose={close} busy={loading} wide><span className="modal-icon"><BriefcaseBusiness /></span><p>New organizations begin as Pending and require administrator verification before they can receive internship assignments.</p><form onSubmit={submit}><label className="field"><span>Legal organization name *</span><input required value={form.name} onChange={field("name")} /></label><div className="two-fields"><label className="field"><span>Registration number</span><input value={form.registrationNumber} onChange={field("registrationNumber")} /></label><label className="field"><span>Industry</span><input value={form.industry} onChange={field("industry")} /></label></div><label className="field"><span>Address *</span><input required value={form.address} onChange={field("address")} /></label><div className="two-fields"><label className="field"><span>City / municipality</span><input value={form.city} onChange={field("city")} /></label><label className="field"><span>Province</span><input value={form.province} onChange={field("province")} /></label></div><div className="two-fields"><label className="field"><span>Contact email</span><input type="email" value={form.email} onChange={field("email")} /></label><label className="field"><span>Contact phone</span><input value={form.phone} onChange={field("phone")} /></label></div>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading}>{loading ? "Saving…" : "Create pending HTE"}</ActionButton></div></form></Dialog>;
 }
 
 function PartnerHtesPage() {
+  const [selected, setSelected] = useState<PartnerHteRecord | null>(null); const [status, setStatus] = useState("All");
   const [records, setRecords] = useState<PartnerHteRecord[]>([]); const [search, setSearch] = useState(""); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [adding, setAdding] = useState(false);
-  const load = useCallback(async () => { try { setRecords(await coordinatorService.listPartnerHtes()); } catch (reason) { setError(reason instanceof Error ? reason.message : "Partner HTEs could not be loaded."); } finally { setLoading(false); } }, []);
+  const load = useCallback(async () => { try { setRecords(await coordinatorService.listPartnerHtes()); } catch (reason) { setError(userError(reason, "Partner HTEs could not be loaded.")); } finally { setLoading(false); } }, []);
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
-  const shown = records.filter((item) => !search || `${item.name} ${item.representative} ${item.industry} ${item.location} ${item.status}`.toLowerCase().includes(search.toLowerCase()));
-  return <><PageHeader title="Partner HTEs" subtitle="Verified and pending organizations available within the authorized internship workflow." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Add partner HTE</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading organizations…" : `${shown.length} organization${shown.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search organizations…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Representative</th><th>Industry / location</th><th>Assigned interns</th><th>Verification</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.representative}</td><td>{item.industry}<small>{item.location}</small></td><td>{item.assignedInterns}</td><td><StatusBadge status={item.status} /></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={5}>No real HTE organization matches this view.</td></tr>}</tbody></table></div></section>{adding && <PartnerHteDialog close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}</>;
+  const shown = records.filter((item) => (status === "All" || item.status === status) && (!search || `${item.name} ${item.representative} ${item.industry} ${item.location} ${item.status}`.toLowerCase().includes(search.toLowerCase())));
+  return <><PageHeader title="Partner HTEs" subtitle="Verified and pending organizations available within the authorized internship workflow." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Add partner HTE</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading organizations…" : `${shown.length} organization${shown.length === 1 ? "" : "s"}`}</h2><label className="field"><span>Verification status</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="All">All</option>{[...new Set(records.map(r => r.status))].map(s => <option key={s} value={s}>{s}</option>)}</select></label><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search organizations…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Representative</th><th>Assigned interns</th><th>Verification</th><th>Action</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.representative}</td><td>{item.assignedInterns}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" onClick={() => setSelected(item)}><Eye size={16} />View details</button></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={5}>No real HTE organization matches this view.</td></tr>}</tbody></table></div></section>{selected && <Dialog title={selected.name} onClose={() => setSelected(null)}><dl className="info-list"><div><dt>Representative</dt><dd>{selected.representative}</dd></div><div><dt>Industry</dt><dd>{selected.industry}</dd></div><div><dt>Location</dt><dd>{selected.location}</dd></div><div><dt>Assigned interns</dt><dd>{selected.assignedInterns}</dd></div><div><dt>Verification</dt><dd>{selected.status}</dd></div></dl></Dialog>}{adding && <PartnerHteDialog close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}</>;
 }
 
 function AssignmentDialog({ close, onSaved }: { close: () => void; onSaved: () => void }) {
   const [options, setOptions] = useState<AssignmentOptions>({ students: [], htes: [], terms: [] }); const [studentId, setStudentId] = useState(""); const [hteId, setHteId] = useState(""); const [termId, setTermId] = useState(""); const [hours, setHours] = useState("400"); const [startDate, setStartDate] = useState(""); const [endDate, setEndDate] = useState(""); const [submitForApproval, setSubmitForApproval] = useState(true); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
-  useEffect(() => { let active = true; void coordinatorService.getAssignmentOptions().then((result) => { if (!active) return; setOptions(result); setStudentId(result.students[0]?.id ?? ""); setHteId(result.htes[0]?.id ?? ""); setTermId(result.terms[0]?.id ?? ""); const term = result.terms[0]; if (term) { setStartDate(term.startsOn); setEndDate(term.endsOn); } }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Assignment choices could not be loaded."); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
+  useEffect(() => { let active = true; void coordinatorService.getAssignmentOptions().then((result) => { if (!active) return; setOptions(result); setStudentId(result.students[0]?.id ?? ""); setHteId(result.htes[0]?.id ?? ""); setTermId(result.terms[0]?.id ?? ""); const term = result.terms[0]; if (term) { setStartDate(term.startsOn); setEndDate(term.endsOn); } }).catch((reason) => { if (active) setError(userError(reason, "Assignment choices could not be loaded.")); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
   function chooseTerm(id: string) { setTermId(id); const term = options.terms.find((item) => item.id === id); if (term) { setStartDate(term.startsOn); setEndDate(term.endsOn); } }
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setLoading(true); setError(""); try { await coordinatorService.createAssignment({ studentUserId: studentId, hteId, academicTermId: termId, requiredHours: Number(hours), startDate, expectedEndDate: endDate, submitForApproval }); onSaved(); } catch (reason) { setError(reason instanceof Error ? reason.message : "The assignment could not be created."); setLoading(false); } }
-  return <div className="modal-backdrop" role="presentation"><section className="modal master-data-modal" role="dialog" aria-modal="true" aria-label="Create internship assignment"><button className="modal-close" onClick={close} aria-label="Close assignment form"><X size={20} /></button><span className="modal-icon"><ListChecks /></span><h2>Create assignment</h2><p>Students are limited to your program; only verified HTEs are eligible. Overlapping placements are rejected by the database.</p>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<form onSubmit={submit}><label className="field"><span>Student *</span><select required value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="" disabled>Select student</option>{options.students.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="field"><span>Verified HTE *</span><select required value={hteId} onChange={(event) => setHteId(event.target.value)}><option value="" disabled>Select HTE</option>{options.htes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="field"><span>Academic term *</span><select required value={termId} onChange={(event) => chooseTerm(event.target.value)}><option value="" disabled>Select term</option>{options.terms.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><div className="two-fields"><label className="field"><span>Required hours *</span><input required type="number" min="1" value={hours} onChange={(event) => setHours(event.target.value)} /></label><label className="field"><span>Workflow</span><select value={submitForApproval ? "approval" : "draft"} onChange={(event) => setSubmitForApproval(event.target.value === "approval")}><option value="approval">Submit for approval</option><option value="draft">Save as draft</option></select></label></div><div className="two-fields"><label className="field"><span>Start date *</span><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label className="field"><span>Expected end date *</span><input required type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label></div><div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !studentId || !hteId || !termId}>{loading ? "Please wait…" : "Create assignment"}</ActionButton></div></form></section></div>;
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setLoading(true); setError(""); try { await coordinatorService.createAssignment({ studentUserId: studentId, hteId, academicTermId: termId, requiredHours: Number(hours), startDate, expectedEndDate: endDate, submitForApproval }); onSaved(); } catch (reason) { setError(userError(reason, "The assignment could not be created.")); setLoading(false); } }
+  return <Dialog title="Create internship assignment" onClose={close} busy={loading} wide><span className="modal-icon"><ListChecks /></span><p>Students are limited to your program; only verified HTEs are eligible. Overlapping placements are rejected by the database.</p>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<form onSubmit={submit}><label className="field"><span>Student *</span><select required value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="" disabled>Select student</option>{options.students.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="field"><span>Verified HTE *</span><select required value={hteId} onChange={(event) => setHteId(event.target.value)}><option value="" disabled>Select HTE</option>{options.htes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="field"><span>Academic term *</span><select required value={termId} onChange={(event) => chooseTerm(event.target.value)}><option value="" disabled>Select term</option>{options.terms.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><div className="two-fields"><label className="field"><span>Required hours *</span><input required type="number" min="1" value={hours} onChange={(event) => setHours(event.target.value)} /></label><label className="field"><span>Workflow</span><select value={submitForApproval ? "approval" : "draft"} onChange={(event) => setSubmitForApproval(event.target.value === "approval")}><option value="approval">Submit for approval</option><option value="draft">Save as draft</option></select></label></div><div className="two-fields"><label className="field"><span>Start date *</span><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label className="field"><span>Expected end date *</span><input required type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label></div><div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !studentId || !hteId || !termId}>{loading ? "Please wait…" : "Create assignment"}</ActionButton></div></form></Dialog>;
 }
 
 function AssignmentsPage() {
   const [rows, setRows] = useState<Intern[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [adding, setAdding] = useState(false);
-  const load = useCallback(async () => { try { setRows(await internshipService.listCoordinatorInterns()); } catch (reason) { setError(reason instanceof Error ? reason.message : "Assignments could not be loaded."); } finally { setLoading(false); } }, []);
+  const load = useCallback(async () => { try { setRows(await internshipService.listCoordinatorInterns()); } catch (reason) { setError(userError(reason, "Assignments could not be loaded.")); } finally { setLoading(false); } }, []);
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
   return <><PageHeader title="Internship assignments" subtitle="Create and monitor placements for students inside your academic-program scope." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Create assignment</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><h2>{loading ? "Loading assignments…" : `${rows.filter((row) => row.status !== "Awaiting Assignment").length} assignment${rows.filter((row) => row.status !== "Awaiting Assignment").length === 1 ? "" : "s"}`}</h2><InternTable rows={rows.filter((row) => row.status !== "Awaiting Assignment")} />{!loading && rows.every((row) => row.status === "Awaiting Assignment") && <p className="muted-note">No internship assignments have been created for this program.</p>}</section>{adding && <AssignmentDialog close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}</>;
 }
 
 function RolesPage() {
   const [records, setRecords] = useState<RolePolicyRecord[]>([]); const [selected, setSelected] = useState<RolePolicyRecord | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
-  useEffect(() => { let active = true; void adminService.listRolePolicies().then((items) => { if (active) setRecords(items); }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Role policies could not be loaded."); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
-  return <><PageHeader title="Roles & access" subtitle="Read-only view of the existing roles, assignments, and permission architecture." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><h2>{loading ? "Loading role policies…" : `${records.length} configured roles`}</h2><div className="table-scroll"><table className="data-table"><thead><tr><th>Role</th><th>Scope</th><th>Active assignments</th><th>Status</th><th>Policy</th></tr></thead><tbody>{records.map((item) => <tr key={item.id}><td><b>{item.name}</b><small>{item.description}</small></td><td>{item.scope}</td><td>{item.accounts}</td><td><StatusBadge status={item.active ? "Configured" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelected(item)}>Review policy</button></td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={5}>No roles are configured.</td></tr>}</tbody></table></div></section>{selected && <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={`${selected.name} policy`}><button className="modal-close" onClick={() => setSelected(null)} aria-label="Close policy"><X size={20} /></button><span className="modal-icon"><ShieldCheck /></span><h2>{selected.name}</h2><p>{selected.description}</p><p className="form-hint">Scope: {selected.scope}. This is the live permission policy; changes require an audited database administration workflow.</p><dl className="info-list">{selected.permissions.map((permission) => <div key={permission.code}><dt>{permission.code}</dt><dd>{permission.description || "Permission enabled for this role."}</dd></div>)}</dl><div className="modal-actions"><ActionButton onClick={() => setSelected(null)}>Done</ActionButton></div></section></div>}</>;
+  useEffect(() => { let active = true; void adminService.listRolePolicies().then((items) => { if (active) setRecords(items); }).catch((reason) => { if (active) setError(userError(reason, "Role policies could not be loaded.")); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
+  return <><PageHeader title="Roles & access" subtitle="Read-only view of the existing roles, assignments, and permission architecture." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><h2>{loading ? "Loading role policies…" : `${records.length} configured roles`}</h2><div className="table-scroll"><table className="data-table"><thead><tr><th>Role</th><th>Description</th><th>Scope</th><th>Active assignments</th><th>Status</th><th>Policy</th></tr></thead><tbody>{records.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.description}</td><td>{item.scope}</td><td>{item.accounts}</td><td><StatusBadge status={item.active ? "Configured" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelected(item)}>Review policy</button></td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={5}>No roles are configured.</td></tr>}</tbody></table></div></section>{selected && <Dialog title={`${selected.name} policy`} onClose={() => setSelected(null)} busy={loading}><span className="modal-icon"><ShieldCheck /></span><p>{selected.description}</p><p className="form-hint">Scope: {selected.scope}. This is the live permission policy; changes require an audited database administration workflow.</p><dl className="info-list">{selected.permissions.map((permission) => <div key={permission.code}><dt>{permission.code}</dt><dd>{permission.description || "Permission enabled for this role."}</dd></div>)}</dl><div className="modal-actions"><ActionButton onClick={() => setSelected(null)}>Done</ActionButton></div></Dialog>}</>;
 }
 
 function AuditLogsPage() {
   const [records, setRecords] = useState<AuditLogRecord[]>([]); const [search, setSearch] = useState(""); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
-  useEffect(() => { let active = true; void adminService.listAuditLogs().then((items) => { if (active) setRecords(items); }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Audit history could not be loaded."); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
+  useEffect(() => { let active = true; void adminService.listAuditLogs().then((items) => { if (active) setRecords(items); }).catch((reason) => { if (active) setError(userError(reason, "Audit history could not be loaded.")); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
   const shown = records.filter((item) => !search || `${item.action} ${item.actor} ${item.entity}`.toLowerCase().includes(search.toLowerCase()));
   function exportAudit() { downloadCsv(`praxiz-audit-${new Date().toISOString().slice(0, 10)}.csv`, ["Action", "Actor", "Entity", "Occurred At", "Metadata"], shown.map((item) => [item.action, item.actor, item.entity, item.occurredAt, JSON.stringify(item.metadata)])); }
   return <><PageHeader title="Audit logs" subtitle="Immutable production events from the existing PRAXIZ audit mechanism." action={<ActionButton icon={Download} disabled={loading || shown.length === 0} onClick={exportAudit}>Export audit</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading audit events…" : `${shown.length} event${shown.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search action, actor, or entity…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Action</th><th>Actor</th><th>Entity</th><th>Timestamp</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.action}</b></td><td>{item.actor}</td><td>{item.entity}</td><td>{formatTimestamp(item.occurredAt)}</td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={4}>No recorded audit event matches this view.</td></tr>}</tbody></table></div></section></>;
-}
-
-function MasterRecordRow({ primary, secondary, onClick }: { primary: string; secondary: string; onClick?: () => void }) {
-  const content = <><span className="master-record-copy"><strong>{primary}</strong><small>{secondary}</small></span>{onClick && <ChevronRight size={18} />}</>;
-  return onClick ? <button className="master-record-row" onClick={onClick}>{content}</button> : <div className="master-record-row">{content}</div>;
 }
 
 type MasterDataKind = "campus" | "college" | "program" | "term";
@@ -1390,14 +1419,14 @@ function MasterDataDialog({ campuses: campusRows, colleges: collegeRows, academi
       await onCreated();
       close();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The record could not be created.");
+      setError(userError(reason, "The record could not be created."));
       setLoading(false);
     }
   }
 
   const needsCode = kind !== "term";
   const needsShortName = kind === "campus" || kind === "college";
-  return <div className="modal-backdrop" role="presentation"><section className="modal master-data-modal" role="dialog" aria-modal="true" aria-label="Add institutional record"><button className="modal-close" onClick={close} aria-label="Close institutional record form"><X size={20} /></button><span className="modal-icon"><Settings /></span><h2>Add institutional record</h2><p>The record will be written to Supabase using the administrator-only Master Data policy and included in the audit trail.</p><form onSubmit={submit}>
+  return <Dialog title="Add institutional record" onClose={close} busy={loading} wide><span className="modal-icon"><Settings /></span><p>The record will be written to Supabase using the administrator-only Master Data policy and included in the audit trail.</p><form onSubmit={submit}>
     <label className="field"><span>Record type</span><select value={kind} onChange={(event) => setKind(event.target.value as MasterDataKind)}><option value="campus">Campus</option><option value="college">College</option><option value="program">Academic program</option><option value="term">Academic term</option></select></label>
     {needsCode && <div className="two-fields"><label className="field"><span>Code</span><input required value={code} onChange={(event) => { setCode(event.target.value); setError(""); }} placeholder={kind === "campus" ? "PARSU-CAMPUS" : kind === "college" ? "CECS" : "BSIT"} /></label>{needsShortName && <label className="field"><span>Short name</span><input required value={shortName} onChange={(event) => setShortName(event.target.value)} placeholder={kind === "campus" ? "Campus name" : "College acronym"} /></label>}</div>}
     {kind !== "term" && <label className="field"><span>Official name</span><input required value={name} onChange={(event) => setName(event.target.value)} placeholder={kind === "program" ? "Bachelor of Science in…" : "Enter the official name"} /></label>}
@@ -1407,101 +1436,39 @@ function MasterDataDialog({ campuses: campusRows, colleges: collegeRows, academi
     {kind === "term" && <><label className="field"><span>Academic year</span><select required value={academicYearId} onChange={(event) => setAcademicYearId(event.target.value)}><option value="" disabled>Select an academic year</option>{academicYears.map((year) => <option key={year.id} value={year.id}>{year.label}{year.isCurrent ? " · Current" : ""}</option>)}</select></label><label className="field"><span>Term</span><select value={term} onChange={(event) => setTerm(event.target.value as typeof term)}><option value="first_semester">First Semester</option><option value="second_semester">Second Semester</option><option value="midyear">Midyear</option></select></label><div className="two-fields"><label className="field"><span>Starts on</span><input required type="date" value={startsOn} onChange={(event) => setStartsOn(event.target.value)} /></label><label className="field"><span>Ends on</span><input required type="date" min={startsOn || undefined} value={endsOn} onChange={(event) => setEndsOn(event.target.value)} /></label></div><div className="master-current-option"><input aria-label="Make this the current term" type="checkbox" checked={isCurrent} onChange={(event) => setIsCurrent(event.target.checked)} /><span><strong>Make this the current term</strong><small>This switches the active term across PRAXIZ after the record is created.</small></span></div></>}
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
     <div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || (kind === "program" && !collegeId) || (kind === "term" && !academicYearId)}>{loading ? "Saving…" : "Create record"}</ActionButton></div>
-  </form></section></div>;
+  </form></Dialog>;
 }
 
 function MasterDataPage() {
-  const [campusRows, setCampusRows] = useState<Awaited<ReturnType<typeof institutionalService.listActiveCampuses>>>([]);
-  const [collegeRows, setCollegeRows] = useState<Awaited<ReturnType<typeof institutionalService.listActiveColleges>>>([]);
-  const [programRows, setProgramRows] = useState<Awaited<ReturnType<typeof institutionalService.listActivePrograms>>>([]);
-  const [termRows, setTermRows] = useState<Awaited<ReturnType<typeof institutionalService.listAcademicTerms>>>([]);
-  const [academicYears, setAcademicYears] = useState<AcademicYearRecord[]>([]);
-  const [selectedCampusId, setSelectedCampusId] = useState("");
-  const [selectedCollegeId, setSelectedCollegeId] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [options, setOptions] = useState<Awaited<ReturnType<typeof institutionalService.loadRegistrationInstitutionalOptions>> | null>(null);
+  const [terms, setTerms] = useState<Awaited<ReturnType<typeof institutionalService.listAcademicTerms>>>([]);
+  const [years, setYears] = useState<AcademicYearRecord[]>([]);
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
-
+  const [notice, setNotice] = useState("");
   const loadAll = useCallback(async () => {
-    setLoading(true);
-    setError("");
     try {
-      const [campusesResult, collegesResult, termsResult, yearsResult] = await Promise.all([
-      institutionalService.listActiveCampuses(),
-      institutionalService.listActiveColleges(),
-      institutionalService.listAcademicTerms(),
-      institutionalService.listAcademicYears(),
-      ]);
-      setCampusRows(campusesResult);
-      setCollegeRows(collegesResult);
-      setTermRows(termsResult);
-      setAcademicYears(yearsResult);
-      setSelectedCampusId((current) => current && campusesResult.some((campus) => campus.id === current) ? current : campusesResult[0]?.id ?? "");
-      setSelectedCollegeId((current) => current && collegesResult.some((college) => college.id === current) ? current : collegesResult.find((college) => college.campusId === campusesResult[0]?.id)?.id ?? "");
-    } catch {
-      setError("Institutional data could not be loaded.");
-    } finally {
-      setLoading(false);
-    }
+      const [hierarchy, termRows, yearRows] = await Promise.all([institutionalService.loadRegistrationInstitutionalOptions(), institutionalService.listAcademicTerms(), institutionalService.listAcademicYears()]);
+      setOptions(hierarchy); setTerms(termRows); setYears(yearRows);
+    } catch (reason) { setError(userError(reason)); }
   }, []);
-
-  useEffect(() => {
-    let active = true;
-    void Promise.all([
-      institutionalService.listActiveCampuses(),
-      institutionalService.listActiveColleges(),
-      institutionalService.listAcademicTerms(),
-      institutionalService.listAcademicYears(),
-    ]).then(([campusesResult, collegesResult, termsResult, yearsResult]) => {
-      if (!active) return;
-      setCampusRows(campusesResult);
-      setCollegeRows(collegesResult);
-      setTermRows(termsResult);
-      setAcademicYears(yearsResult);
-      const campusId = campusesResult[0]?.id ?? "";
-      setSelectedCampusId(campusId);
-      setSelectedCollegeId(collegesResult.find((college) => college.campusId === campusId)?.id ?? "");
-    }).catch(() => {
-      if (active) setError("Institutional data could not be loaded.");
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    if (!selectedCollegeId) return;
-    let active = true;
-    void institutionalService.listProgramsForUnit(selectedCollegeId).then((items) => {
-      if (active) setProgramRows(items);
-    }).catch(() => {
-      if (active) setError("Programs for the selected college could not be loaded.");
-    });
-    return () => { active = false; };
-  }, [selectedCollegeId]);
-
-  const visibleColleges = collegeRows.filter((college) => college.campusId === selectedCampusId);
-
-  return <><PageHeader title="Institutional data" subtitle="Maintain the campus, college, program, and academic-term hierarchy used across PRAXIZ." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Add record</ActionButton>} />
-    <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Controlled configuration:</strong> these records define registration choices, reporting scopes, and role assignments. Production changes will be permission-checked and audit logged.</p></div>
-    {loading && <p>Loading institutional data…</p>}
-    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <div className="master-data-grid">
-      <section className="card master-data-card"><div className="card-title"><h2>Campuses</h2><StatusBadge status={`${campusRows.length} active`} /></div><div className="master-record-list">{campusRows.map((campus) => <MasterRecordRow key={campus.id} primary={campus.shortName} secondary={`${campus.municipality ?? "Campus"}, Camarines Sur`} onClick={() => { setSelectedCampusId(campus.id); setSelectedCollegeId(""); setProgramRows([]); }} />)}</div></section>
-      <section className="card master-data-card"><div className="card-title"><h2>Colleges</h2><StatusBadge status={`${collegeRows.length} active`} /></div><div className="master-record-list">{visibleColleges.map((college) => <MasterRecordRow key={college.id} primary={college.shortName} secondary={college.name} onClick={() => setSelectedCollegeId(college.id)} />)}{!visibleColleges.length && <p className="master-record-empty">Select a campus to view its colleges.</p>}</div></section>
-      <section className="card master-data-card"><div className="card-title"><h2>Programs</h2><StatusBadge status={`${programRows.length} active`} /></div><div className="master-record-list">{programRows.map((program) => <MasterRecordRow key={program.id} primary={program.code} secondary={program.name} />)}{!programRows.length && <p className="master-record-empty">Select a college to view its programs.</p>}</div></section>
-      <section className="card master-data-card"><div className="card-title"><h2>Academic terms</h2><StatusBadge status={`${termRows.filter((term) => term.isCurrent).length} current`} /></div><div className="master-record-list">{termRows.map((term) => <MasterRecordRow key={term.id} primary={`${term.academicYear} · ${term.term}`} secondary={`${term.startsOn} to ${term.endsOn}${term.isCurrent ? " · Current" : ""}`} />)}</div></section>
-    </div>{adding && <MasterDataDialog campuses={campusRows} colleges={collegeRows} academicYears={academicYears} close={() => setAdding(false)} onCreated={loadAll} />}</>;
+  useEffect(() => { void Promise.resolve().then(loadAll); }, [loadAll]);
+  const colleges: College[] = options?.units.filter(unit => unit.unitType === "college").map(unit => ({ id: unit.id, campusId: unit.parentId || "", name: unit.name, shortName: unit.shortName || unit.name })) ?? [];
+  return <><PageHeader title="Institutional data" subtitle="Browse the actual campus, college, department and program hierarchy." action={<ActionButton icon={Plus} disabled={!options} onClick={() => setAdding(true)}>Add record</ActionButton>} />
+    {error && <p className="form-error" role="alert">{error}</p>}{notice && <p className="inline-success" role="status">{notice}</p>}
+    {options ? <InstitutionalBrowser options={options} terms={terms} /> : <div className="card page-skeleton" role="status" aria-label="Loading institutional data"><span /><span /></div>}
+    {adding && options && <MasterDataDialog campuses={options.campuses} colleges={colleges} academicYears={years} close={() => setAdding(false)} onCreated={async () => { await loadAll(); setAdding(false); setNotice("Institutional record saved."); }} />}
+  </>;
 }
 
 function HteVerificationPage() {
-  const [applications, setApplications] = useState<RegistrationRecord[]>([]); const [organizations, setOrganizations] = useState<PartnerHteRecord[]>([]); const [search, setSearch] = useState(""); const [selected, setSelected] = useState<RegistrationRecord | null>(null); const [selectedOrganization, setSelectedOrganization] = useState<PartnerHteRecord | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
-  const load = useCallback(async () => { try { const [registrations, htes] = await Promise.all([registrationService.listLivePending(), coordinatorService.listPartnerHtes()]); setApplications(registrations.filter((item) => item.role === "HTE Representative")); setOrganizations(htes); } catch (reason) { setError(reason instanceof Error ? reason.message : "HTE verification data could not be loaded."); } finally { setLoading(false); } }, []);
+  const [applications, setApplications] = useState<RegistrationRecord[]>([]); const [organizations, setOrganizations] = useState<PartnerHteRecord[]>([]); const [search, setSearch] = useState(""); const [organizationStatus, setOrganizationStatus] = useState("Pending"); const [selected, setSelected] = useState<RegistrationRecord | null>(null); const [selectedOrganization, setSelectedOrganization] = useState<PartnerHteRecord | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  const load = useCallback(async () => { try { const [registrations, htes] = await Promise.all([registrationService.listLivePending(), coordinatorService.listPartnerHtes()]); setApplications(registrations.filter((item) => item.role === "HTE Representative")); setOrganizations(htes); } catch (reason) { setError(userError(reason, "HTE verification data could not be loaded.")); } finally { setLoading(false); } }, []);
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
   const normalizedSearch = search.trim().toLowerCase();
   const shown = applications.filter((item) => !normalizedSearch || `${item.name} ${item.email} ${item.reference} ${Object.values(item.details).join(" ")}`.toLowerCase().includes(normalizedSearch));
-  const pendingOrganizations = organizations.filter((item) => item.status === "Pending" && (!normalizedSearch || `${item.name} ${item.industry} ${item.location}`.toLowerCase().includes(normalizedSearch)));
-  return <><PageHeader title="HTE verification" subtitle="Review HTE account applications and pending partner organizations before they enter the assignment workflow." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Pending accounts" value={String(applications.length)} icon={Clock3} tone="orange" /><StatCard label="Verified organizations" value={String(organizations.filter((item) => item.status === "Verified").length)} icon={ShieldCheck} tone="green" /><StatCard label="Pending organizations" value={String(organizations.filter((item) => item.status === "Pending").length)} icon={AlertTriangle} tone="red" /></div><section className="card table-card"><div className="card-title"><h2>{loading ? "Loading verification queue…" : "Pending partner organizations"}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search verification queue…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Industry / location</th><th>Representative</th><th>Assigned interns</th><th>Status</th><th>Action</th></tr></thead><tbody>{pendingOrganizations.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.industry}<small>{item.location}</small></td><td>{item.representative}</td><td>{item.assignedInterns}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" onClick={() => setSelectedOrganization(item)}>Review</button></td></tr>)}{!loading && pendingOrganizations.length === 0 && <tr><td colSpan={6}>No partner organizations are awaiting verification.</td></tr>}</tbody></table></div></section><section className="card table-card"><div className="card-title"><h2>{loading ? "Loading applications…" : "Pending HTE accounts"}</h2></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Applicant</th><th>Reference</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.details.organization_name || item.name}</b></td><td>{item.email}</td><td>{item.reference}</td><td>{item.submitted}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" disabled={!item.id || !["Pending", "Under Review"].includes(item.status)} onClick={() => setSelected(item)}>Review</button></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={6}>No HTE account applications are awaiting review.</td></tr>}</tbody></table></div></section>{selectedOrganization && <HteOrganizationReviewDialog organization={selectedOrganization} close={() => setSelectedOrganization(null)} onReviewed={() => { setSelectedOrganization(null); void load(); }} />}{selected && <RegistrationReviewDialog application={selected} close={() => setSelected(null)} onReviewed={() => { setSelected(null); void load(); }} />}</>;
+  const pendingOrganizations = organizations.filter((item) => (organizationStatus === "All" || item.status === organizationStatus) && (!normalizedSearch || `${item.name} ${item.industry} ${item.location}`.toLowerCase().includes(normalizedSearch)));
+  return <><PageHeader title="HTE verification" subtitle="Review HTE account applications and pending partner organizations before they enter the assignment workflow." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Pending accounts" value={String(applications.length)} icon={Clock3} tone="orange" /><StatCard label="Verified organizations" value={String(organizations.filter((item) => item.status === "Verified").length)} icon={ShieldCheck} tone="green" /><StatCard label="Pending organizations" value={String(organizations.filter((item) => item.status === "Pending").length)} icon={AlertTriangle} tone="red" /></div><section className="card table-card"><div className="card-title"><h2>{loading ? "Loading verification queue…" : "Partner organization verification"}</h2><label className="field"><span>Organization status</span><select value={organizationStatus} onChange={event => setOrganizationStatus(event.target.value)}><option value="All">All</option>{["Pending", "Verified", "Rejected"].map(status => <option key={status} value={status}>{status}</option>)}</select></label><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search verification queue…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Industry</th><th>Location</th><th>Representative</th><th>Assigned interns</th><th>Status</th><th>Action</th></tr></thead><tbody>{pendingOrganizations.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.industry}</td><td>{item.location}</td><td>{item.representative}</td><td>{item.assignedInterns}</td><td><StatusBadge status={item.status} /></td><td>{item.status === "Pending" ? <button className="table-link" onClick={() => setSelectedOrganization(item)}>Review</button> : <span className="muted-note">Reviewed</span>}</td></tr>)}{!loading && pendingOrganizations.length === 0 && <tr><td colSpan={6}>No partner organizations match these filters.</td></tr>}</tbody></table></div></section><section className="card table-card"><div className="card-title"><h2>{loading ? "Loading applications…" : "Pending HTE accounts"}</h2></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Applicant name</th><th>Email</th><th>Reference</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.details.organization_name || item.name}</b></td><td>{item.name}</td><td>{item.email}</td><td>{item.reference}</td><td>{item.submitted}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" disabled={!item.id || !["Pending", "Under Review"].includes(item.status)} onClick={() => setSelected(item)}>Review</button></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={7}>No HTE account applications are awaiting review.</td></tr>}</tbody></table></div></section>{selectedOrganization && <HteOrganizationReviewDialog organization={selectedOrganization} close={() => setSelectedOrganization(null)} onReviewed={() => { setSelectedOrganization(null); void load(); }} />}{selected && <RegistrationReviewDialog application={selected} close={() => setSelected(null)} onReviewed={() => { setSelected(null); void load(); }} />}</>;
 }
 
 function HteOrganizationReviewDialog({ organization, close, onReviewed }: { organization: PartnerHteRecord; close: () => void; onReviewed: () => void }) {
@@ -1512,9 +1479,9 @@ function HteOrganizationReviewDialog({ organization, close, onReviewed }: { orga
     if (decision === "rejected" && !notes.trim()) { setError("A reason is required when rejecting an organization."); return; }
     setLoading(true); setError("");
     try { await adminService.reviewHteOrganization(organization.id, decision, notes); onReviewed(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "The organization decision could not be saved."); setLoading(false); }
+    catch (reason) { setError(userError(reason, "The organization decision could not be saved.")); setLoading(false); }
   }
-  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={`Review ${organization.name}`}><button className="modal-close" onClick={close} aria-label="Close organization review"><X size={20} /></button><span className="modal-icon"><ShieldCheck /></span><h2>Review partner HTE</h2><p>Verification makes this organization available for new internship assignments.</p><dl className="info-list"><div><dt>Organization</dt><dd>{organization.name}</dd></div><div><dt>Industry</dt><dd>{organization.industry}</dd></div><div><dt>Location</dt><dd>{organization.location}</dd></div><div><dt>Representative</dt><dd>{organization.representative}</dd></div></dl><label className="field"><span>Administrator notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add verification notes or a rejection reason…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("verified")}>Verify organization</ActionButton><ActionButton variant="danger" disabled={loading || !notes.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></section></div>;
+  return <Dialog title={`Review ${organization.name}`} onClose={close} busy={loading}><span className="modal-icon"><ShieldCheck /></span><p>Verification makes this organization available for new internship assignments.</p><dl className="info-list"><div><dt>Organization</dt><dd>{organization.name}</dd></div><div><dt>Industry</dt><dd>{organization.industry}</dd></div><div><dt>Location</dt><dd>{organization.location}</dd></div><div><dt>Representative</dt><dd>{organization.representative}</dd></div></dl><label className="field"><span>Administrator notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add verification notes or a rejection reason…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("verified")}>Verify organization</ActionButton><ActionButton variant="danger" disabled={loading || !notes.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></Dialog>;
 }
 
 const documentTemplatePhaseLabels: Record<DocumentTemplatePhase, string> = {
@@ -1533,7 +1500,6 @@ function DocumentTemplateDialog({ nextDisplayOrder, close, onCreated }: {
   close: () => void;
   onCreated: (provisionedAssignments: number) => Promise<void>;
 }) {
-  const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [phase, setPhase] = useState<DocumentTemplatePhase>("pre_internship");
@@ -1551,7 +1517,7 @@ function DocumentTemplateDialog({ nextDisplayOrder, close, onCreated }: {
     setError("");
     try {
       const result = await workflowTemplateService.createDocumentTemplate({
-        code,
+        code: "generated",
         name,
         description,
         phase,
@@ -1564,13 +1530,13 @@ function DocumentTemplateDialog({ nextDisplayOrder, close, onCreated }: {
       await onCreated(result.provisionedAssignments);
       close();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The document template could not be created.");
+      setError(userError(reason, "The document template could not be created."));
       setLoading(false);
     }
   }
 
-  return <div className="modal-backdrop" role="presentation"><section className="modal master-data-modal" role="dialog" aria-modal="true" aria-label="Create document requirement template"><button className="modal-close" onClick={close} aria-label="Close document template form"><X size={20} /></button><span className="modal-icon"><FileCheck2 /></span><h2>Create document requirement</h2><p>This creates an auditable workflow template. If it is active, PRAXIZ also adds it to current approved and active internships.</p><form onSubmit={submit}>
-    <div className="two-fields"><label className="field"><span>Template code</span><input required value={code} onChange={(event) => { setCode(event.target.value); setError(""); }} placeholder="medical-certificate" /></label><label className="field"><span>Workflow phase</span><select value={phase} onChange={(event) => setPhase(event.target.value as DocumentTemplatePhase)}><option value="pre_internship">Pre-Internship</option><option value="during_internship">During Internship</option><option value="post_internship">Post-Internship</option></select></label></div>
+  return <Dialog title="Create document requirement template" onClose={close} busy={loading} wide><span className="modal-icon"><FileCheck2 /></span><p>This creates an auditable workflow template. If it is active, PRAXIZ also adds it to current approved and active internships.</p><form onSubmit={submit}>
+    <div className="two-fields"><label className="field"><span>Workflow phase</span><select value={phase} onChange={(event) => setPhase(event.target.value as DocumentTemplatePhase)}><option value="pre_internship">Pre-Internship</option><option value="during_internship">During Internship</option><option value="post_internship">Post-Internship</option></select></label></div>
     <label className="field"><span>Document name</span><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Medical Certificate" /></label>
     <label className="field"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Explain what the student must submit…" /></label>
     <div className="two-fields"><label className="field"><span>Accepted files</span><select value={mimePreset} onChange={(event) => setMimePreset(event.target.value as DocumentTemplateMimePreset)}><option value="pdf_images">PDF, JPG, and PNG</option><option value="pdf">PDF only</option></select></label><label className="field"><span>Maximum size (MB)</span><input required type="number" min="1" max="20" step="1" value={maxFileSizeMb} onChange={(event) => setMaxFileSizeMb(event.target.value)} /></label></div>
@@ -1579,11 +1545,11 @@ function DocumentTemplateDialog({ nextDisplayOrder, close, onCreated }: {
     <label className="master-current-option"><input aria-label="Publish this requirement immediately" type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span><strong>Publish immediately</strong><small>Active templates are assigned to current approved and active internships when created.</small></span></label>
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
     <div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading}>{loading ? "Creating…" : "Create requirement"}</ActionButton></div>
-  </form></section></div>;
+  </form></Dialog>;
 }
 
 function DocumentTemplateDetails({ template, close }: { template: DocumentTemplateRecord; close: () => void }) {
-  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={`View ${template.name}`}><button className="modal-close" onClick={close} aria-label="Close document template details"><X size={20} /></button><span className="modal-icon"><FileCheck2 /></span><h2>{template.name}</h2><p>{template.description || "No description has been provided."}</p><dl className="info-list"><div><dt>Code</dt><dd>{template.code}</dd></div><div><dt>Workflow phase</dt><dd>{documentTemplatePhaseLabels[template.phase]}</dd></div><div><dt>Requirement</dt><dd>{template.isRequired ? "Required" : "Optional"}</dd></div><div><dt>Accepted files</dt><dd>{formatTemplateFileTypes(template.allowedMimeTypes)}</dd></div><div><dt>Maximum size</dt><dd>{Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB</dd></div><div><dt>Display order</dt><dd>{template.displayOrder}</dd></div><div><dt>Status</dt><dd>{template.isActive ? "Published" : "Inactive"}</dd></div></dl><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></section></div>;
+  return <Dialog title={`View ${template.name}`} onClose={close}><span className="modal-icon"><FileCheck2 /></span><p>{template.description || "No description has been provided."}</p><dl className="info-list"><div><dt>Code</dt><dd>{template.code}</dd></div><div><dt>Workflow phase</dt><dd>{documentTemplatePhaseLabels[template.phase]}</dd></div><div><dt>Requirement</dt><dd>{template.isRequired ? "Required" : "Optional"}</dd></div><div><dt>Accepted files</dt><dd>{formatTemplateFileTypes(template.allowedMimeTypes)}</dd></div><div><dt>Maximum size</dt><dd>{Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB</dd></div><div><dt>Display order</dt><dd>{template.displayOrder}</dd></div><div><dt>Status</dt><dd>{template.isActive ? "Published" : "Inactive"}</dd></div></dl><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></Dialog>;
 }
 
 const evaluationStageLabels: Record<EvaluationTemplateStage, string> = {
@@ -1603,7 +1569,6 @@ function newEvaluationCriterion(index: number): EvaluationTemplateCriterionInput
 }
 
 function EvaluationTemplateDialog({ close, onCreated }: { close: () => void; onCreated: (result: { version: number; criteriaCount: number }) => Promise<void> }) {
-  const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [stage, setStage] = useState<EvaluationTemplateStage>("final");
@@ -1627,31 +1592,41 @@ function EvaluationTemplateDialog({ close, onCreated }: { close: () => void; onC
     setLoading(true);
     setError("");
     try {
-      const result = await workflowTemplateService.createEvaluationTemplate({ code, name, description, stage, evaluatorType, isActive, criteria });
+      const result = await workflowTemplateService.createEvaluationTemplate({ code: "generated", name, description, stage, evaluatorType, isActive, criteria });
       await onCreated({ version: result.version, criteriaCount: result.criteriaCount });
       close();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The evaluation form could not be created.");
+      setError(userError(reason, "The evaluation form could not be created."));
       setLoading(false);
     }
   }
 
-  return <div className="modal-backdrop" role="presentation"><section className="modal evaluation-template-modal" role="dialog" aria-modal="true" aria-label="Create evaluation form"><button className="modal-close" onClick={close} aria-label="Close evaluation form builder"><X size={20} /></button><span className="modal-icon"><Star /></span><h2>Create evaluation form</h2><p>Define the scorecard used by authorized evaluators. Publishing a new form makes it the active evaluation template.</p><form onSubmit={submit}>
-    <div className="two-fields"><label className="field"><span>Form name</span><input required value={name} onChange={(event) => { const value = event.target.value; setName(value); if (!code) setCode(normalizeEvaluationCode(value)); }} placeholder="Final HTE Evaluation" /></label><label className="field"><span>Template code</span><input required value={code} onChange={(event) => setCode(normalizeEvaluationCode(event.target.value))} placeholder="final-hte-evaluation" /></label></div>
+  return <Dialog title="Create evaluation form" onClose={close} busy={loading} wide><span className="modal-icon"><Star /></span><p>Create a custom scorecard only when its criteria and weighting have been institutionally approved. Use the official PSU form for standard internship evaluation. Publishing replaces the active form for the same evaluator role and stage; other roles and stages are unchanged.</p><form onSubmit={submit}>
+    <div className="two-fields"><label className="field"><span>Form name</span><input required value={name} onChange={(event) => { setName(event.target.value); }} placeholder="Final HTE Evaluation" /></label></div>
     <label className="field"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Explain when and how this form should be used…" /></label>
     <div className="two-fields"><label className="field"><span>Evaluation stage</span><select value={stage} onChange={(event) => setStage(event.target.value as EvaluationTemplateStage)}><option value="midterm">Midterm</option><option value="final">Final</option><option value="other">Other</option></select></label><label className="field"><span>Evaluator</span><select value={evaluatorType} onChange={(event) => setEvaluatorType(event.target.value as EvaluationTemplateEvaluator)}><option value="hte">HTE representative</option><option value="coordinator">Internship coordinator</option></select></label></div>
-    <div className="criteria-builder"><div className="criteria-builder-heading"><div><strong>Scoring criteria</strong><small>Weights must total exactly 100%. Each criterion uses a 1–5 scale.</small></div><StatusBadge status={`${totalWeight}% total`} /></div>{criteria.map((criterion, index) => <fieldset className="criterion-builder-row" key={`${index}-${criterion.code}`}><legend>Criterion {index + 1}</legend><div className="criterion-builder-primary"><label className="field"><span>Name</span><input required value={criterion.label} onChange={(event) => updateCriterion(index, { label: event.target.value, code: normalizeEvaluationCode(event.target.value) })} placeholder="Communication" /></label><label className="field criterion-weight"><span>Weight (%)</span><input required type="number" min="1" max="100" step="1" value={criterion.weight || ""} onChange={(event) => updateCriterion(index, { weight: Number(event.target.value) })} /></label></div><label className="field"><span>Description</span><input value={criterion.description} onChange={(event) => updateCriterion(index, { description: event.target.value })} placeholder="What the evaluator should assess…" /></label><button type="button" className="table-link criterion-remove" disabled={criteria.length === 1} onClick={() => setCriteria((current) => current.filter((_, criterionIndex) => criterionIndex !== index))}>Remove criterion</button></fieldset>)}<button type="button" className="button button-secondary criterion-add" disabled={criteria.length >= 20} onClick={() => setCriteria((current) => [...current, newEvaluationCriterion(current.length)])}><Plus size={17} /> Add criterion</button></div>
-    <label className="master-current-option"><input aria-label="Publish this evaluation form immediately" type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span><strong>Publish immediately</strong><small>This becomes the single active evaluation form. Previous forms remain available for historical records.</small></span></label>
+    <div className="criteria-builder"><div className="criteria-builder-heading"><div><strong>Scoring criteria</strong><small>Weights must total exactly 100%. Each criterion uses a 1–5 scale.</small></div><StatusBadge status={`${totalWeight}% total`} /></div>{criteria.map((criterion, index) => <fieldset className="criterion-builder-row" key={index}><legend>Criterion {index + 1}</legend><div className="criterion-builder-primary"><label className="field"><span>Name</span><input required value={criterion.label} onChange={(event) => updateCriterion(index, { label: event.target.value, code: normalizeEvaluationCode(event.target.value) })} placeholder="Communication" /></label><label className="field criterion-weight"><span>Weight (%)</span><input required type="number" min="1" max="100" step="1" value={criterion.weight || ""} onChange={(event) => updateCriterion(index, { weight: Number(event.target.value) })} /></label></div><label className="field"><span>Description</span><input value={criterion.description} onChange={(event) => updateCriterion(index, { description: event.target.value })} placeholder="What the evaluator should assess…" /></label><button type="button" className="table-link criterion-remove" disabled={criteria.length === 1} onClick={() => setCriteria((current) => current.filter((_, criterionIndex) => criterionIndex !== index))}>Remove criterion</button></fieldset>)}<button type="button" className="button button-secondary criterion-add" disabled={criteria.length >= 20} onClick={() => setCriteria((current) => [...current, newEvaluationCriterion(current.length)])}><Plus size={17} /> Add criterion</button></div>
+    <label className="master-current-option"><input aria-label="Publish this evaluation form immediately" type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span><strong>Publish immediately</strong><small>This replaces the active form for the same evaluator and stage. Previous forms remain available for historical records.</small></span></label>
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
     <div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading}>{loading ? "Creating…" : "Create evaluation form"}</ActionButton></div>
-  </form></section></div>;
+  </form></Dialog>;
 }
 
 function EvaluationTemplateDetails({ template, close }: { template: EvaluationTemplateRecord; close: () => void }) {
-  return <div className="modal-backdrop" role="presentation"><section className="modal evaluation-template-modal" role="dialog" aria-modal="true" aria-label={`View ${template.name}`}><button className="modal-close" onClick={close} aria-label="Close evaluation template details"><X size={20} /></button><span className="modal-icon"><Star /></span><h2>{template.name}</h2><p>{template.description || "No description has been provided."}</p><dl className="info-list"><div><dt>Code</dt><dd>{template.code}</dd></div><div><dt>Version</dt><dd>{template.version}</dd></div><div><dt>Stage</dt><dd>{evaluationStageLabels[template.stage]}</dd></div><div><dt>Evaluator</dt><dd>{evaluatorTypeLabels[template.evaluatorType]}</dd></div><div><dt>Status</dt><dd>{template.isActive ? "Published" : "Inactive"}</dd></div><div><dt>Total weight</dt><dd>{template.criteria.reduce((total, criterion) => total + criterion.weight, 0)}%</dd></div></dl><div className="template-criteria-summary">{template.criteria.map((criterion) => <article key={criterion.code}><div><strong>{criterion.label}</strong><small>{criterion.description || "No criterion guidance provided."}</small></div><b>{criterion.weight}%</b></article>)}</div><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></section></div>;
+  return <Dialog title={`View ${template.name}`} onClose={close} wide><span className="modal-icon"><Star /></span><p>{template.description || "No description has been provided."}</p><dl className="info-list"><div><dt>Code</dt><dd>{template.code}</dd></div><div><dt>Version</dt><dd>{template.version}</dd></div><div><dt>Stage</dt><dd>{evaluationStageLabels[template.stage]}</dd></div><div><dt>Evaluator</dt><dd>{evaluatorTypeLabels[template.evaluatorType]}</dd></div><div><dt>Status</dt><dd>{template.isActive ? "Published" : "Inactive"}</dd></div><div><dt>Scoring</dt><dd>{template.metadata ? "Individual ratings from 1 to 5; no overall percentage" : template.criteria.reduce((total, criterion) => total + criterion.weight, 0) + "% configured weight"}</dd></div></dl><div className="template-criteria-summary">{template.criteria.map((criterion) => <article key={criterion.code}><div><strong>{criterion.label}</strong><small>{criterion.description || "No criterion guidance provided."}</small></div><b>{template.metadata ? "1–5" : criterion.weight + "%"}</b></article>)}</div><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></Dialog>;
 }
 
 function WorkflowTemplatesPage() {
+  const [confirmOfficial, setConfirmOfficial] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const publishLock = useRef(false);
+  async function publishOfficial() {
+    if (publishLock.current) return;
+    publishLock.current = true; setPublishing(true); setError("");
+    try { await evaluationService.publishOfficial(); await loadTemplates(); setNotice("Official PSU-F-PLU-02 templates are published for HTE and coordinator evaluators. Historical records were preserved."); setConfirmOfficial(false); }
+    catch (reason) { setError(userError(reason)); setConfirmOfficial(false); }
+    finally { publishLock.current = false; setPublishing(false); }
+  }
   const [section, setSection] = useState<"documents" | "evaluations">("documents");
   const [templates, setTemplates] = useState<DocumentTemplateRecord[]>([]);
   const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTemplateRecord[]>([]);
@@ -1663,7 +1638,7 @@ function WorkflowTemplatesPage() {
   const [selected, setSelected] = useState<DocumentTemplateRecord | null>(null);
   const [selectedEvaluation, setSelectedEvaluation] = useState<EvaluationTemplateRecord | null>(null);
 
-  const loadTemplates = useCallback(async () => {
+  async function loadTemplates() {
     setLoading(true);
     setError("");
     try {
@@ -1674,9 +1649,9 @@ function WorkflowTemplatesPage() {
       setTemplates(documents);
       setEvaluationTemplates(evaluations);
     }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Workflow templates could not be loaded."); }
+    catch (reason) { setError(userError(reason, "Workflow templates could not be loaded.")); }
     finally { setLoading(false); }
-  }, []);
+  }
 
   useEffect(() => {
     let active = true;
@@ -1685,7 +1660,7 @@ function WorkflowTemplatesPage() {
       setTemplates(documents);
       setEvaluationTemplates(evaluations);
     }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Workflow templates could not be loaded.");
+      if (active) setError(userError(reason, "Workflow templates could not be loaded."));
     }).finally(() => {
       if (active) setLoading(false);
     });
@@ -1695,10 +1670,12 @@ function WorkflowTemplatesPage() {
 
   return <><PageHeader title="Workflow templates" subtitle="Configure document requirements and evaluation forms used throughout every internship." action={section === "documents" ? <ActionButton icon={Plus} onClick={() => { setNotice(""); setAdding(true); }}>Create requirement</ActionButton> : <ActionButton icon={Plus} onClick={() => { setNotice(""); setAddingEvaluation(true); }}>Create evaluation form</ActionButton>} />
     <div className="segmented workflow-template-tabs" role="tablist" aria-label="Workflow template type"><button type="button" role="tab" aria-selected={section === "documents"} className={section === "documents" ? "active" : ""} onClick={() => { setSection("documents"); setNotice(""); }}>Document requirements</button><button type="button" role="tab" aria-selected={section === "evaluations"} className={section === "evaluations" ? "active" : ""} onClick={() => { setSection("evaluations"); setNotice(""); }}>Evaluation forms</button></div>
-    <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Controlled configuration:</strong> {section === "documents" ? "published requirements are permission-checked, audit logged, and added to current approved and active internships." : "evaluation forms and criteria are permission-checked, validated to 100% total weight, versioned, and audit logged."}</p></div>
+    <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Controlled configuration:</strong> {section === "documents" ? "published requirements are permission-checked, audit logged, and added to current approved and active internships." : "evaluation forms are versioned and audit logged. The official PSU form uses individual 1–5 ratings without an overall percentage formula."}</p></div>
     {notice && <p className="form-success"><CheckCircle2 size={16} /> {notice}</p>}
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
     {section === "documents" && <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading document requirements…" : "Document requirement templates"}</h2><StatusBadge status={`${templates.filter((template) => template.isActive).length} published`} /></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Template</th><th>Workflow phase</th><th>Requirement</th><th>Accepted files</th><th>Limit</th><th>Status</th><th>Action</th></tr></thead><tbody>{templates.map((template) => <tr key={template.id}><td><b>{template.name}</b><small>{template.code}</small></td><td>{documentTemplatePhaseLabels[template.phase]}</td><td>{template.isRequired ? "Required" : "Optional"}</td><td>{formatTemplateFileTypes(template.allowedMimeTypes)}</td><td>{Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB</td><td><StatusBadge status={template.isActive ? "Published" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelected(template)}>View</button></td></tr>)}{!loading && templates.length === 0 && <tr><td colSpan={7}>No document requirement templates have been configured.</td></tr>}</tbody></table></div></section>}
+    {section === "evaluations" && <div className="card"><h2>Official university evaluation</h2><p>PSU-F-PLU-02 · Rev. No. 00 · January 2, 2026. 18 criteria; individual ratings only.</p><ActionButton disabled={publishing} onClick={() => setConfirmOfficial(true)}>Publish official PSU form</ActionButton></div>}
+    {confirmOfficial && <ConfirmDialog title="Publish the official PSU evaluation?" message="The official form will be activated for HTE and coordinator evaluators. Previous forms remain available for existing evaluations and history." confirmLabel={publishing ? "Publishing…" : "Publish official form"} busy={publishing} onConfirm={() => void publishOfficial()} onCancel={() => setConfirmOfficial(false)} />}
     {section === "evaluations" && <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading evaluation forms…" : "Evaluation form templates"}</h2><StatusBadge status={`${evaluationTemplates.filter((template) => template.isActive).length} published`} /></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Form</th><th>Stage</th><th>Evaluator</th><th>Criteria</th><th>Version</th><th>Status</th><th>Action</th></tr></thead><tbody>{evaluationTemplates.map((template) => <tr key={template.id}><td><b>{template.name}</b><small>{template.code}</small></td><td>{evaluationStageLabels[template.stage]}</td><td>{evaluatorTypeLabels[template.evaluatorType]}</td><td>{template.criteria.length}</td><td>v{template.version}</td><td><StatusBadge status={template.isActive ? "Published" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelectedEvaluation(template)}>View</button></td></tr>)}{!loading && evaluationTemplates.length === 0 && <tr><td colSpan={7}>No evaluation forms have been configured. Create one to enable evaluation scoring.</td></tr>}</tbody></table></div></section>}
     {adding && <DocumentTemplateDialog nextDisplayOrder={nextDisplayOrder} close={() => setAdding(false)} onCreated={async (count) => { await loadTemplates(); setNotice(count > 0 ? `Requirement created and added to ${count} current internship${count === 1 ? "" : "s"}.` : "Requirement created. No current internship needed provisioning."); }} />}
     {addingEvaluation && <EvaluationTemplateDialog close={() => setAddingEvaluation(false)} onCreated={async ({ version, criteriaCount }) => { await loadTemplates(); setSection("evaluations"); setNotice(`Evaluation form version ${version} created with ${criteriaCount} scoring ${criteriaCount === 1 ? "criterion" : "criteria"}.`); }} />}
@@ -1722,40 +1699,43 @@ function RegistrationReviewDialog({ application, close, onReviewed }: { applicat
       await registrationService.review(application.id, decision, notes);
       onReviewed();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The registration decision could not be saved.");
+      setError(userError(reason, "The registration decision could not be saved."));
       setLoading(false);
     }
   }
   const visibleDetails = Object.entries(application.details).filter(([key]) => !["requested_role", "first_name", "middle_name", "last_name"].includes(key));
-  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label={`Review ${application.name}`}><button className="modal-close" onClick={close} aria-label="Close registration review"><X size={20} /></button><span className="modal-icon"><UserCheck /></span><h2>Review registration</h2><p><strong>{application.name}</strong><br />{application.email} · {application.role}</p><dl className="info-list">{visibleDetails.map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{value}</dd></div>)}</dl><label className="field"><span>Administrator notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add verification notes or a rejection reason…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("approved")}>Approve and activate</ActionButton><ActionButton variant="danger" disabled={loading || !notes.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></section></div>;
+  return <Dialog title={`Review ${application.name}`} onClose={close} busy={loading}><span className="modal-icon"><UserCheck /></span><p><strong>{application.name}</strong><br />{application.email} · {application.role}</p><dl className="info-list">{visibleDetails.map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{value}</dd></div>)}</dl><label className="field"><span>Administrator notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add verification notes or a rejection reason…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("approved")}>Approve and activate</ActionButton><ActionButton variant="danger" disabled={loading || !notes.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></Dialog>;
 }
 
-function RegistrationTable() {
+function RegistrationTable({ includeReviewed = false }: { includeReviewed?: boolean }) {
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("All");
   const [records, setRecords] = useState<RegistrationRecord[]>([]);
   const [selected, setSelected] = useState<RegistrationRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   async function load() {
-    try { setRecords(await registrationService.listLivePending()); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Pending registrations could not be loaded."); }
+    try { setRecords(await registrationService.listLive(includeReviewed)); }
+    catch (reason) { setError(userError(reason, "Pending registrations could not be loaded.")); }
     finally { setLoading(false); }
   }
   useEffect(() => {
     let active = true;
-    void registrationService.listLivePending().then((result) => {
+    void registrationService.listLive(includeReviewed).then((result) => {
       if (active) setRecords(result);
     }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Pending registrations could not be loaded.");
+      if (active) setError(userError(reason, "Pending registrations could not be loaded."));
     }).finally(() => {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, []);
-  return <>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="table-scroll"><table className="data-table"><thead><tr><th>Applicant</th><th>Requested role</th><th>Reference</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead><tbody>{records.map((item) => <tr key={item.id}><td><b>{item.name}</b><small>{item.email}</small></td><td>{item.role}</td><td>{item.reference}</td><td>{item.submitted}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" onClick={() => setSelected(item)}>Review</button></td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={6}>There are no pending registration applications.</td></tr>}</tbody></table></div>{selected && <RegistrationReviewDialog application={selected} close={() => setSelected(null)} onReviewed={() => { setSelected(null); void load(); }} />}</>;
+  }, [includeReviewed]);
+  const shown = records.filter(r => (status === "All" || r.status === status) && [r.name,r.email,r.reference,r.role].join(" ").toLowerCase().includes(search.trim().toLowerCase()));
+  return <>{includeReviewed && <div className="card-title"><label className="field"><span>Search applicants</span><input value={search} onChange={e => setSearch(e.target.value)} /></label><label className="field"><span>Status</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="All">All</option>{[...new Set(records.map(r => r.status))].map(s => <option key={s} value={s}>{s}</option>)}</select></label></div>}{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="table-scroll"><table className="data-table"><thead><tr><th>Name</th><th>Email</th><th>Requested role</th><th>Reference</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td className="email-cell" title={item.email}>{item.email}</td><td>{item.role}</td><td>{item.reference}</td><td>{item.submitted}</td><td><StatusBadge status={item.status} /></td><td>{["Pending","Under Review"].includes(item.status) ? <button className="table-link" onClick={() => setSelected(item)}>Review</button> : "Reviewed"}</td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={7}>No registration applications match this view.</td></tr>}</tbody></table></div>{selected && <RegistrationReviewDialog application={selected} close={() => setSelected(null)} onReviewed={() => { setSelected(null); void load(); }} />}</>;
 }
 
 function RegistrationsPage() {
-  return <><PageHeader title="Pending registrations" subtitle="Verify identities and role requests before account activation." /><section className="card table-card"><RegistrationTable /></section></>;
+  return <><PageHeader title="Registrations" subtitle="Verify identities and role requests before account activation." /><section className="card table-card"><RegistrationTable includeReviewed /></section></>;
 }
 
 function DashboardRouter({ role, page }: { role: RoleId; page: string }) {
@@ -1796,6 +1776,7 @@ function PraxizRouter() {
   const pathname = usePathname() || "/";
   const parts = pathname.split("/").filter(Boolean);
   if (pathname === "/") return <LandingPage />;
+  if (pathname === "/contact") return <ContactPage />;
   if (pathname === "/signin" || pathname === "/login") return <SignInPage />;
   if (pathname === "/forgot-password") return <ForgotPasswordPage />;
   if (pathname === "/reset-password") return <ResetPasswordPage />;

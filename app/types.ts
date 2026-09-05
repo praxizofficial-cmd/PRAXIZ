@@ -61,6 +61,9 @@ export type AuthUser = {
   id: string;
   email: string;
   fullName: string;
+  preferredName?: string;
+  phone?: string;
+  avatarPath?: string;
   studentNumber?: string;
   yearLevel?: number;
   section?: string;

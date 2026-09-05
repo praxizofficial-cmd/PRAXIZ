@@ -1,3 +1,4 @@
+import type { EvaluationFormMetadata } from "../../lib/evaluation-report";
 import { createClient } from "../../lib/supabase/client";
 import { getSiteOrigin } from "../../lib/site-url";
 import { resolveActiveAssignmentId } from "../auth/student-stabilization";
@@ -39,6 +40,7 @@ type AttendanceSessionRow = {
 
 export type AttendanceHistoryRow = {
   id: string;
+  studentUserId?: string;
   studentName: string;
   date: string;
   day: string;
@@ -94,6 +96,7 @@ export type CreateDocumentTemplateInput = {
 };
 
 export type EvaluationTemplateRecord = {
+  metadata: EvaluationFormMetadata | null;
   id: string;
   code: string;
   name: string;
@@ -152,6 +155,8 @@ export type RegistrationRecord = {
 };
 
 export type EvaluationCriterionRecord = {
+  section?: string;
+  group?: string;
   id: string;
   label: string;
   description: string;
@@ -162,6 +167,9 @@ export type EvaluationCriterionRecord = {
 };
 
 export type EvaluationRecord = {
+  evaluatorId: string;
+  metadata: EvaluationFormMetadata | null;
+  context: { ratingPeriod?: string; designation?: string; office?: string };
   id: string;
   assignmentId: string;
   templateId: string;
@@ -182,6 +190,7 @@ export type EvaluationRecord = {
 export type EvaluationAssignment = { id: string; studentName: string };
 
 export type EvaluationInput = {
+  context?: { ratingPeriod?: string; designation?: string; office?: string };
   id?: string;
   assignmentId: string;
   templateId: string;
@@ -272,6 +281,7 @@ export type StudentProgressSummary = {
   documentsApproved: number;
   documentsRequired: number;
   evaluationAverage: number | null;
+  finalizedEvaluationCount: number;
   campus: string;
   program: string;
   hte: string;
@@ -749,12 +759,14 @@ export const internshipService = {
       internship_supervisors?: Array<{ supervisor_user_id: string; supervisor_type: string; is_primary: boolean; ended_at: string | null; deleted_at: string | null }> | null;
     };
     const row = assignment as unknown as AssignmentRow;
-    const [{ data: progress, error: progressError }, { data: requirements, error: requirementError }] = await Promise.all([
+    const [{ data: progress, error: progressError }, { data: requirements, error: requirementError }, { count: finalizedEvaluationCount, error: evaluationError }] = await Promise.all([
       supabase.from("assignment_progress").select("rendered_hours,total_sessions,verified_sessions,attendance_verification_percent,total_log_days,submitted_logs,approved_logs,required_documents,satisfied_documents,average_score").eq("internship_assignment_id", row.id).maybeSingle(),
       supabase.from("document_requirements").select("status,document_requirement_templates(name,display_order)").eq("internship_assignment_id", row.id).order("created_at", { ascending: true }),
+      supabase.from("evaluations").select("id", { count: "exact", head: true }).eq("internship_assignment_id", row.id).eq("status", "finalized").is("deleted_at", null),
     ]);
     if (progressError) throw new Error(progressError.message);
     if (requirementError) throw new Error(requirementError.message);
+    if (evaluationError) throw new Error(evaluationError.message);
 
     const supervisors = (row.internship_supervisors ?? []).filter((supervisor) => !supervisor.ended_at && !supervisor.deleted_at);
     const names = await namesForUsers(supervisors.map((supervisor) => supervisor.supervisor_user_id));
@@ -795,6 +807,7 @@ export const internshipService = {
       documentsApproved: Number(progressRow?.satisfied_documents ?? 0),
       documentsRequired: Number(progressRow?.required_documents ?? 0),
       evaluationAverage: progressRow?.average_score == null ? null : Number(progressRow.average_score),
+      finalizedEvaluationCount: finalizedEvaluationCount ?? 0,
       campus: campus?.short_name ?? campus?.name ?? "Assigned campus",
       program: program ? `${program.code} — ${program.name}` : "Assigned program",
       hte: hteDisplayName || "Assigned HTE",
@@ -808,14 +821,18 @@ export const internshipService = {
 
 export const attendanceService = {
   listHistory: (): AttendanceHistoryRow[] => [],
-  async listLiveHistory(): Promise<AttendanceHistoryRow[]> {
-    const { data, error } = await createClient()
-      .from("attendance_sessions")
-      .select(sessionSelection)
-      .order("work_date", { ascending: false })
-      .limit(60);
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []) as unknown as AttendanceSessionRow[];
+  async listLiveHistory(studentUserId?: string): Promise<AttendanceHistoryRow[]> {
+    const rows: AttendanceSessionRow[] = [];
+    for (let offset = 0; ; offset += 500) {
+      let query = createClient().from("attendance_sessions")
+        .select(sessionSelection.replace("internship_assignments(student_user_id)", "internship_assignments!inner(student_user_id)"))
+        .order("work_date", { ascending: false }).order("id").range(offset, offset + 499);
+      if (studentUserId) query = query.eq("internship_assignments.student_user_id", studentUserId);
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      rows.push(...((data ?? []) as unknown as AttendanceSessionRow[]));
+      if (!data || data.length < 500) break;
+    }
     const visibleUserIds = [...new Set(rows.flatMap((row) => {
       const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
       const reviewerIds = (row.attendance_verifications ?? []).map((verification) => verification.reviewer_user_id);
@@ -837,6 +854,7 @@ export const attendanceService = {
       const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
       return {
         id: row.id,
+        studentUserId: assignment?.student_user_id,
         studentName: assignment?.student_user_id ? nameById.get(assignment.student_user_id) ?? "Assigned intern" : "Assigned intern",
         date: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(new Date(`${row.work_date}T00:00:00+08:00`)),
         day: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", weekday: "long" }).format(new Date(`${row.work_date}T00:00:00+08:00`)),
@@ -1042,7 +1060,7 @@ export const workflowTemplateService = {
   async listEvaluationTemplates(): Promise<EvaluationTemplateRecord[]> {
     const { data, error } = await createClient()
       .from("evaluation_templates")
-      .select("id,code,name,description,stage,evaluator_type,version,is_active,evaluation_criteria(code,label,description,weight,minimum_score,maximum_score,display_order)")
+      .select("id,code,name,description,stage,evaluator_type,version,is_active,form_metadata,evaluation_criteria(code,label,description,weight,minimum_score,maximum_score,display_order)")
       .order("version", { ascending: false })
       .order("name", { ascending: true });
     if (error) throw new Error(error.message);
@@ -1054,6 +1072,7 @@ export const workflowTemplateService = {
       description: string | null;
       stage: EvaluationTemplateStage;
       evaluator_type: EvaluationTemplateRecord["evaluatorType"];
+      form_metadata: EvaluationFormMetadata | null;
       version: number;
       is_active: boolean;
       evaluation_criteria?: CriterionRow[] | null;
@@ -1064,6 +1083,7 @@ export const workflowTemplateService = {
       description: row.description ?? "",
       stage: row.stage,
       evaluatorType: row.evaluator_type,
+      metadata: row.form_metadata,
       version: row.version,
       isActive: row.is_active,
       criteria: [...(row.evaluation_criteria ?? [])].sort((a, b) => a.display_order - b.display_order).map((criterion) => ({
@@ -1125,6 +1145,11 @@ const documentPhase: Record<string, DocumentRecord["phase"]> = {
 };
 
 export const documentService = {
+  async complianceSummary() {
+    const { data, error } = await createClient().from('assignment_document_summary').select('required_documents,satisfied_documents,submitted_documents,under_review_documents,missing_documents,needs_revision_documents,rejected_documents');
+    if (error) throw error;
+    return data ?? [];
+  },
   async listLive(): Promise<DocumentRecord[]> {
     const supabase = createClient();
     const { data, error } = await supabase
@@ -1271,7 +1296,7 @@ async function namesForUsers(userIds: string[]) {
 export const evaluationService = {
   async listLive(): Promise<EvaluationRecord[]> {
     const { data, error } = await createClient().from("evaluations")
-      .select("id,internship_assignment_id,evaluation_template_id,evaluator_user_id,status,weighted_score,submitted_at,internship_assignments(student_user_id),evaluation_templates(name,evaluation_criteria(id,label,description,minimum_score,maximum_score,weight,display_order)),current_version:evaluation_versions!evaluations_current_version_fk(strengths,areas_for_improvement,overall_remarks,submitted_at,evaluation_scores(criterion_id,score)),evaluation_reviews(decision,feedback,reviewed_at)")
+      .select("id,internship_assignment_id,evaluation_template_id,evaluator_user_id,status,weighted_score,submitted_at,internship_assignments(student_user_id),evaluation_templates(name,form_metadata,evaluation_criteria(id,label,description,section_label,group_label,minimum_score,maximum_score,weight,display_order)),current_version:evaluation_versions!evaluations_current_version_fk(form_context,strengths,areas_for_improvement,overall_remarks,submitted_at,evaluation_scores(criterion_id,score)),evaluation_reviews(decision,feedback,reviewed_at)")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
@@ -1283,10 +1308,10 @@ export const evaluationService = {
       status: string;
       weighted_score: number | string | null;
       submitted_at: string | null;
-      current_version?: { strengths: string | null; areas_for_improvement: string | null; overall_remarks: string | null; submitted_at: string | null; evaluation_scores?: Array<{ criterion_id: string; score: number | string }> | null } | Array<{ strengths: string | null; areas_for_improvement: string | null; overall_remarks: string | null; submitted_at: string | null; evaluation_scores?: Array<{ criterion_id: string; score: number | string }> | null }> | null;
+      current_version?: { form_context?: { ratingPeriod?: string; designation?: string; office?: string }; strengths: string | null; areas_for_improvement: string | null; overall_remarks: string | null; submitted_at: string | null; evaluation_scores?: Array<{ criterion_id: string; score: number | string }> | null } | Array<{ form_context?: { ratingPeriod?: string; designation?: string; office?: string }; strengths: string | null; areas_for_improvement: string | null; overall_remarks: string | null; submitted_at: string | null; evaluation_scores?: Array<{ criterion_id: string; score: number | string }> | null }> | null;
       evaluation_reviews?: Array<{ decision: string; feedback: string | null; reviewed_at: string }> | null;
       internship_assignments?: { student_user_id?: string } | Array<{ student_user_id?: string }> | null;
-      evaluation_templates?: { name: string; evaluation_criteria?: Array<{ id: string; label: string; description: string | null; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number }> } | Array<{ name: string; evaluation_criteria?: Array<{ id: string; label: string; description: string | null; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number }> }> | null;
+      evaluation_templates?: { name: string; form_metadata?: EvaluationFormMetadata | null; evaluation_criteria?: Array<{ id: string; label: string; description: string | null; section_label?: string; group_label?: string; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number }> } | Array<{ name: string; form_metadata?: EvaluationFormMetadata | null; evaluation_criteria?: Array<{ id: string; label: string; description: string | null; section_label?: string; group_label?: string; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number }> }> | null;
     };
     const rows = (data ?? []) as unknown as Row[];
     const userIds = rows.flatMap((row) => {
@@ -1303,11 +1328,13 @@ export const evaluationService = {
       const criteria = [...(template?.evaluation_criteria ?? [])].sort((a, b) => a.display_order - b.display_order).map((criterion) => ({
         id: criterion.id,
         label: criterion.label,
+        section: criterion.section_label,
+        group: criterion.group_label,
         description: criterion.description ?? "",
         minimumScore: Number(criterion.minimum_score),
         maximumScore: Number(criterion.maximum_score),
         weight: Number(criterion.weight),
-        score: scoreByCriterion.get(criterion.id) ?? 0,
+        score: scoreByCriterion.get(criterion.id) ?? Number.NaN,
       }));
       return {
         id: row.id,
@@ -1315,6 +1342,9 @@ export const evaluationService = {
         templateId: row.evaluation_template_id,
         templateName: template?.name ?? "Internship Evaluation",
         studentName: assignment?.student_user_id ? nameById.get(assignment.student_user_id) ?? "Assigned intern" : "Assigned intern",
+        evaluatorId: row.evaluator_user_id,
+        metadata: template?.form_metadata ?? null,
+        context: currentVersion?.form_context ?? {},
         evaluatorName: nameById.get(row.evaluator_user_id) ?? "Authorized evaluator",
         status: evaluationStatus[row.status] ?? "Draft",
         strengths: currentVersion?.strengths ?? "",
@@ -1335,40 +1365,52 @@ export const evaluationService = {
     const names = await namesForUsers(rows.map((row) => row.student_user_id));
     return rows.map((row) => ({ id: row.id, studentName: names.get(row.student_user_id) ?? "Assigned intern" }));
   },
-  async getActiveTemplate(): Promise<{ id: string; name: string; criteria: EvaluationCriterionRecord[] }> {
+  async listActiveTemplates(evaluatorType: "hte" | "coordinator" = "hte"): Promise<{ id: string; name: string; metadata: EvaluationFormMetadata | null; criteria: EvaluationCriterionRecord[] }[]> {
     const { data, error } = await createClient().from("evaluation_templates")
-      .select("id,name,evaluation_criteria(id,label,description,minimum_score,maximum_score,weight,display_order)")
+      .select("id,name,form_metadata,evaluation_criteria(id,label,description,section_label,group_label,minimum_score,maximum_score,weight,display_order)")
       .eq("is_active", true)
+      .eq("evaluator_type", evaluatorType)
       .order("version", { ascending: false })
-      .limit(1)
-      .single();
-    if (error || !data) throw new Error(error?.message ?? "No active evaluation template is configured.");
-    type Criterion = { id: string; label: string; description: string | null; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number };
-    return {
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    type Criterion = { id: string; label: string; description: string | null; section_label?: string; group_label?: string; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number };
+    return [...(data ?? [])].sort((a, b) => Number(b.form_metadata?.formCode === "PSU-F-PLU-02") - Number(a.form_metadata?.formCode === "PSU-F-PLU-02")).map(data => ({
       id: data.id as string,
       name: data.name as string,
+      metadata: data.form_metadata as EvaluationFormMetadata | null,
       criteria: [...((data.evaluation_criteria ?? []) as unknown as Criterion[])].sort((a, b) => a.display_order - b.display_order).map((criterion) => ({
         id: criterion.id,
         label: criterion.label,
+        section: criterion.section_label,
+        group: criterion.group_label,
         description: criterion.description ?? "",
         minimumScore: Number(criterion.minimum_score),
         maximumScore: Number(criterion.maximum_score),
         weight: Number(criterion.weight),
-        score: 0,
+        score: Number.NaN, // Unanswered; zero remains a valid rating for a configured legacy scale.
       })),
-    };
+    }));
   },
   async save(input: EvaluationInput): Promise<void> {
-    const { error } = await createClient().rpc("save_evaluation", {
+    const { error } = await createClient().rpc("save_evaluation_form", {
       p_assignment_id: input.assignmentId,
       p_template_id: input.templateId,
-      p_scores: input.criteria.map((criterion) => ({ criterion_id: criterion.id, score: criterion.score })),
+      p_context: input.context ?? {},
+      p_scores: input.criteria.filter((criterion) => Number.isFinite(criterion.score)).map((criterion) => ({ criterion_id: criterion.id, score: criterion.score })),
       p_strengths: input.strengths.trim() || null,
       p_areas_for_improvement: input.areasForImprovement.trim() || null,
       p_overall_remarks: input.overallRemarks.trim() || null,
       p_submit: input.submit,
       p_evaluation_id: input.id ?? null,
     });
+    if (error) throw new Error(error.message);
+  },
+  async deleteDraft(evaluationId: string): Promise<void> {
+    const { error } = await createClient().rpc("delete_evaluation_draft", { p_evaluation_id: evaluationId });
+    if (error) throw new Error(error.message);
+  },
+  async publishOfficial(): Promise<void> {
+    const { error } = await createClient().rpc("publish_official_evaluation_templates");
     if (error) throw new Error(error.message);
   },
   async review(evaluationId: string, decision: "finalized" | "returned", feedback: string): Promise<void> {
@@ -1496,7 +1538,7 @@ export const adminService = {
     const displayStatus = (status: string) => status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ");
     return ((profilesResult.data ?? []) as ProfileRow[]).map((profile) => ({
       id: profile.id,
-      name: profile.preferred_name?.trim() || [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ").trim() || profile.email,
+      name: [profile.preferred_name?.trim(), [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ").trim()].find(value => value && !value.includes("@")) || "Name not recorded",
       email: profile.email,
       role: rolesByUser.get(profile.id)?.join(", ") || "No active role",
       reference: studentNumbers.get(profile.id) ?? employeeNumbers.get(profile.id) ?? hteReferences.get(profile.id) ?? profile.email,
@@ -1657,12 +1699,16 @@ export const feedbackService = {
 };
 export const registrationService = {
   async listLivePending(): Promise<RegistrationRecord[]> {
-    const { data, error } = await createClient()
+    return registrationService.listLive(false);
+  },
+  async listLive(includeReviewed = true): Promise<RegistrationRecord[]> {
+    let query = createClient()
       .from("registration_applications")
       .select("id,email,reference_no,submitted_data,status,created_at,roles(code)")
-      .in("status", ["pending", "under_review"])
       .is("deleted_at", null)
       .order("created_at", { ascending: true });
+    if (!includeReviewed) query = query.in("status", ["pending", "under_review"]);
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
     const roleNames: Record<string, string> = {
       student_intern: "Student Intern",
@@ -1675,12 +1721,12 @@ export const registrationService = {
       const requestedRole = joinedOne(row.roles)?.code ?? "unknown";
       return {
         id: row.id,
-        name: details.organization_name || personName || row.email,
+        name: personName || details.organization_name || "Name not recorded",
         email: row.email,
         role: roleNames[requestedRole] ?? requestedRole,
         reference: row.reference_no ?? "—",
         submitted: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(new Date(row.created_at)),
-        status: row.status === "under_review" ? "Under Review" : "Pending",
+        status: ({ pending: "Pending", under_review: "Under Review", approved: "Approved", rejected: "Rejected", withdrawn: "Withdrawn" } as Record<string, string>)[row.status] ?? row.status,
         details,
       };
     });

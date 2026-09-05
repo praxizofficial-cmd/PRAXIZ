@@ -49,7 +49,7 @@ export const roles: Record<RoleId, { label: string; user: string; initials: stri
     nav: [
       { label: "Dashboard", href: "/admin/dashboard", icon: "dashboard" },
       { label: "User Accounts", href: "/admin/users", icon: "users", permission: "users:manage" },
-      { label: "Pending Registrations", href: "/admin/registrations", icon: "profile" },
+      { label: "Registrations", href: "/admin/registrations", icon: "profile" },
       { label: "HTE Verification", href: "/admin/hte-verification", icon: "briefcase", permission: "users:manage" },
       { label: "Institutional Data", href: "/admin/master-data", icon: "settings", permission: "master-data:manage" },
       { label: "Workflow Templates", href: "/admin/templates", icon: "documents", permission: "master-data:manage" },
