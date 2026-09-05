@@ -202,17 +202,23 @@ function StatCard({ label, value, detail, icon: Icon, tone = "blue", progress }:
 function PublicHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   return <header className="public-header">
-    <Link href="/" aria-label="PRAXIZ home"><Logo /></Link>
-    <ThemeControls compact />
-    <button className="icon-button public-menu-toggle" aria-expanded={menuOpen} aria-controls="public-navigation" aria-label={menuOpen ? "Close navigation" : "Open navigation"} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
+    <Link className="public-header-brand" href="/" aria-label="PRAXIZ home"><Logo /></Link>
     <nav id="public-navigation" className={menuOpen ? "public-navigation-open" : ""} aria-label="Public navigation">
-      <Link href="/#about" className="public-link" onClick={() => setMenuOpen(false)}>About</Link>
-      <Link href="/#sdgs" className="public-link" onClick={() => setMenuOpen(false)}>SDGs</Link>
-      <Link href="/#how-it-works" className="public-link" onClick={() => setMenuOpen(false)}>How it works</Link>
-      <Link href="/#contact" className="public-link" onClick={() => setMenuOpen(false)}>Contact</Link>
-      <Link href="/signin" className="button button-secondary">Sign in</Link>
-      <Link href="/register" className="button button-primary">Create account</Link>
+      <div className="public-nav-links">
+        <Link href="/#about" className="public-link" onClick={() => setMenuOpen(false)}>About</Link>
+        <Link href="/#sdgs" className="public-link" onClick={() => setMenuOpen(false)}>SDGs</Link>
+        <Link href="/#how-it-works" className="public-link" onClick={() => setMenuOpen(false)}>How it works</Link>
+        <Link href="/#contact" className="public-link" onClick={() => setMenuOpen(false)}>Contact</Link>
+      </div>
+      <div className="public-nav-actions">
+        <Link href="/signin" className="button button-secondary">Sign in</Link>
+        <Link href="/register" className="button button-primary">Create account</Link>
+      </div>
     </nav>
+    <div className="public-header-actions">
+      <ThemeControls compact />
+      <button className="icon-button public-menu-toggle" aria-expanded={menuOpen} aria-controls="public-navigation" aria-label={menuOpen ? "Close navigation" : "Open navigation"} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
+    </div>
   </header>;
 }
 
