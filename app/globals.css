@@ -804,7 +804,7 @@ html[data-accent="gold"] .button-primary { color: #241900; }
 
 /* Trigger3D-inspired credit footer: a simple bordered rectangle with centered credit. */
 .landing-footer { min-height: 76px; padding: 8px clamp(12px, 3vw, 34px); background: var(--surface); color: #9eb2d1; }
-.landing-footer-placeholder { width: 100%; min-height: 60px; display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr); align-items: center; gap: 24px; padding: 8px clamp(14px, 2.4vw, 28px); border: 1px solid var(--line); border-radius: 2px; background: var(--surface); }
+.landing-footer-placeholder { width: 100%; min-height: 60px; display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr); align-items: center; gap: 24px; padding: 8px clamp(14px, 2.4vw, 28px); border: 0; border-radius: 0; background: transparent; }
 .landing-footer-placeholder .brand { min-width: 0; }.landing-footer-placeholder .brand .brand-mark { width: 42px; height: 42px; }.landing-footer-placeholder .brand .wordmark-frame { width: 128px; }
 .landing-footer-credit { justify-self: center; text-align: center; color: #9eb2d1; font-size: 13px; line-height: 1.4; white-space: nowrap; }
 .landing-footer-placeholder nav { justify-self: end; display: flex; align-items: center; justify-content: flex-end; gap: 20px; color: #9eb2d1; font-size: 12px; }
