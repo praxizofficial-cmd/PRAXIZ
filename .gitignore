@@ -42,5 +42,6 @@ tsconfig.tsbuildinfo
 /.wrangler/
 /outputs/
 /work/
+/tmp/
 /.tmp-pglast/
 /.tmp-remote-schema.sql
