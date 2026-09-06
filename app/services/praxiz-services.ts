@@ -2,6 +2,7 @@ import type { EvaluationFormMetadata } from "../../lib/evaluation-report";
 import { createClient } from "../../lib/supabase/client";
 import { getSiteOrigin } from "../../lib/site-url";
 import { resolveActiveAssignmentId } from "../auth/student-stabilization";
+import { supportedRoleCodes, supportedRoleNames, isSupportedRoleCode } from "../auth/supported-roles";
 import { buildSaveDailyLogRpcArgs, type DailyLogAssignment } from "./daily-log-stabilization";
 import { programsForCollege } from "./institutional-stabilization";
 import { normalizeDocumentTemplateCode, validateDocumentTemplate, type DocumentTemplatePhase } from "./workflow-template-stabilization";
@@ -222,7 +223,7 @@ export type PartnerHteRecord = {
 
 export type AssignmentOption = { id: string; label: string };
 export type AssignmentOptions = {
-  students: AssignmentOption[];
+  students: Array<AssignmentOption & { studentNumber: string }>;
   htes: AssignmentOption[];
   terms: Array<AssignmentOption & { startsOn: string; endsOn: string }>;
 };
@@ -635,7 +636,7 @@ async function readSession(sessionId: string) {
   return mapSession(data as unknown as AttendanceSessionRow);
 }
 
-const assignmentSelection = "id,student_user_id,required_hours,status,start_date,expected_end_date,academic_programs(code,name),hte_organizations(name,trade_name),org_units(name,short_name),internship_supervisors(supervisor_user_id,supervisor_type,is_primary,ended_at,deleted_at)";
+const assignmentSelection = "id,student_user_id,required_hours,status,start_date,expected_end_date,academic_programs(id,code,name),hte_organizations(name,trade_name),org_units(name,short_name),internship_supervisors(supervisor_user_id,supervisor_type,is_primary,ended_at,deleted_at)";
 
 function joinedOne<T>(value: T | T[] | null | undefined): T | undefined {
   return Array.isArray(value) ? value[0] : value ?? undefined;
@@ -665,7 +666,7 @@ export const internshipService = {
       student_user_id: string;
       required_hours: number;
       status: string;
-      academic_programs?: { code: string; name: string } | Array<{ code: string; name: string }> | null;
+      academic_programs?: { id: string; code: string; name: string } | Array<{ id: string; code: string; name: string }> | null;
       hte_organizations?: { name: string; trade_name: string | null } | Array<{ name: string; trade_name: string | null }> | null;
       org_units?: { name: string; short_name: string | null } | Array<{ name: string; short_name: string | null }> | null;
       internship_supervisors?: Array<{ supervisor_user_id: string; supervisor_type: string; is_primary: boolean; ended_at: string | null; deleted_at: string | null }> | null;
@@ -699,6 +700,7 @@ export const internshipService = {
         name,
         campus: campus?.short_name ?? campus?.name ?? "Assigned campus",
         program: program?.code ?? "—",
+        programId: program?.id,
         hte: hte?.trade_name ?? hte?.name ?? "Assigned HTE",
         hteRepresentative: hteRepresentative ? names.get(hteRepresentative.supervisor_user_id) ?? "Assigned HTE representative" : "Not assigned",
         hours: Math.round(Number(summary?.rendered_hours ?? 0)),
@@ -722,12 +724,14 @@ export const internshipService = {
       full_name: string;
       campus_name: string;
       program_code: string;
+      academic_program_id: string;
     };
     const programStudents = ((data ?? []) as ProgramStudentRow[]).map((row): CoordinatorProgramStudent => ({
       studentUserId: row.student_user_id,
       name: row.full_name,
       campus: row.campus_name,
       program: row.program_code,
+      programId: row.academic_program_id,
     }));
 
     return mergeCoordinatorProgramStudents(assignedInterns, programStudents);
@@ -753,7 +757,7 @@ export const internshipService = {
       status: string;
       start_date: string;
       expected_end_date: string;
-      academic_programs?: { code: string; name: string } | Array<{ code: string; name: string }> | null;
+      academic_programs?: { id: string; code: string; name: string } | Array<{ id: string; code: string; name: string }> | null;
       hte_organizations?: { name: string; trade_name: string | null } | Array<{ name: string; trade_name: string | null }> | null;
       org_units?: { name: string; short_name: string | null } | Array<{ name: string; short_name: string | null }> | null;
       internship_supervisors?: Array<{ supervisor_user_id: string; supervisor_type: string; is_primary: boolean; ended_at: string | null; deleted_at: string | null }> | null;
@@ -1554,8 +1558,10 @@ export const adminService = {
   async listRolePolicies(): Promise<RolePolicyRecord[]> {
     const supabase = createClient();
     const [rolesResult, assignmentsResult] = await Promise.all([
-      supabase.from("roles").select("id,code,name,description,is_active,allows_global_scope,role_permissions(permissions(code,description))").order("name"),
-      supabase.from("role_assignments").select("role_id").is("deleted_at", null),
+      supabase.from("roles").select("id,code,name,description,is_active,allows_global_scope,role_permissions(permissions(code,description))").in("code", [...supportedRoleCodes]).order("name"),
+      supabase.from("role_assignments").select("role_id").is("deleted_at", null)
+        .or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`)
+        .or(`ends_at.is.null,ends_at.gt.${new Date().toISOString()}`),
     ]);
     if (rolesResult.error) throw new Error(rolesResult.error.message);
     if (assignmentsResult.error) throw new Error(assignmentsResult.error.message);
@@ -1564,7 +1570,7 @@ export const adminService = {
     type RoleRow = { id: string; code: string; name: string; description: string | null; is_active: boolean; allows_global_scope: boolean; role_permissions?: Array<{ permissions?: { code: string; description: string | null } | Array<{ code: string; description: string | null }> | null }> | null };
     return ((rolesResult.data ?? []) as unknown as RoleRow[]).map((role) => ({
       id: role.id,
-      name: role.name,
+      name: isSupportedRoleCode(role.code) ? supportedRoleNames[role.code] : role.name,
       description: role.description ?? "No policy description has been configured.",
       scope: role.allows_global_scope ? "Global when explicitly assigned" : role.code === "student_intern" ? "Own internship record" : role.code === "hte_supervisor" ? "Assigned HTE and interns" : "Authorized organization/program scope",
       accounts: counts.get(role.id) ?? 0,
@@ -1603,6 +1609,36 @@ export const adminService = {
 };
 
 export const coordinatorService = {
+  async getScope(): Promise<Array<{ id: string; code: string; name: string; campus: string }>> {
+    const supabase = createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) throw new Error("Sign in to load your coordinator scope.");
+    // Identity comes from Auth. Fetch only the user's active trusted assignments;
+    // never populate this control from the university-wide program catalog.
+    const now = new Date().toISOString();
+    const { data: assignments, error } = await supabase.from("role_assignments")
+      .select("scope_academic_program_id,roles!inner(code,is_active)")
+      .eq("user_id", user.id).eq("roles.code", "internship_coordinator").eq("roles.is_active", true)
+      .is("deleted_at", null).lte("starts_at", now).or(`ends_at.is.null,ends_at.gt.${now}`);
+    if (error) throw new Error(error.message);
+    const ids = [...new Set(((assignments ?? []) as Array<{ scope_academic_program_id: string | null }>).map(row => row.scope_academic_program_id).filter((id): id is string => typeof id === "string"))];
+    if (!ids.length) throw new Error("Your coordinator program scope is not configured. Please contact the administrator.");
+    const { data: programs, error: programError } = await supabase.from("academic_programs")
+      .select("id,code,name,owning_org_unit_id").in("id", ids).eq("is_active", true).is("deleted_at", null).order("code");
+    if (programError) throw new Error(programError.message);
+    return Promise.all(((programs ?? []) as Array<{ id: string; code: string; name: string; owning_org_unit_id: string }>).map(async program => {
+      let unitId: string | null = program.owning_org_unit_id;
+      for (let depth = 0; unitId && depth < 8; depth += 1) {
+        const { data: unit, error: unitError }: { data: { unit_type: string; name: string; short_name: string | null; parent_id: string | null } | null; error: { message: string } | null } = await supabase.from("org_units")
+          .select("unit_type,name,short_name,parent_id").eq("id", unitId).is("deleted_at", null).maybeSingle();
+        if (unitError) throw new Error(unitError.message);
+        if (!unit) break;
+        if (unit.unit_type === "campus") return { id: program.id, code: program.code, name: program.name, campus: unit.short_name || unit.name };
+        unitId = unit.parent_id;
+      }
+      throw new Error("Your program campus could not be verified. Please contact the administrator.");
+    }));
+  },
   async listPartnerHtes(): Promise<PartnerHteRecord[]> {
     const supabase = createClient();
     const [hteResult, assignmentResult] = await Promise.all([
@@ -1645,10 +1681,21 @@ export const coordinatorService = {
     if (error) throw new Error(error.message);
   },
   async getAssignmentOptions(): Promise<AssignmentOptions> {
-    const { data, error } = await createClient().rpc("get_coordinator_assignment_options");
+    const supabase = createClient();
+    const [{ data, error }, roster] = await Promise.all([
+      supabase.rpc("get_coordinator_assignment_options"),
+      supabase.rpc("list_coordinator_program_students"),
+    ]);
     if (error) throw new Error(error.message);
+    if (roster.error) throw new Error(roster.error.message);
     const payload = (data ?? {}) as { students?: AssignmentOption[]; htes?: AssignmentOption[]; terms?: Array<AssignmentOption & { startsOn: string; endsOn: string }> };
-    return { students: payload.students ?? [], htes: payload.htes ?? [], terms: payload.terms ?? [] };
+    const identities = new Map(((roster.data ?? []) as Array<{ student_user_id: string; full_name: string; student_number: string }>).map(row => [row.student_user_id, row]));
+    // Intersect the two secured RPC results. Never parse a name/ID from a label.
+    const students = (payload.students ?? []).flatMap(option => {
+      const identity = identities.get(option.id);
+      return identity ? [{ id: option.id, label: identity.full_name, studentNumber: identity.student_number }] : [];
+    });
+    return { students, htes: payload.htes ?? [], terms: payload.terms ?? [] };
   },
   async createAssignment(input: CreateAssignmentInput): Promise<void> {
     const { error } = await createClient().rpc("create_coordinator_assignment", {

@@ -52,6 +52,21 @@ test('oversized official remarks fail explicitly instead of truncating or adding
   await assert.rejects(() => generateEvaluationPdf({ ...report, finalizedAt: '' }, assets), /finalized/);
 });
 
+test('official form preserves two pages for long identities, cross-year periods and longer remarks', async () => {
+  const cases = [
+    { name: 'short', studentName: 'QA SAMPLE Ana', context: { ratingPeriod: 'Sep 6, 2026' }, remarks: 'QA SAMPLE ONLY.' },
+    { name: 'long', studentName: 'QA SAMPLE María Alejandra de los Santos Villanueva', context: { ratingPeriod: 'Dec 15, 2026 – Jan 15, 2027' }, remarks: 'QA SAMPLE ONLY. The recorded performance and follow-up have been reviewed. '.repeat(8) },
+  ];
+  for (const item of cases) {
+    const bytes = await generateEvaluationPdf({ ...report, ...item }, assets);
+    assert.equal((await PDFDocument.load(bytes)).getPageCount(), 2);
+    if (process.env.PRAXIZ_PDF_QA_DIR) {
+      await mkdir(process.env.PRAXIZ_PDF_QA_DIR, { recursive: true });
+      await writeFile(process.env.PRAXIZ_PDF_QA_DIR + `/official-evaluation-${item.name}-qa.pdf`, bytes);
+    }
+  }
+});
+
 test('migration guards ownership, submitted/final states and released-version access', () => {
   assert.match(migration, /e\.evaluator_user_id <> auth\.uid\(\)/);
   assert.match(migration, /if e\.status <> 'draft' then/);

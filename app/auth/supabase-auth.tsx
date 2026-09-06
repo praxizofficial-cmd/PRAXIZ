@@ -437,7 +437,7 @@ export function ProtectedRoute({ role, children }: { role: RoleId; children: Rea
   }, [ready, role, user]);
 
   if (!ready || !user || !user.roles.includes(role)) {
-    return <main className="route-loading" aria-live="polite" aria-busy="true"><span className="loading-wordmark"><Image unoptimized src="/branding/praxiz-logo.png" alt="PRAXIZ" width={260} height={260} priority /></span><span className="route-loading-mark" aria-hidden="true"><span /></span><span>Preparing your secure workspace…</span></main>;
+    return <main className="route-loading" role="status" aria-live="polite" aria-busy="true"><div className="workspace-loading-content"><span className="loading-wordmark"><Image unoptimized src="/branding/praxiz-logo.png" alt="PRAXIZ" width={360} height={360} priority /></span><h1>Preparing your workspace</h1><span className="route-loading-mark" aria-hidden="true"><span /></span><p>Loading your authorized internship tools and verified PRAXIZ data.</p><span className="loading-institution">Partido State University</span></div></main>;
   }
   return children;
 }

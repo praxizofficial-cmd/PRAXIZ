@@ -132,7 +132,8 @@ export async function generateEvaluationPdf(report: FinalizedEvaluationReport, a
   return pdf.save();
 }
 
-// The official form has a deliberately fixed split. Never truncate a finalized record to make it fit.
+// Preserve the official two-page form. Group each criterion with its rating;
+// flow rows from their measured text height, never truncate a finalized record.
 async function generateOfficialPdf(report: FinalizedEvaluationReport, assets: { font: Uint8Array; seal: Uint8Array }) {
   if (report.criteria.length !== 18 || report.criteria.some(c => !Number.isInteger(c.score) || c.score < 1 || c.score > 5)) throw new Error('The official form requires all 18 finalized ratings, each from 1 to 5.');
   const pdf = await PDFDocument.create(); pdf.registerFontkit(fontkit);
@@ -183,14 +184,17 @@ async function generateOfficialPdf(report: FinalizedEvaluationReport, assets: { 
   });
   const p1=pages[0],p2=pages[1];
   center(p1,report.title,768,12,bold);
-  draw(p1,'Name of Student:',36,742,10); line(p1,124,739,345);
+  draw(p1,'Name of Student:',36,742,10);
   const nameLines=wrapReportText(report.studentName,body,10,221);
-  if(nameLines.length>1) throw new Error('The student name is too long for the official form field. Please contact the coordinator.');
-  draw(p1,report.studentName,126,742,10);
-  draw(p1,'Rating Period:',357,742,10); line(p1,429,739,576);
+  if(nameLines.length>2) throw new Error('The student name is too long for the official form field. Please contact the coordinator.');
+  nameLines.forEach((value,i)=>draw(p1,value,126,742-i*13,10));
+  line(p1,124,739-(nameLines.length-1)*13,345);
+  draw(p1,'Rating Period:',357,742,10);
   const period=report.context.ratingPeriod || '';
-  if(body.widthOfTextAtSize(period,9)>147) throw new Error('Use a shorter rating period for the official form.');
-  draw(p1,period,430,742,9);
+  const periodLines=wrapReportText(period,body,9,146);
+  if(periodLines.length>2) throw new Error('The rating period is too long for the official form. Please contact the coordinator.');
+  periodLines.forEach((value,i)=>draw(p1,value,430,742-i*13,9));
+  line(p1,429,739-(Math.max(1,periodLines.length)-1)*13,576);
   paragraph(p1,report.metadata!.direction,36,714,540,11,14);
   const guide=[5,4,3,2,1].map(n=>`${n} – ${report.metadata!.scale[String(n)]}`);
   let guideX=36; const widths=guide.map(value=>body.widthOfTextAtSize(value,7));
@@ -210,14 +214,13 @@ async function generateOfficialPdf(report: FinalizedEvaluationReport, assets: { 
     const start=y; y=paragraph(p1,`${criterion.label} – ${criterion.description || ''}`,62,y,390,10,13)-15;
     rating(p1,criterion.score,start);
   });
-  const split=report.criteria[12]; const full=`${split.label} – ${split.description || ''}`;
-  const boundary=full.indexOf('solution to problems;');
-  if(boundary<0) throw new Error('The official criterion order or wording does not match the approved form.');
-  if(y<120) throw new Error('The criteria do not fit the approved first-page layout.');
-  paragraph(p1,full.slice(0,boundary).trim(),62,96,390,10,13); rating(p1,split.score,96);
-  y=paragraph(p2,full.slice(boundary),62,762,390,10,13)-24;
+  const fifth=report.criteria[12]; const full=`${fifth.label} – ${fifth.description || ''}`;
+  const fitsFirstPage = y - wrapReportText(full,body,10,390).length*13 >= 75;
+  if(fitsFirstPage) { paragraph(p1,full,62,y,390,10,13); rating(p1,fifth.score,y); }
+  // Move the entire row when needed; do not strand its title or rating on page 1.
+  y=738;
   [5,4,3,2,1].forEach((n,i)=>draw(p2,String(n),scoreXs[i]-3,762,9));
-  report.criteria.slice(13).forEach(criterion=>{
+  report.criteria.slice(fitsFirstPage ? 13 : 12).forEach(criterion=>{
     const start=y;y=paragraph(p2,`${criterion.label} – ${criterion.description || ''}`,62,y,390,10,13)-18;
     rating(p2,criterion.score,start);
   });

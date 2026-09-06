@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 
 export function Dialog({ title, children, onClose, busy = false, wide = false, protectChanges = true }: { title: string; children: ReactNode; onClose: () => void; busy?: boolean; wide?: boolean; protectChanges?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   const baseline = useRef<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   function snapshot() {
@@ -21,6 +22,8 @@ export function Dialog({ title, children, onClose, busy = false, wide = false, p
     const dialog = ref.current;
     const previous = document.activeElement as HTMLElement | null;
     dialog?.showModal();
+    const initialFocus = dialog?.querySelector<HTMLElement>('[autofocus], input, select, textarea, button:not(.dialog-close)') ?? dialog?.querySelector<HTMLElement>('.dialog-close');
+    requestAnimationFrame(() => initialFocus?.focus());
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const unload = (event: BeforeUnloadEvent) => {
@@ -32,14 +35,15 @@ export function Dialog({ title, children, onClose, busy = false, wide = false, p
     window.addEventListener('beforeunload', unload);
     return () => { window.removeEventListener('beforeunload', unload); dialog?.close(); document.body.style.overflow = overflow; previous?.focus(); };
   }, [protectChanges]);
-  return <dialog ref={ref} className={`native-dialog ${wide ? 'native-dialog-wide' : ''}`} aria-label={title}
+  return <dialog ref={ref} className={`native-dialog ${wide ? 'native-dialog-wide' : ''}`} aria-labelledby={titleId}
+    onSubmitCapture={event => { if (busy) { event.preventDefault(); event.stopPropagation(); } }}
     onFocusCapture={event => { if (baseline.current === null && (event.target as HTMLElement).matches('input,select,textarea')) baseline.current = snapshot(); }}
     onClickCapture={event => {
       const button = (event.target as HTMLElement).closest('button');
       if (button && /^(cancel|close)$/i.test(button.textContent?.trim() ?? '')) { event.preventDefault(); event.stopPropagation(); requestClose(); }
     }}
     onCancel={event => { event.preventDefault(); requestClose(); }}>
-    <div className="native-dialog-header"><h2>{title}</h2><button className="icon-button" disabled={busy} onClick={requestClose} aria-label={`Close ${title}`}><X size={20} /></button></div>
+    <div className="native-dialog-header"><h2 id={titleId}>{title}</h2><button className="icon-button dialog-close" disabled={busy} onClick={requestClose} aria-label={`Close ${title}`}><X size={20} /></button></div>
     <div className="native-dialog-content" aria-busy={busy}>{children}</div>
     {confirmDiscard && <Dialog title="Discard unsaved changes?" protectChanges={false} onClose={() => setConfirmDiscard(false)}><p>Your changes have not been saved. Discarding them cannot be undone.</p><div className="inline-actions"><button className="button button-secondary" onClick={() => setConfirmDiscard(false)}>Keep editing</button><button className="button button-danger" onClick={onClose}>Discard changes</button></div></Dialog>}
   </dialog>;

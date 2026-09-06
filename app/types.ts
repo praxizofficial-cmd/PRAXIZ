@@ -127,6 +127,7 @@ export type AttendanceSession = {
 };
 
 export type Intern = {
+  programId?: string;
   studentUserId?: string;
   initials: string;
   name: string;

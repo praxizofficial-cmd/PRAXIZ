@@ -22,10 +22,21 @@ export function ThemeControls({ compact = false }: { compact?: boolean }) {
       setAccent(['pink', 'gold', 'green'].includes(data.accent ?? '') ? data.accent as AccentMode : 'blue');
     };
     const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && root.current?.contains(document.activeElement)) {
+        setOpen(false); root.current?.querySelector('button')?.focus();
+      }
+    };
+    const preference = matchMedia('(prefers-color-scheme: dark)');
+    const systemChanged = () => {
+      const data = document.documentElement.dataset;
+      if (data.themeMode === 'system') applyTheme('system', ['pink', 'gold', 'green'].includes(data.accent ?? '') ? data.accent as AccentMode : 'blue');
+    };
     sync(); window.addEventListener('praxiz-appearance', sync); document.addEventListener('pointerdown', outside);
-    return () => { window.removeEventListener('praxiz-appearance', sync); document.removeEventListener('pointerdown', outside); };
+    document.addEventListener('keydown', escape); preference.addEventListener('change', systemChanged);
+    return () => { window.removeEventListener('praxiz-appearance', sync); document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); preference.removeEventListener('change', systemChanged); };
   }, []);
-  return <div ref={root} role="group" aria-label="Appearance preferences" className={compact ? 'theme-popover-wrap' : 'appearance-controls'} onKeyDown={event => { if (event.key === 'Escape') { setOpen(false); root.current?.querySelector('button')?.focus(); } }}>
+  return <div ref={root} role="group" aria-label="Appearance preferences" className={compact ? 'theme-popover-wrap' : 'appearance-controls'}>
     {compact && <button className="icon-button" aria-label="Appearance preferences" aria-expanded={open} onClick={() => setOpen(!open)}><Palette size={21} /></button>}
     {(!compact || open) && <div className={compact ? 'theme-popover card' : ''}>
       <label className="field"><span>Color mode</span><select value={mode} onChange={event => applyTheme(event.target.value as ThemeMode, accent)}><option value="system">Use system setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label>

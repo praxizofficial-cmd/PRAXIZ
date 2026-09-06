@@ -5,6 +5,7 @@ export type CoordinatorProgramStudent = {
   name: string;
   campus: string;
   program: string;
+  programId?: string;
 };
 
 export function mergeCoordinatorProgramStudents(
@@ -31,6 +32,7 @@ export function mergeCoordinatorProgramStudents(
       name: student.name,
       campus: student.campus,
       program: student.program,
+      programId: student.programId,
       hte: "Not assigned",
       hteRepresentative: "Not assigned",
       hours: 0,

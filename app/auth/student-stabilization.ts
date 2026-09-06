@@ -1,3 +1,5 @@
+import { isSupportedRoleCode } from './supported-roles.ts';
+
 export type RoleAssignmentCandidate = {
   code: string;
   startsAt: string | null;
@@ -15,7 +17,7 @@ export function activeRoleCodes(assignments: RoleAssignmentCandidate[], now = ne
     .filter((assignment) => {
       const startsAt = assignment.startsAt ? Date.parse(assignment.startsAt) : Number.NEGATIVE_INFINITY;
       const endsAt = assignment.endsAt ? Date.parse(assignment.endsAt) : Number.POSITIVE_INFINITY;
-      return !assignment.deletedAt && startsAt <= timestamp && endsAt > timestamp;
+      return isSupportedRoleCode(assignment.code) && !assignment.deletedAt && startsAt <= timestamp && endsAt > timestamp;
     })
     .map((assignment) => assignment.code);
 }

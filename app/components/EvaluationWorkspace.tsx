@@ -9,6 +9,8 @@ import type { RoleId } from '../types';
 import { userError } from '../../lib/user-error';
 import { Dialog } from './Dialog';
 import { EvaluationPdfDownload } from './EvaluationPdfDownload';
+import { RatingPeriodField } from './RatingPeriodField';
+import { formatRatingPeriod, parseRatingPeriod, ratingRangeError, type RatingRange } from '../../lib/rating-period';
 
 type Template = { id: string; name: string; criteria: EvaluationCriterionRecord[]; metadata: EvaluationFormMetadata | null };
 
@@ -33,6 +35,8 @@ function EvaluationEditor({ record, template, assignments, onClose, onSaved }: {
   const [criteria, setCriteria] = useState(record?.criteria ?? template.criteria);
   const [assignmentId, setAssignmentId] = useState(record?.assignmentId ?? '');
   const [context, setContext] = useState(record?.context ?? {});
+  const [ratingRange, setRatingRange] = useState<RatingRange>(() => parseRatingPeriod(record?.context.ratingPeriod || '') ?? { start: '', end: '' });
+  const [periodChanged, setPeriodChanged] = useState(false);
   const [remarks, setRemarks] = useState(record?.overallRemarks ?? '');
   const [strengths, setStrengths] = useState(record?.strengths ?? '');
   const [areas, setAreas] = useState(record?.areasForImprovement ?? '');
@@ -41,9 +45,12 @@ function EvaluationEditor({ record, template, assignments, onClose, onSaved }: {
   const [error, setError] = useState('');
   const lock = useRef(false);
   const metadata = record?.metadata ?? template.metadata;
-  const complete = !!assignmentId && criteria.length > 0 && criteria.every(c => Number.isFinite(c.score) && (metadata?.scoringMethod !== 'individual' || Number.isInteger(c.score)) && c.score >= c.minimumScore && c.score <= c.maximumScore) && (!metadata || !!context.ratingPeriod?.trim());
+  const legacyPeriod = !periodChanged && !!record?.context.ratingPeriod && !parseRatingPeriod(record.context.ratingPeriod);
+  const periodError = legacyPeriod ? '' : ratingRangeError(ratingRange, !!metadata);
+  const complete = !!assignmentId && criteria.length > 0 && criteria.every(c => Number.isFinite(c.score) && (metadata?.scoringMethod !== 'individual' || Number.isInteger(c.score)) && c.score >= c.minimumScore && c.score <= c.maximumScore) && !periodError;
   async function save(submit: boolean) {
     if (lock.current || !assignmentId || (submit && !complete)) return;
+    if (!legacyPeriod && (ratingRange.start || ratingRange.end) && periodError) { setError(periodError); return; }
     lock.current = true; setBusy(true); setError('');
     try {
       await evaluationService.save({ id: record?.id, templateId: record?.templateId ?? template.id, assignmentId, criteria, context, strengths, areasForImprovement: areas, overallRemarks: remarks, submit });
@@ -54,7 +61,7 @@ function EvaluationEditor({ record, template, assignments, onClose, onSaved }: {
     <header className="official-form-heading"><h3>{record?.templateName ?? template.name}</h3>{metadata && <p>{metadata.formCode} · Rev. No. {metadata.revision} · Effective {metadata.effectivityDate}</p>}</header>
     {record?.status === 'Returned' && <div className="evaluation-feedback"><strong>Returned for revision</strong><p>{record.reviewFeedback}</p></div>}
     <div className="two-fields"><label className="field"><span>Student intern</span><select value={assignmentId} disabled={!!record || busy} onChange={e => setAssignmentId(e.target.value)}><option value="">Select your assigned intern</option>{record && !assignments.some(a => a.id === record.assignmentId) && <option value={record.assignmentId}>{record.studentName}</option>}{assignments.map(a => <option value={a.id} key={a.id}>{a.studentName}</option>)}</select></label>
-      <label className="field"><span>Rating period {metadata ? '(required)' : '(optional)'}</span><input maxLength={160} value={context.ratingPeriod ?? ''} onChange={e => setContext({ ...context, ratingPeriod: e.target.value })} placeholder="e.g. August 1–31, 2026" /></label></div>
+      </div><RatingPeriodField range={ratingRange} required={!!metadata} disabled={busy} legacyValue={legacyPeriod ? record?.context.ratingPeriod : undefined} onChange={range => { setPeriodChanged(true); setRatingRange(range); setContext(previous => ({ ...previous, ratingPeriod: formatRatingPeriod(range) })); }} />
     {metadata && <div className="rating-guide"><p>{metadata.direction}</p><dl>{[5,4,3,2,1].map(n => <div key={n}><dt>{n}</dt><dd>{metadata.scale[String(n)]}</dd></div>)}</dl></div>}
     <RatingSections criteria={criteria} metadata={metadata} onChange={(id, score) => setCriteria(previous => previous.map(c => c.id === id ? { ...c, score } : c))} />
     <label className="field"><span>Remarks</span><textarea maxLength={10000} value={remarks} onChange={e => setRemarks(e.target.value)} /></label>
