@@ -76,7 +76,12 @@ Rules:
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-        },
+            ...(process.env.OLLAMA_API_KEY
+             ? {
+        Authorization: `Bearer ${process.env.OLLAMA_API_KEY}`,
+      }
+    : {}),
+},
         body: JSON.stringify({
           model,
           stream: false,

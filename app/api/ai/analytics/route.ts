@@ -170,7 +170,14 @@ Do not wrap the JSON in code fences.
     try {
       const ollamaResponse = await fetch(`${ollamaBaseUrl}/api/generate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json",
+              ...(process.env.OLLAMA_API_KEY
+              ? {
+        Authorization: `Bearer ${process.env.OLLAMA_API_KEY}`,
+      }
+    : {}),
+},
         body: JSON.stringify({ model, prompt, stream: false, format: "json", options: { temperature: 0.2 } }),
         signal: AbortSignal.timeout(12_000),
       });
