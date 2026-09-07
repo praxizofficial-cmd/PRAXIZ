@@ -147,7 +147,7 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
 
   const { data: assignments, error: roleError } = await supabase
     .from("role_assignments")
-    .select("role_id,scope_org_unit_id,scope_academic_program_id,starts_at,ends_at,deleted_at")
+    .select("id,role_id,scope_org_unit_id,scope_academic_program_id,starts_at,ends_at,deleted_at")
     .eq("user_id", authUser.id)
     .is("deleted_at", null)
     .or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`)
@@ -159,6 +159,7 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
   }
 
   type RoleAssignmentRow = {
+    id: string;
     role_id: string;
     starts_at: string | null;
     ends_at: string | null;
@@ -204,6 +205,36 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
     .filter((item): item is RoleId => Boolean(item));
 
   if (!role) throw new Error("Your account is active but has no PRAXIZ workspace role yet.");
+
+  const coordinatorProgramIds = selectedCode === "internship_coordinator"
+    ? [...new Set(roleAssignments.filter((assignment) => assignment.code === "internship_coordinator").map((assignment) => assignment.scopeAcademicProgramId).filter((id): id is string => Boolean(id)))]
+    : [];
+  if (selectedCode === "internship_coordinator") {
+    const coordinatorAssignmentIds = assignmentRows.filter((assignment) => roleCodeById.get(assignment.role_id) === selectedCode).map((assignment) => assignment.id);
+    const { data: grants, error: grantsError } = await supabase.from("role_assignment_programs")
+      .select("academic_program_id").in("role_assignment_id", coordinatorAssignmentIds);
+    // Older deployments retain their existing primary scope until v7 migrates.
+    if (grantsError && !["42P01", "PGRST205"].includes(grantsError.code)) {
+      throw new Error("Your coordinator program permissions could not be verified.");
+    }
+    for (const grant of grants ?? []) {
+      if (!coordinatorProgramIds.includes(grant.academic_program_id)) coordinatorProgramIds.push(grant.academic_program_id);
+    }
+  }
+  let coordinatorPrograms: AcademicProgramReference[] = [];
+  if (coordinatorProgramIds.length) {
+    const { data: scopedPrograms, error: scopedProgramsError } = await supabase
+      .from("academic_programs")
+      .select("id,code,name,owning_org_unit_id")
+      .in("id", coordinatorProgramIds)
+      .eq("is_active", true)
+      .is("deleted_at", null);
+    if (scopedProgramsError) {
+      logSupabaseError("coordinator program scopes query", scopedProgramsError);
+      throw new Error("Your coordinator program scope could not be loaded. Please contact the system administrator.");
+    }
+    coordinatorPrograms = (scopedPrograms ?? []) as AcademicProgramReference[];
+  }
 
   type AcademicProgramReference = {
     code: string;
@@ -296,8 +327,10 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
     avatarPath: profile.avatar_path ?? undefined,
     ...institutionalIdentity,
     scopeProgramId: selectedRoleAssignment?.scopeAcademicProgramId ?? undefined,
+    scopeProgramIds: coordinatorProgramIds,
     scopeProgramCode: selectedCode === "internship_coordinator" ? program?.code : undefined,
     scopeProgramName: selectedCode === "internship_coordinator" ? program?.name : undefined,
+    scopeProgramNames: coordinatorPrograms.map((item) => item.name),
     scopeOrgUnitId: selectedRoleAssignment?.scopeOrgUnitId ?? undefined,
     role,
     roles: availableRoles,
@@ -437,7 +470,7 @@ export function ProtectedRoute({ role, children }: { role: RoleId; children: Rea
   }, [ready, role, user]);
 
   if (!ready || !user || !user.roles.includes(role)) {
-    return <main className="route-loading" role="status" aria-live="polite" aria-busy="true"><div className="workspace-loading-content"><span className="loading-wordmark"><Image unoptimized src="/branding/praxiz-logo.png" alt="PRAXIZ" width={360} height={360} priority /></span><h1>Preparing your workspace</h1><span className="route-loading-mark" aria-hidden="true"><span /></span><p>Loading your authorized internship tools and verified PRAXIZ data.</p><span className="loading-institution">Partido State University</span></div></main>;
+    return <main className="route-loading" role="status" aria-live="polite" aria-busy="true"><div className="workspace-loading-content"><span className="loading-wordmark"><Image unoptimized src="/branding/praxiz-logo.png" alt="PRAXIZ" width={360} height={360} priority /></span><h1>Preparing your workspace</h1><span className="route-loading-bar" aria-hidden="true"><span /></span><p>Loading your authorized internship tools and verified PRAXIZ data.</p><span className="loading-institution">Partido State University</span></div></main>;
   }
   return children;
 }

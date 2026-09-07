@@ -72,8 +72,10 @@ export type AuthUser = {
   campus?: string;
   college?: string;
   scopeProgramId?: string;
+  scopeProgramIds?: string[];
   scopeProgramCode?: string;
   scopeProgramName?: string;
+  scopeProgramNames?: string[];
   scopeOrgUnitId?: string;
   role: RoleId;
   roles: RoleId[];

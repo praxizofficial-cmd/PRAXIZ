@@ -56,6 +56,7 @@ import { InstitutionalBrowser } from "./components/InstitutionalBrowser";
 import PraxizAiAssistant from "./components/PraxizAiAssistant";
 import { InfoCallout } from "./components/InfoCallout";
 import { PublicSectionLink } from "./components/PublicSectionLink";
+import { PolicyPage } from "./components/PolicyPage";
 import { userError } from "../lib/user-error";
 import { summarizeCompliance } from "../lib/compliance-summary";
 import { AuthProvider, ProtectedRoute, useAuth } from "./auth/supabase-auth";
@@ -268,25 +269,27 @@ function LandingPage() {
 
           <span className="semester"><span /> Partido State University · Internship Monitoring</span>
           <p className="eyebrow">What is PRAXIZ?</p>
-          <h1>The complete internship journey, <em>clearly monitored.</em></h1>
-          <p className="hero-copy">PRAXIZ is Partido State University’s secure internship monitoring and management platform—connecting attendance, daily activities, document submissions, evaluations, progress, and institutional reporting in one trusted workspace.</p>
+          <h1>From placement to progress, <em>every internship journey connected.</em></h1>
+          <p className="hero-copy">PRAXIZ brings internship assignments, attendance, Daily Logs, document requirements, performance evaluation, analytics, and AI-assisted insights into one secure platform for Partido State University.</p>
           <div className="hero-actions">
             <Link className="button button-primary button-large" href="/signin">Sign in to PRAXIZ <ChevronRight size={19} /></Link>
             <Link className="button button-secondary button-large" href="/register">Create an account</Link>
           </div>
         </section>
-        <section className="landing-section landing-about" id="about"><span className="eyebrow dark">About PRAXIZ</span><div className="landing-section-heading"><h2>Internship learning, documented with integrity.</h2><p>The platform supports the complete monitored internship process while keeping each stakeholder inside an authorized workspace.</p></div><div className="feature-grid" aria-label="Platform capabilities"><article><span><CalendarCheck2 size={21} /></span><h3>Attendance</h3><p>Server-recorded Time In and Time Out events with verified hours.</p></article><article><span><FileText size={21} /></span><h3>Logs & requirements</h3><p>Traceable daily activities, documents, and reviewer decisions.</p></article><article><span><Star size={21} /></span><h3>Evaluation</h3><p>Configured criteria, authorized scoring, and finalized results.</p></article><article><span><ChartNoAxesCombined size={21} /></span><h3>Progress & reports</h3><p>Program-scoped monitoring grounded in verified records.</p></article></div></section>
+        <section className="landing-section landing-about" id="about"><span className="eyebrow dark">About PRAXIZ</span><div className="landing-section-heading"><h2>Campus, workplace, monitoring, evaluation, analytics, and insights.</h2><p>The platform supports the complete monitored internship process while keeping each stakeholder inside an authorized workspace.</p></div><div className="feature-grid" aria-label="Platform capabilities"><article><span><CalendarCheck2 size={21} /></span><h3>Monitor</h3><p>Attendance, Daily Logs, and internship progress grounded in verified records.</p></article><article><span><FileText size={21} /></span><h3>Evaluate</h3><p>Document compliance, feedback, and official performance evaluation.</p></article><article><span><ChartNoAxesCombined size={21} /></span><h3>Understand</h3><p>Program-scoped analytics and visual indicators for authorized reviewers.</p></article></div></section>
+        <section className="landing-section journey-section" id="how-it-works"><span className="eyebrow dark">Internship journey</span><div className="landing-section-heading"><h2>One connected path from placement to progress.</h2><p>Each stage supports the next without exposing records outside a user’s legitimate scope.</p></div><div className="journey-grid" aria-label="Internship journey stages">{[['01','Placement','Assignments connect students, programs, campuses, and host establishments.'],['02','Attendance & Daily Logs','Verified time and daily activity records make progress visible.'],['03','Documents','Requirements and submissions remain traceable through the workflow.'],['04','Evaluation','Authorized evaluators use configured official criteria.'],['05','Analytics & Insights','Coordinators interpret verified indicators and decide with context.']].map(([number,title,copy]) => <article key={number}><span>{number}</span><div><h3>{title}</h3><p>{copy}</p></div></article>)}</div></section>
+        <section className="landing-section analytics-story"><div className="landing-section-heading"><span className="eyebrow dark">Performance analytics & data visualization</span><h2>From internship records to meaningful insights.</h2><p>PRAXIZ transforms verified internship records into visual indicators that help Internship Coordinators monitor progress, identify concerns, and understand internship performance.</p></div><div className="analytics-story-card"><span className="analytics-story-line" /><div><strong>Verified indicators</strong><p>Attendance verification · Daily Log approval · Document compliance · Evaluation finalization</p></div><div><strong>AI-assisted, human-guided</strong><p>AI interprets configured indicators while official records and authorized decisions remain authoritative.</p></div></div></section>
         <section className="landing-section landing-sdgs" id="sdgs"><span className="eyebrow">Sustainable Development Goals</span><div className="landing-section-heading"><h2>Education strengthened through responsible digital partnership.</h2><p>PRAXIZ supports three closely related United Nations Sustainable Development Goals through its academic and industry internship workflow.</p></div><div className="sdg-grid"><article className="sdg-four"><Image unoptimized src="/sdgs/sdg-4.png" alt="SDG 4: Quality Education" width={144} height={144} /><div><h3>Quality Education</h3><p>Structured internship learning, documented activities, feedback, and evaluation support experiential education.</p></div></article><article className="sdg-nine"><Image unoptimized src="/sdgs/sdg-9.png" alt="SDG 9: Industry, Innovation and Infrastructure" width={144} height={144} /><div><h3>Industry, Innovation and Infrastructure</h3><p>A secure digital workflow helps PSU and industry partners manage internship records consistently.</p></div></article><article className="sdg-seventeen"><Image unoptimized src="/sdgs/sdg-17.png" alt="SDG 17: Partnerships for the Goals" width={144} height={144} /><div><h3>Partnerships for the Goals</h3><p>Students, coordinators, and Host Training Establishments collaborate through shared, role-appropriate processes.</p></div></article></div></section>
-        <section className="landing-section stakeholders" id="how-it-works"><span className="eyebrow dark">How it works</span><div className="landing-section-heading"><h2>Four roles, a shared internship process.</h2></div><div className="stakeholder-grid"><article><UserRound /><strong>Student Intern</strong><p>Records attendance, logs, documents, and progress.</p></article><article><UsersRound /><strong>Internship Coordinator</strong><p>Coordinates placements and program monitoring.</p></article><article><BriefcaseBusiness /><strong>HTE Representative</strong><p>Reviews assigned interns and evaluates performance.</p></article><article><ShieldCheck /><strong>System Administrator</strong><p>Maintains verified accounts, institutional data, and access policies.</p></article></div></section>
+        <section className="landing-section stakeholders" id="who-uses-praxiz"><span className="eyebrow dark">Who uses PRAXIZ</span><div className="landing-section-heading"><h2>Role-appropriate workspaces, one shared process.</h2></div><div className="stakeholder-grid"><article><UserRound /><strong>Student Intern</strong><p>Records attendance, logs, documents, and progress.</p></article><article><UsersRound /><strong>Internship Coordinator</strong><p>Coordinates placements and program monitoring.</p></article><article><BriefcaseBusiness /><strong>HTE Representative</strong><p>Reviews assigned interns and evaluates performance.</p></article></div></section>
         <ContactSection />
       </main>
-      <footer className="landing-footer"><div className="landing-footer-placeholder"><Logo /><span className="landing-footer-credit">© 2026 Partido State University · PRAXIZ. All rights reserved.</span><nav><PublicSectionLink href="/#about">About</PublicSectionLink><PublicSectionLink href="/#sdgs">SDGs</PublicSectionLink><PublicSectionLink href="/#contact">Contact</PublicSectionLink><Link href="/signin">Sign in</Link></nav></div></footer>
+      <footer className="landing-footer"><div className="landing-footer-placeholder"><Logo /><span className="landing-footer-credit">© 2026 Partido State University · PRAXIZ. All rights reserved.</span><nav><PublicSectionLink href="/#about">About</PublicSectionLink><PublicSectionLink href="/#sdgs">SDGs</PublicSectionLink><PublicSectionLink href="/#contact">Contact</PublicSectionLink><Link href="/privacy">Privacy Policy</Link><Link href="/terms">Terms of Service</Link><Link href="/signin">Sign in</Link></nav></div></footer>
     </div>
   );
 }
 
 function ContactPage() {
-  return <div className="landing contact-page"><PublicHeader /><main><ContactSection /></main><footer className="landing-footer"><div className="landing-footer-placeholder"><Logo /><span className="landing-footer-credit">© 2026 Partido State University · PRAXIZ. All rights reserved.</span><nav><PublicSectionLink href="/#about">About</PublicSectionLink><PublicSectionLink href="/#sdgs">SDGs</PublicSectionLink><Link href="/contact">Contact</Link><Link href="/signin">Sign in</Link></nav></div></footer></div>;
+  return <div className="landing contact-page"><PublicHeader /><main><ContactSection /></main><footer className="landing-footer"><div className="landing-footer-placeholder"><Logo /><span className="landing-footer-credit">© 2026 Partido State University · PRAXIZ. All rights reserved.</span><nav><PublicSectionLink href="/#about">About</PublicSectionLink><PublicSectionLink href="/#sdgs">SDGs</PublicSectionLink><Link href="/contact">Contact</Link><Link href="/privacy">Privacy Policy</Link><Link href="/terms">Terms of Service</Link><Link href="/signin">Sign in</Link></nav></div></footer></div>;
 }
 
 function AuthAside({ title, copy, children }: { title: string; copy: string; children?: ReactNode }) {
@@ -431,6 +434,42 @@ function ResetPasswordPage() {
   );
 }
 
+type ProgramChoice = { id: string; code: string; name: string };
+
+function ProgramMultiSelect({ options, value, onChange }: { options: ProgramChoice[]; value: string[]; onChange: (value: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    searchInput.current?.focus();
+    const dismiss = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && root.current?.contains(document.activeElement)) {
+        event.preventDefault(); setOpen(false); trigger.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", escape); };
+  }, [open]);
+  function close() { setOpen(false); trigger.current?.focus(); }
+  const selected = options.filter((option) => value.includes(option.id));
+  const visible = options.filter((option) => `${option.code} ${option.name}`.toLowerCase().includes(search.trim().toLowerCase()));
+  function toggle(id: string) { onChange(value.includes(id) ? value.filter((item) => item !== id) : [...value, id]); }
+  return <div ref={root} className="program-multiselect">
+    <div className="program-selection" role="group" aria-label="Selected programs">
+      {selected.length ? selected.map((program) => <span className="program-chip" key={program.id}>{program.code} — {program.name}<button type="button" aria-label={`Remove ${program.code}`} onClick={() => { toggle(program.id); trigger.current?.focus(); }}><X size={13} /></button></span>) : <span className="program-placeholder">Select one or more programs…</span>}
+      <button ref={trigger} type="button" disabled={!options.length} className="program-picker-trigger" aria-controls="program-picker-options" aria-expanded={open} onClick={() => setOpen((current) => !current)}>{selected.length ? `${selected.length} program${selected.length === 1 ? "" : "s"} selected` : "Choose programs"}</button>
+    </div>
+    {open && <div id="program-picker-options" className="program-picker" role="group" aria-label="Choose programs"><label className="program-search" htmlFor="program-search-input"><Search size={16} aria-hidden="true" /><span className="sr-only">Search programs</span><input ref={searchInput} id="program-search-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search programs…" /></label><div className="program-options">{visible.map((program) => <label className="program-option" key={program.id}><input aria-label={`${program.code} ${program.name}`} type="checkbox" checked={value.includes(program.id)} onChange={() => toggle(program.id)} /><span><strong>{program.code}</strong><small>{program.name}</small></span></label>)}{visible.length === 0 && <p className="table-empty" role="status">No programs match this search.</p>}</div><button type="button" className="button button-secondary program-picker-done" onClick={close}>Done</button></div>}
+    {value.map((id) => <input type="hidden" name="program_ids" value={id} key={id} />)}
+    <input type="hidden" name="program_names" value={JSON.stringify(selected.map((program) => `${program.code} — ${program.name}`))} />
+  </div>;
+}
+
 function RegistrationFields({ role }: { role: RoleId }) {
   const isHte = role === "hte";
   const isStudent = role === "student";
@@ -438,6 +477,7 @@ function RegistrationFields({ role }: { role: RoleId }) {
   const [campusId, setCampusId] = useState("");
   const [collegeId, setCollegeId] = useState("");
   const [programId, setProgramId] = useState("");
+  const [programIds, setProgramIds] = useState<string[]>([]);
   const [registrationOptions, setRegistrationOptions] = useState<Awaited<ReturnType<typeof institutionalService.loadRegistrationInstitutionalOptions>> | null>(null);
   const [institutionalError, setInstitutionalError] = useState("");
 
@@ -455,19 +495,14 @@ function RegistrationFields({ role }: { role: RoleId }) {
   const collegeOptions = registrationOptions ? unitsForCampus(registrationOptions.units, campusId).map((unit) => ({ id: unit.id, campusId, name: unit.name, shortName: unit.shortName ?? unit.name })) : [];
   const programOptions = registrationOptions ? programsForCollege(registrationOptions.units, registrationOptions.programs, collegeId).map((program) => ({ id: program.id, collegeId: program.owningOrgUnitId, code: program.code, name: program.name })) : [];
 
-  return (
-    <>
-      <div className="two-fields">
-        <label className="field"><span>{isHte ? "Organization / company name" : "Full name"} *</span><input required name={isHte ? "organizationName" : "fullName"} placeholder={isHte ? "e.g. TechSouth Philippines, Inc." : "e.g. Maria B. Santos"} /></label>
-        <label className="field"><span>{isStudent ? "Student number" : isHte ? "Representative full name" : "Employee number"} *</span><input required name={isStudent ? "studentNumber" : isHte ? "representativeName" : "employeeNumber"} placeholder={isStudent ? "e.g. 2023-00123" : isHte ? "e.g. Allan D. Maraña" : "Enter official identifier"} /></label>
-      </div>
-      {isHte && <div className="two-fields"><label className="field"><span>Position / title *</span><input required name="position" placeholder="e.g. OJT Supervisor" /></label><label className="field"><span>Contact number *</span><input required name="contactNumber" inputMode="tel" placeholder="e.g. +63 9XX XXX XXXX" /></label></div>}
-      <label className="field"><span>{isStudent ? "Institutional email" : "Official email address"} *</span><input required name="email" type="email" autoComplete="email" placeholder={isStudent ? "studentid.pbox@parsu.edu.ph" : "name@organization.edu.ph"} /></label>
-      {!isHte && <><div className="two-fields"><label className="field"><span>Campus *</span><select required name="campusId" value={campusId} disabled={!registrationOptions} onChange={(event) => { setCampusId(event.target.value); setCollegeId(""); setProgramId(""); }}><option value="" disabled>{registrationOptions ? "Select campus" : "Loading institutional options..."}</option>{campusOptions.map((campus) => <option key={campus.id} value={campus.id}>{campus.shortName}</option>)}</select></label><label className="field"><span>College / academic unit *</span><select required name="collegeId" value={collegeId} disabled={!campusId} onChange={(event) => { setCollegeId(event.target.value); setProgramId(""); }}><option value="" disabled>Select college or unit</option>{collegeOptions.map((college) => <option key={college.id} value={college.id}>{college.name}</option>)}</select></label></div>{hasProgramScope && <div className="two-fields"><label className="field"><span>{isStudent ? "Program / course" : "Coordinated program"} *</span><select required name="programId" value={programId} disabled={!collegeId} onChange={(event) => setProgramId(event.target.value)}><option value="" disabled>Select program</option>{programOptions.map((program) => <option key={program.id} value={program.id}>{program.code} — {program.name}</option>)}</select></label>{isStudent && <label className="field"><span>Year level *</span><select required name="yearLevel" defaultValue=""><option value="" disabled>Select year level</option><option value="1">First Year</option><option value="2">Second Year</option><option value="3">Third Year</option><option value="4">Fourth Year</option><option value="5">Fifth Year</option></select></label>}</div>}{institutionalError && <p className="form-error"><AlertTriangle size={16} /> {institutionalError}</p>}</>}
-      {isHte && <><label className="field"><span>Office address *</span><textarea required name="officeAddress" placeholder="Enter the official business address" /></label><label className="field"><span>Available internship slots *</span><input required name="availableSlots" type="number" min="1" placeholder="e.g. 5" /></label></>}
-      <div className="two-fields"><label className="field"><span>Password *</span><input required name="password" type="password" minLength={8} autoComplete="new-password" placeholder="Create a password" /></label><label className="field"><span>Confirm password *</span><input required name="confirmPassword" type="password" minLength={8} autoComplete="new-password" placeholder="Re-enter password" /></label></div>
-    </>
-  );
+  return <>
+    <div className="two-fields"><label className="field"><span>{isHte ? "Organization / company name" : "Full name"} *</span><input required name={isHte ? "organizationName" : "fullName"} placeholder={isHte ? "e.g. TechSouth Philippines, Inc." : "e.g. Maria B. Santos"} /></label><label className="field"><span>{isStudent ? "Student number" : isHte ? "Representative full name" : "Employee number"} *</span><input required name={isStudent ? "studentNumber" : isHte ? "representativeName" : "employeeNumber"} placeholder={isStudent ? "e.g. 2023-00123" : isHte ? "e.g. Allan D. Maraña" : "Enter official identifier"} /></label></div>
+    {isHte && <div className="two-fields"><label className="field"><span>Position / title *</span><input required name="position" placeholder="e.g. OJT Supervisor" /></label><label className="field"><span>Contact number *</span><input required name="contactNumber" inputMode="tel" placeholder="e.g. +63 9XX XXX XXXX" /></label></div>}
+    <label className="field"><span>{isStudent ? "Institutional email" : "Official email address"} *</span><input required name="email" type="email" autoComplete="email" placeholder={isStudent ? "studentid.pbox@parsu.edu.ph" : "name@organization.edu.ph"} /></label>
+    {!isHte && <><div className="two-fields"><label className="field"><span>Campus *</span><select required name="campusId" value={campusId} disabled={!registrationOptions} onChange={(event) => { setCampusId(event.target.value); setCollegeId(""); setProgramId(""); setProgramIds([]); }}><option value="" disabled>{registrationOptions ? "Select campus" : "Loading institutional options..."}</option>{campusOptions.map((campus) => <option key={campus.id} value={campus.id}>{campus.shortName}</option>)}</select></label><label className="field"><span>College / academic unit *</span><select required name="collegeId" value={collegeId} disabled={!campusId} onChange={(event) => { setCollegeId(event.target.value); setProgramId(""); setProgramIds([]); }}><option value="" disabled>Select college or unit</option>{collegeOptions.map((college) => <option key={college.id} value={college.id}>{college.name}</option>)}</select></label></div>{hasProgramScope && <div className={isStudent ? "two-fields" : "coordinator-program-field"}><div className="field"><span id="registration-program-label">{isStudent ? "Program / course" : "Programs handled"} *</span>{isStudent ? <select aria-labelledby="registration-program-label" required name="programId" value={programId} disabled={!collegeId} onChange={(event) => setProgramId(event.target.value)}><option value="" disabled>Select program</option>{programOptions.map((program) => <option key={program.id} value={program.id}>{program.code} — {program.name}</option>)}</select> : <ProgramMultiSelect options={programOptions} value={programIds} onChange={setProgramIds} />}</div>{isStudent && <label className="field"><span>Year level *</span><select required name="yearLevel" defaultValue=""><option value="" disabled>Select year level</option><option value="1">First Year</option><option value="2">Second Year</option><option value="3">Third Year</option><option value="4">Fourth Year</option><option value="5">Fifth Year</option></select></label>}</div>}{institutionalError && <p className="form-error"><AlertTriangle size={16} /> {institutionalError}</p>}</>}
+    {isHte && <><label className="field"><span>Office address *</span><textarea required name="officeAddress" placeholder="Enter the official business address" /></label><label className="field"><span>Available internship slots *</span><input required name="availableSlots" type="number" min="1" placeholder="e.g. 5" /></label></>}
+    <div className="two-fields"><label className="field"><span>Password *</span><input required name="password" type="password" minLength={8} autoComplete="new-password" placeholder="Create a password" /></label><label className="field"><span>Confirm password *</span><input required name="confirmPassword" type="password" minLength={8} autoComplete="new-password" placeholder="Re-enter password" /></label></div>
+  </>;
 }
 
 function RegisterPage() {
@@ -491,6 +526,15 @@ function RegisterPage() {
         .filter(([key]) => key !== "password" && key !== "confirmPassword")
         .map(([key, value]) => [key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`), String(value)]),
     );
+    const requestedPrograms = formData.getAll("program_ids").map(String).filter(Boolean);
+    if (role === "coordinator") {
+      if (!requestedPrograms.length) {
+        setError("Select at least one program you will handle.");
+        return;
+      }
+      rawFields.program_ids = JSON.stringify([...new Set(requestedPrograms)]);
+      rawFields.program_id = requestedPrograms[0];
+    }
     const fullName = role === "hte" ? String(formData.get("representativeName") ?? "") : String(formData.get("fullName") ?? "");
     setLoading(true);
     setError("");
@@ -516,7 +560,7 @@ function RegisterPage() {
       <main className="auth-main registration-main">
         <div className="registration-wrap">
           <span className="eyebrow dark">Account verification</span><h2>Create account</h2><p className="form-intro">Select your role, then fill in your registration details.</p>
-          {!role ? <div className="role-empty"><UsersRound size={34} /><h3>Select a role to begin</h3><p>Each stakeholder receives a form and access level tailored to their responsibility.</p></div> : <form className="registration-form" onSubmit={submit}><div className="form-card-heading"><span className={`role-dot role-${role}`}>{roleOptions.find((r) => r.id === role)?.short}</span><span><strong>{roles[role].label} registration</strong><small>Fields marked * are required for verification</small></span></div><RegistrationFields role={role} /><label className="consent"><input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /><span>I confirm the information is accurate and agree to PRAXIZ’s <a href="#terms">Terms of Service</a> and <a href="#privacy">Privacy Policy</a>.</span></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<ActionButton type="submit" disabled={!agree || loading}>{loading ? "Creating secure account…" : "Submit registration"}</ActionButton></form>}
+          {!role ? <div className="role-empty"><UsersRound size={34} /><h3>Select a role to begin</h3><p>Each stakeholder receives a form and access level tailored to their responsibility.</p></div> : <form className="registration-form" onSubmit={submit}><div className="form-card-heading"><span className={`role-dot role-${role}`}>{roleOptions.find((r) => r.id === role)?.short}</span><span><strong>{roles[role].label} registration</strong><small>Fields marked * are required for verification</small></span></div><RegistrationFields role={role} /><div className="consent"><input id="registration-consent" type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /><label htmlFor="registration-consent">I confirm the information is accurate and agree to PRAXIZ’s <Link href="/terms" target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>Terms of Service<span className="sr-only"> (opens in a new tab)</span></Link> and <Link href="/privacy" target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>Privacy Policy<span className="sr-only"> (opens in a new tab)</span></Link>.</label></div>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<ActionButton type="submit" disabled={!agree || loading}>{loading ? "Creating secure account…" : "Submit registration"}</ActionButton></form>}
           <p className="auth-switch">Already have an account? <Link href="/signin">Sign in here</Link></p>
         </div>
       </main>
@@ -1296,7 +1340,7 @@ function AnalyticsPage() {
     finally { setAiLoading(false); }
   }
 
-  const scope = [user?.campus, user?.college, user?.scopeProgramName ?? user?.scopeProgramCode].filter(Boolean).join(" · ");
+  const scope = [user?.campus, user?.college, user?.scopeProgramNames?.join(", ") || user?.scopeProgramName || user?.scopeProgramCode].filter(Boolean).join(" · ");
   return <>
     <PageHeader title="Performance analytics" subtitle="Monitor internship performance, identify areas requiring attention, and review AI-assisted insights derived from verified PRAXIZ records." />
     <div className="analytics-context" role="status"><ShieldCheck size={18} /><span><strong>{term ? `${term.academicYear} · ${term.term}` : "Current academic context"}</strong>{scope ? ` · ${scope}` : " · Authorized coordinator scope"}</span></div>
@@ -1821,8 +1865,8 @@ function RegistrationReviewDialog({ application, close, onReviewed }: { applicat
       setLoading(false);
     }
   }
-  const visibleDetails = Object.entries(application.details).filter(([key]) => !["requested_role", "first_name", "middle_name", "last_name"].includes(key));
-  return <Dialog title={`Review ${application.name}`} onClose={close} busy={loading}><InfoCallout icon={UserCheck}><p><strong>{application.name}</strong><br />{application.email} · {application.role}</p></InfoCallout><dl className="info-list">{visibleDetails.map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{value}</dd></div>)}</dl><label className="field"><span>Administrator notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add verification notes or a rejection reason…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("approved")}>Approve and activate</ActionButton><ActionButton variant="danger" disabled={loading || !notes.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></Dialog>;
+  const visibleDetails = Object.entries(application.details).filter(([key]) => !["requested_role", "first_name", "middle_name", "last_name", "program_ids"].includes(key));
+  return <Dialog title={`Review ${application.name}`} onClose={close} busy={loading}><InfoCallout icon={UserCheck}><p><strong>{application.name}</strong><br />{application.email} · {application.role}</p></InfoCallout><dl className="info-list">{visibleDetails.map(([key, value]) => { let displayValue = value; if (key === "program_names") { try { displayValue = (JSON.parse(value) as string[]).join(", "); } catch { displayValue = value; } } return <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{displayValue}</dd></div>; })}</dl><label className="field"><span>Administrator notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add verification notes or a rejection reason…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("approved")}>Approve and activate</ActionButton><ActionButton variant="danger" disabled={loading || !notes.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></Dialog>;
 }
 
 function RegistrationTable({ includeReviewed = false }: { includeReviewed?: boolean }) {
@@ -1895,6 +1939,8 @@ function PraxizRouter() {
   const parts = pathname.split("/").filter(Boolean);
   if (pathname === "/") return <LandingPage />;
   if (pathname === "/contact") return <ContactPage />;
+  if (pathname === "/privacy") return <PolicyPage kind="privacy" />;
+  if (pathname === "/terms") return <PolicyPage kind="terms" />;
   if (pathname === "/signin" || pathname === "/login") return <SignInPage />;
   if (pathname === "/forgot-password") return <ForgotPasswordPage />;
   if (pathname === "/reset-password") return <ResetPasswordPage />;

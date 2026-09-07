@@ -1751,7 +1751,7 @@ export const registrationService = {
   async listLive(includeReviewed = true): Promise<RegistrationRecord[]> {
     let query = createClient()
       .from("registration_applications")
-      .select("id,email,reference_no,submitted_data,status,created_at,roles(code)")
+      .select("id,email,reference_no,academic_program_id,submitted_data,status,created_at,roles(code)")
       .is("deleted_at", null)
       .order("created_at", { ascending: true });
     if (!includeReviewed) query = query.in("status", ["pending", "under_review"]);
@@ -1762,8 +1762,25 @@ export const registrationService = {
       internship_coordinator: "Internship Coordinator",
       hte_supervisor: "HTE Representative",
     };
-    return ((data ?? []) as unknown as Array<{ id: string; email: string; reference_no: string | null; submitted_data: Record<string, unknown>; status: string; created_at: string; roles?: { code: string } | Array<{ code: string }> | null }>).map((row) => {
+    const rows = (data ?? []) as unknown as Array<{ id: string; email: string; reference_no: string | null; academic_program_id: string | null; submitted_data: Record<string, unknown>; status: string; created_at: string; roles?: { code: string } | Array<{ code: string }> | null }>;
+    const programIdsFor = (row: typeof rows[number]): string[] => {
+      let requested: unknown = row.submitted_data?.program_ids;
+      if (typeof requested === "string") { try { requested = JSON.parse(requested); } catch { requested = []; } }
+      return [...new Set([row.academic_program_id, ...(Array.isArray(requested) ? requested : [])]
+        .filter((id): id is string => typeof id === "string" && /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(id)))];
+    };
+    const programIds = [...new Set(rows.flatMap(programIdsFor))];
+    const { data: programs, error: programError } = programIds.length
+      ? await createClient().from("academic_programs").select("id,code,name").in("id", programIds)
+      : { data: [], error: null };
+    if (programError) throw new Error("Requested program names could not be verified. Please reload before reviewing.");
+    const programNames = new Map((programs ?? []).map((program: { id: string; code: string; name: string }) => [program.id, `${program.code} — ${program.name}`]));
+    return rows.map((row) => {
       const details = Object.fromEntries(Object.entries(row.submitted_data ?? {}).filter(([, value]) => typeof value === "string").map(([key, value]) => [key, String(value)]));
+      // Never use client-supplied program display names in the approval screen.
+      if (joinedOne(row.roles)?.code === "internship_coordinator") {
+        details.program_names = JSON.stringify(programIdsFor(row).map((id) => programNames.get(id) || `Unavailable program (${id})`));
+      }
       const personName = [details.first_name, details.middle_name, details.last_name].filter(Boolean).join(" ").trim();
       const requestedRole = joinedOne(row.roles)?.code ?? "unknown";
       return {
