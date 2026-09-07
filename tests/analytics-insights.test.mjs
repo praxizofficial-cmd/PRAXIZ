@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildVerifiedDataFallback, detectAnalyticsConcerns } from "../app/analytics-insights.ts";
+import { detectAnalyticsConcerns, parseAnalyticsModelResponse } from "../app/analytics-insights.ts";
+import { ollamaGenerateUrl, ollamaHeaders } from "../lib/ollama.ts";
 
 const evidence = (overrides = {}) => ({
   attendance: 50,
@@ -29,36 +30,34 @@ test("deterministic concern detection preserves configured thresholds", () => {
   assert.match(concerns[0].message, /2 of 4 applicable sessions/);
 });
 
-test("verified-data fallback uses only supplied aggregate indicators", () => {
-  const input = evidence();
-  const concerns = detectAnalyticsConcerns(input);
-  const result = buildVerifiedDataFallback(input, concerns);
-  assert.match(result.summary, /3 assigned interns/);
-  assert.match(result.summary, /document compliance at 40%/i);
-  assert.ok(result.patterns.every((item) => /%/.test(item)));
-  assert.ok(result.recommendations.some((item) => /existing follow-up rule/.test(item)));
-  assert.doesNotMatch(JSON.stringify(result), /student name|grade|diagnosis/i);
+test("cloud and local Ollama base URLs resolve to one generate endpoint", () => {
+  assert.equal(ollamaGenerateUrl("https://ollama.com"), "https://ollama.com/api/generate");
+  assert.equal(ollamaGenerateUrl("https://ollama.com/api/"), "https://ollama.com/api/generate");
+  assert.equal(ollamaGenerateUrl("http://localhost:11434"), "http://localhost:11434/api/generate");
 });
 
-test("fallback clearly handles an absence of applicable records", () => {
-  const input = evidence({
-    attendance: null,
-    attendanceVerified: 0,
-    attendanceApplicable: 0,
-    dailyLogApproval: null,
-    dailyLogsApproved: 0,
-    dailyLogsApplicable: 0,
-    evaluationFinalization: null,
-    evaluationsFinalized: 0,
-    evaluationsApplicable: 0,
-    documentCompliance: null,
-    documentsCompliant: 0,
-    documentsRequired: 0,
-    assignedInterns: 0,
-    concerns: 0,
+test("cloud authentication stays server-side in the authorization header", () => {
+  assert.deepEqual(ollamaHeaders(" secret-key "), {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    Authorization: "Bearer secret-key",
   });
-  const result = buildVerifiedDataFallback(input, detectAnalyticsConcerns(input));
-  assert.match(result.summary, /no applicable workflow-completion indicators/i);
-  assert.match(result.patterns[0], /No applicable attendance/i);
-  assert.match(result.recommendations[0], /Continue routine monitoring/i);
+  assert.equal("Authorization" in ollamaHeaders(), false);
+});
+
+test("analytics JSON is extracted and sanitized without structured output mode", () => {
+  const result = parseAnalyticsModelResponse(`Here is the analysis:\n\`\`\`json\n{
+    "summary": "  Verified overview  ",
+    "patterns": [" First ", 7, "", "Second"],
+    "recommendations": [" Review attendance "]
+  }\n\`\`\``);
+  assert.deepEqual(result, {
+    summary: "Verified overview",
+    patterns: ["First", "Second"],
+    recommendations: ["Review attendance"],
+  });
+});
+
+test("analytics parser rejects a response without a usable summary", () => {
+  assert.throws(() => parseAnalyticsModelResponse('{"patterns":[]}'), /empty analysis/);
 });

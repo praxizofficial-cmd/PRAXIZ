@@ -21,12 +21,10 @@ export type AnalyticsConcern = {
   message: string;
 };
 
-type Metric = {
-  label: string;
-  value: number | null;
-  numerator: number;
-  denominator: number;
-  unit: string;
+export type AnalyticsModelResult = {
+  summary: string;
+  patterns: string[];
+  recommendations: string[];
 };
 
 export function detectAnalyticsConcerns(evidence: AnalyticsEvidence): AnalyticsConcern[] {
@@ -50,32 +48,37 @@ export function detectAnalyticsConcerns(evidence: AnalyticsEvidence): AnalyticsC
   return detected;
 }
 
-export function buildVerifiedDataFallback(evidence: AnalyticsEvidence, detected: AnalyticsConcern[]) {
-  const metrics: Metric[] = [
-    { label: "Attendance verification", value: evidence.attendance, numerator: evidence.attendanceVerified, denominator: evidence.attendanceApplicable, unit: "applicable sessions" },
-    { label: "Daily log approval", value: evidence.dailyLogApproval, numerator: evidence.dailyLogsApproved, denominator: evidence.dailyLogsApplicable, unit: "submitted logs" },
-    { label: "Document compliance", value: evidence.documentCompliance, numerator: evidence.documentsCompliant, denominator: evidence.documentsRequired, unit: "required documents" },
-    { label: "Evaluation finalization", value: evidence.evaluationFinalization, numerator: evidence.evaluationsFinalized, denominator: evidence.evaluationsApplicable, unit: "reports" },
-  ];
-  const applicable = metrics.filter((metric): metric is Metric & { value: number } => metric.value !== null && metric.denominator > 0).sort((a, b) => a.value - b.value);
-  const internLabel = `${evidence.assignedInterns} assigned intern${evidence.assignedInterns === 1 ? "" : "s"}`;
-  const lowest = applicable[0];
-  const summary = !applicable.length
-    ? `PRAXIZ currently has ${internLabel}, but no applicable workflow-completion indicators are available yet.`
-    : detected.length
-      ? `Verified records for ${internLabel} show ${detected.length} indicator${detected.length === 1 ? "" : "s"} requiring coordinator review. The lowest current indicator is ${lowest.label.toLowerCase()} at ${lowest.value}%.`
-      : `Verified records for ${internLabel} do not trigger a configured concern threshold. Continue monitoring as new records are verified.`;
+export function parseAnalyticsModelResponse(raw: string): AnalyticsModelResult {
+  const withoutFence = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "");
+  const firstBrace = withoutFence.indexOf("{");
+  const lastBrace = withoutFence.lastIndexOf("}");
 
-  const patterns = applicable.slice(0, 4).map((metric) => `${metric.label} is ${metric.value}% (${metric.numerator} of ${metric.denominator} ${metric.unit}).`);
-  if (!patterns.length) patterns.push("No applicable attendance, Daily Log, document, or evaluation completion record is available yet.");
+  if (firstBrace < 0 || lastBrace <= firstBrace) {
+    throw new Error("Ollama did not return a JSON object");
+  }
 
-  const recommendations = detected.map((item) => `Review ${item.indicator.toLowerCase()} in its authorized PRAXIZ workflow and verify any incomplete records.`);
-  if (evidence.concerns > 0) recommendations.push(`Review the ${evidence.concerns} intern${evidence.concerns === 1 ? "" : "s"} currently identified by the existing follow-up rule.`);
-  if (!recommendations.length) recommendations.push("Continue routine monitoring and regenerate the interpretation when additional verified records become available.");
+  const parsed = JSON.parse(withoutFence.slice(firstBrace, lastBrace + 1)) as {
+    summary?: unknown;
+    patterns?: unknown;
+    recommendations?: unknown;
+  };
+  const cleanList = (value: unknown) => Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, 6)
+    : [];
+  const summary = typeof parsed.summary === "string" ? parsed.summary.trim() : "";
+
+  if (!summary) throw new Error("Ollama returned an empty analysis");
 
   return {
     summary,
-    patterns: patterns.slice(0, 6),
-    recommendations: recommendations.slice(0, 6),
+    patterns: cleanList(parsed.patterns),
+    recommendations: cleanList(parsed.recommendations),
   };
 }

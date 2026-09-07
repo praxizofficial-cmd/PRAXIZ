@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '../../../lib/supabase/server';
+import { ollamaGenerateUrl, ollamaHeaders } from '../../../lib/ollama';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
@@ -39,8 +41,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const ollamaBaseUrl =
-      process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const apiKey = process.env.OLLAMA_API_KEY?.trim();
+    const ollamaBaseUrl = process.env.OLLAMA_BASE_URL
+      || (apiKey ? 'https://ollama.com' : 'http://localhost:11434');
 
     const model =
       process.env.OLLAMA_MODEL || 'llama3.2';
@@ -71,17 +74,10 @@ Rules:
 `.trim();
 
     const ollamaResponse = await fetch(
-      `${ollamaBaseUrl}/api/generate`,
+      ollamaGenerateUrl(ollamaBaseUrl),
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-            ...(process.env.OLLAMA_API_KEY
-             ? {
-        Authorization: `Bearer ${process.env.OLLAMA_API_KEY}`,
-      }
-    : {}),
-},
+        headers: ollamaHeaders(apiKey),
         body: JSON.stringify({
           model,
           stream: false,
@@ -90,6 +86,7 @@ Rules:
 User request:
 ${prompt}`,
         }),
+        signal: AbortSignal.timeout(55_000),
       }
     );
 

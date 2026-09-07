@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "../../../../lib/supabase/server";
-import { buildVerifiedDataFallback, detectAnalyticsConcerns, type AnalyticsEvidence } from "../../../analytics-insights";
+import { ollamaGenerateUrl, ollamaHeaders } from "../../../../lib/ollama";
+import { detectAnalyticsConcerns, parseAnalyticsModelResponse, type AnalyticsEvidence } from "../../../analytics-insights";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type AnalyticsInput = AnalyticsEvidence;
 
@@ -101,9 +103,9 @@ export async function POST(request: Request) {
     };
     const detectedConcerns = detectAnalyticsConcerns(evidence);
 
-const ollamaBaseUrl =
-  process.env.OLLAMA_BASE_URL || "http://localhost:11434";
-  
+    const apiKey = process.env.OLLAMA_API_KEY?.trim();
+    const ollamaBaseUrl = process.env.OLLAMA_BASE_URL
+      || (apiKey ? "https://ollama.com" : "http://localhost:11434");
     const model =
       process.env.OLLAMA_MODEL || "llama3.2";
 
@@ -167,48 +169,31 @@ Do not include markdown.
 Do not wrap the JSON in code fences.
 `.trim();
 
-    try {
-      const ollamaResponse = await fetch(`${ollamaBaseUrl}/api/generate`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-              ...(process.env.OLLAMA_API_KEY
-              ? {
-        Authorization: `Bearer ${process.env.OLLAMA_API_KEY}`,
-      }
-    : {}),
-},
-        body: JSON.stringify({ model, prompt, stream: false, format: "json", options: { temperature: 0.2 } }),
-        signal: AbortSignal.timeout(12_000),
-      });
-      if (!ollamaResponse.ok) throw new Error(`Ollama returned HTTP ${ollamaResponse.status}`);
-      const ollamaData = await ollamaResponse.json() as { response?: unknown };
-      if (typeof ollamaData.response !== "string") throw new Error("Ollama returned an invalid response");
-      const parsed = JSON.parse(ollamaData.response) as { summary?: unknown; patterns?: unknown; recommendations?: unknown };
-      const analysis = {
-        summary: typeof parsed.summary === "string" ? parsed.summary.trim() : "",
-        patterns: Array.isArray(parsed.patterns) ? parsed.patterns.filter((item): item is string => typeof item === "string").map(item => item.trim()).filter(Boolean).slice(0, 6) : [],
-        recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.filter((item): item is string => typeof item === "string").map(item => item.trim()).filter(Boolean).slice(0, 6) : [],
-      };
-      if (!analysis.summary) throw new Error("Ollama returned an empty analysis");
-      return NextResponse.json({
-        summary: analysis.summary || "",
-        patterns: analysis.patterns,
-        risks: detectedConcerns,
-        recommendations: analysis.recommendations,
-        model,
-        source: "ollama",
-      }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
-    } catch (modelError) {
-      console.warn("PRAXIZ analytics model unavailable; using verified-data fallback:", modelError instanceof Error ? modelError.message : modelError);
-      const analysis = buildVerifiedDataFallback(evidence, detectedConcerns);
-      return NextResponse.json({
-        ...analysis,
-        risks: detectedConcerns,
-        source: "verified-data-fallback",
-        notice: "The configured AI service is unavailable. This interpretation was generated from verified PRAXIZ indicators and deterministic concern rules.",
-      }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
+    const ollamaResponse = await fetch(ollamaGenerateUrl(ollamaBaseUrl), {
+      method: "POST",
+      headers: ollamaHeaders(apiKey),
+      // Ollama Cloud does not support the `format` structured-output option.
+      // The prompt requests JSON and the response is parsed and validated below.
+      body: JSON.stringify({ model, prompt, stream: false, options: { temperature: 0.2 } }),
+      signal: AbortSignal.timeout(55_000),
+    });
+    if (!ollamaResponse.ok) {
+      const detail = (await ollamaResponse.text()).slice(0, 500);
+      console.error("PRAXIZ Ollama analytics request failed:", ollamaResponse.status, detail);
+      return NextResponse.json(
+        { error: "AI insights are temporarily unavailable. Please contact the system administrator if this continues." },
+        { status: 503, headers: { "Cache-Control": "private, no-store, max-age=0" } }
+      );
     }
+    const ollamaData = await ollamaResponse.json() as { response?: unknown };
+    if (typeof ollamaData.response !== "string") throw new Error("Ollama returned an invalid response");
+    const analysis = parseAnalyticsModelResponse(ollamaData.response);
+    return NextResponse.json({
+      ...analysis,
+      risks: detectedConcerns,
+      model,
+      source: "ollama",
+    }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
   } catch (error) {
     console.error(
       "PRAXIZ AI analytics failed:",

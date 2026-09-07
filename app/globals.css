@@ -1024,9 +1024,6 @@ select:not([multiple]):not([size]), .field select:not([multiple]):not([size]), .
   color: var(--ink); background-color: color-mix(in srgb, var(--primary) 12%, var(--surface)); box-shadow: inset 0 -3px var(--primary);
 }
 .public-header a:focus-visible, .landing-footer-placeholder nav a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
-.ai-fallback-note { margin: 14px 0 4px; padding: 13px 15px; display: flex; align-items: flex-start; gap: 10px; color: var(--text); border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--line)); border-radius: 10px; background: var(--accent-soft); font-size: 12px; line-height: 1.55; }
-.ai-fallback-note svg { flex: 0 0 auto; margin-top: 1px; color: var(--primary); }
-.ai-fallback-note p { margin: 0; }
 @media (max-width: 720px) {
   .intern-toolbar { padding: 18px; align-items: flex-start; }
   .intern-toolbar .filter-bar { width: 100%; margin-left: 0; }
