@@ -15,9 +15,13 @@ set author_role = case
       and assignment.deleted_at is null
       and role.code = 'internship_coordinator'
   ) then 'Internship Coordinator'
-  else 'HTE Supervisor'
+  else 'HTE Representative'
 end
 where author_role is null;
+
+update public.internship_feedback
+set author_role = 'HTE Representative'
+where author_role = 'HTE Supervisor';
 
 alter table public.internship_feedback
   alter column author_role set not null;
@@ -26,7 +30,7 @@ alter table public.internship_feedback
   drop constraint if exists internship_feedback_author_role_check;
 alter table public.internship_feedback
   add constraint internship_feedback_author_role_check
-  check (author_role in ('Internship Coordinator', 'HTE Supervisor'));
+  check (author_role in ('Internship Coordinator', 'HTE Representative'));
 
 alter table public.notifications
   drop constraint if exists notifications_related_entity_type_check;
@@ -65,7 +69,7 @@ begin
 
   select assignment.student_user_id,
     case when private.can_manage_assignment(assignment.id)
-      then 'Internship Coordinator' else 'HTE Supervisor' end
+      then 'Internship Coordinator' else 'HTE Representative' end
   into student_user_id, author_role
   from public.internship_assignments assignment
   where assignment.id = p_assignment_id

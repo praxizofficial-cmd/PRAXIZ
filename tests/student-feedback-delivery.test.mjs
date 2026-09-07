@@ -12,7 +12,7 @@ test("student feedback remains assignment-scoped and coordinator or HTE authored
   assert.match(migration, /supervisor\.supervisor_user_id = auth\.uid\(\)/);
   assert.match(migration, /student_user_id/);
   assert.match(migration, /Internship Coordinator/);
-  assert.match(migration, /HTE Supervisor/);
+  assert.match(migration, /HTE Representative/);
 });
 
 test("feedback persistence survives a notification delivery failure", () => {
