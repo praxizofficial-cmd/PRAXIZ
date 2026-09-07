@@ -11,6 +11,7 @@ export const roles: Record<RoleId, { label: string; user: string; initials: stri
       { label: "Daily Logs", href: "/student/daily-logs", icon: "logs", permission: "daily-logs:submit" },
       { label: "Documents", href: "/student/documents", icon: "documents", permission: "documents:upload" },
       { label: "Evaluations", href: "/student/evaluations", icon: "star", permission: "evaluations:view" },
+      { label: "Feedback", href: "/student/feedback", icon: "feedback" },
       { label: "Internship Progress", href: "/student/progress", icon: "progress" },
       { label: "Notifications", href: "/student/notifications", icon: "bell" },
       { label: "Profile", href: "/student/profile", icon: "profile" },

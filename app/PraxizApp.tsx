@@ -661,7 +661,7 @@ function AppShell({ role, page, children }: { role: RoleId; page: string; childr
           <div className="crumb"><strong>{title}</strong><small>PRAXIZ <ChevronRight size={12} /> {title}</small></div>
           <div className="header-actions">
             <ThemeControls compact />
-            <div className="popover-wrap"><button ref={bellTrigger} className="icon-button" aria-expanded={bellOpen} aria-label={`${unread} unread notifications`} onClick={() => setBellOpen(!bellOpen)}><Bell size={21} />{unread > 0 && <b>{unread}</b>}</button>{bellOpen && <div className="header-popover notification-popover"><strong>Notifications</strong>{shellNotifications.slice(0, 3).map((item) => <Link href={`/${role}/notifications`} key={item.id}><Bell size={16} /><span><b>{item.title}</b><small>{item.unread ? 'Unread · ' : 'Read · '}{item.time}</small></span></Link>)}{shellNotifications.length === 0 && !notificationError && <small>No notifications yet.</small>}{notificationError && <p role="alert" className="form-error">{notificationError}</p>}{unread > 0 && <button disabled={markingRead} onClick={() => { void markShellNotificationsRead(); }}>{markingRead ? 'Updating…' : 'Mark all as read'}</button>}<Link href={`/${role}/notifications`}><Eye size={16} />View all notifications</Link></div>}</div>
+            <div className="popover-wrap"><button ref={bellTrigger} className="icon-button" aria-expanded={bellOpen} aria-label={`${unread} unread notifications`} onClick={() => setBellOpen(!bellOpen)}><Bell size={21} />{unread > 0 && <b>{unread}</b>}</button>{bellOpen && <div className="header-popover notification-popover"><strong>Notifications</strong>{shellNotifications.slice(0, 3).map((item) => <Link href={item.targetPath ?? `/${role}/notifications`} key={item.id}><Bell size={16} /><span><b>{item.title}</b><small>{item.unread ? 'Unread · ' : 'Read · '}{item.time}</small></span></Link>)}{shellNotifications.length === 0 && !notificationError && <small>No notifications yet.</small>}{notificationError && <p role="alert" className="form-error">{notificationError}</p>}{unread > 0 && <button disabled={markingRead} onClick={() => { void markShellNotificationsRead(); }}>{markingRead ? 'Updating…' : 'Mark all as read'}</button>}<Link href={`/${role}/notifications`}><Eye size={16} />View all notifications</Link></div>}</div>
           </div>
         </header>
                 <main className="app-main">{children}</main>
@@ -1151,10 +1151,11 @@ function NotificationsPage() {
     return () => { active = false; };
   }, []);
   async function view(item: NotificationRecord) {
-    setSelected(item); setError("");
-    if (!item.unread) return;
-    try { await notificationService.markRead(item.id); setItems(old => old.map(r => r.id === item.id ? { ...r, unread: false } : r)); }
+    setError("");
+    try { if (item.unread) { await notificationService.markRead(item.id); setItems(old => old.map(r => r.id === item.id ? { ...r, unread: false } : r)); } }
     catch (reason) { setError(userError(reason, "The notification could not be marked as read.")); }
+    if (item.targetPath) { window.location.assign(item.targetPath); return; }
+    setSelected(item);
   }
   async function markAll() {
     if (lock.current) return;
@@ -1423,18 +1424,26 @@ function FeedbackDialog({ assignments, close, onSaved }: { assignments: Evaluati
 }
 
 function FeedbackPage() {
+  const { user } = useAuth();
   const [records, setRecords] = useState<FeedbackRecord[]>([]);
   const [assignments, setAssignments] = useState<EvaluationAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
+  const [selected, setSelected] = useState<FeedbackRecord | null>(null);
+  const canCreate = user?.role === "coordinator" || user?.role === "hte";
   const load = useCallback(async () => {
-    try { const [items, options] = await Promise.all([feedbackService.listLive(), evaluationService.listAssignments()]); setRecords(items); setAssignments(options); }
+    try {
+      const [items, options] = await Promise.all([feedbackService.listLive(), canCreate ? evaluationService.listAssignments() : Promise.resolve([])]);
+      setRecords(items); setAssignments(options);
+      const requested = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("feedback");
+      if (requested) setSelected(items.find(item => item.id === requested) ?? null);
+    }
     catch (reason) { setError(userError(reason, "Feedback records could not be loaded.")); }
     finally { setLoading(false); }
-  }, []);
+  }, [canCreate]);
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
-  return <><PageHeader title="Feedback & follow-up" subtitle="Real, assignment-bound guidance visible only to authorized participants." action={<ActionButton icon={Plus} disabled={loading || assignments.length === 0} onClick={() => setAdding(true)}>New feedback</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Open" value={String(records.filter((item) => item.status === "Open").length)} icon={MessageSquareText} tone="orange" /><StatCard label="In progress" value={String(records.filter((item) => item.status === "In Progress").length)} icon={Clock3} tone="violet" /><StatCard label="Resolved" value={String(records.filter((item) => item.status === "Resolved").length)} icon={CheckCircle2} tone="green" /></div><section className="card table-card"><h2>{loading ? "Loading feedback…" : "Feedback records"}</h2><div className="table-scroll"><table className="data-table"><thead><tr><th>Student</th><th>Subject</th><th>Created by</th><th>Date</th><th>Status</th></tr></thead><tbody>{records.map((item) => <tr key={item.id}><td><b>{item.studentName}</b></td><td><b>{item.subject}</b><small>{item.message}</small></td><td>{item.authorName}</td><td>{new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" }).format(new Date(item.createdAt))}</td><td><StatusBadge status={item.status} /></td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={5}>No feedback has been recorded for your authorized assignments.</td></tr>}</tbody></table></div></section>{adding && <FeedbackDialog assignments={assignments} close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}</>;
+  return <><PageHeader title="Feedback & follow-up" subtitle={canCreate ? "Assignment-bound guidance visible only to authorized participants." : "Read feedback recorded for your internship assignment."} action={canCreate ? <ActionButton icon={Plus} disabled={loading || assignments.length === 0} onClick={() => setAdding(true)}>New feedback</ActionButton> : undefined} />{error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Open" value={String(records.filter((item) => item.status === "Open").length)} icon={MessageSquareText} tone="orange" /><StatCard label="In progress" value={String(records.filter((item) => item.status === "In Progress").length)} icon={Clock3} tone="violet" /><StatCard label="Resolved" value={String(records.filter((item) => item.status === "Resolved").length)} icon={CheckCircle2} tone="green" /></div><section className="card table-card"><h2>{loading ? "Loading feedback…" : "Feedback records"}</h2><div className="table-scroll"><table className="data-table"><thead><tr><th>Student</th><th>Subject</th><th>Feedback</th><th>Author</th><th>Author role</th><th>Date and time</th><th>Status</th><th>Actions</th></tr></thead><tbody>{records.map((item) => <tr key={item.id}><td><b>{item.studentName}</b></td><td><b>{item.subject}</b></td><td><span className="feedback-preview">{item.message}</span></td><td>{item.authorName}</td><td>{item.authorRole}</td><td><time dateTime={item.createdAt}>{new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" }).format(new Date(item.createdAt))}</time></td><td><StatusBadge status={item.status} /></td><td><button className="table-link" aria-label={`View feedback: ${item.subject}`} onClick={() => setSelected(item)}><Eye size={16} />View</button></td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={8}>No feedback has been recorded for your authorized assignments.</td></tr>}</tbody></table></div></section>{adding && <FeedbackDialog assignments={assignments} close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}{selected && <Dialog title={selected.subject} protectChanges={false} onClose={() => setSelected(null)}><dl className="info-list"><div><dt>Student</dt><dd>{selected.studentName}</dd></div><div><dt>Author</dt><dd>{selected.authorName}</dd></div><div><dt>Author role</dt><dd>{selected.authorRole}</dd></div><div><dt>Date and time</dt><dd><time dateTime={selected.createdAt}>{new Intl.DateTimeFormat("en-PH", { dateStyle: "long", timeStyle: "short", timeZone: "Asia/Manila" }).format(new Date(selected.createdAt))}</time></dd></div><div><dt>Status</dt><dd><StatusBadge status={selected.status} /></dd></div></dl><h3>Feedback message</h3><p className="preserve-text">{selected.message}</p><div className="modal-actions"><ActionButton onClick={() => setSelected(null)}>Done</ActionButton></div></Dialog>}</>;
 }
 
 function UserAccessDialog({ account, close }: { account: UserAccountRecord; close: () => void }) {

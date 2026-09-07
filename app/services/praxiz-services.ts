@@ -209,6 +209,7 @@ export type NotificationRecord = {
   tone: "info" | "success" | "warning" | "error";
   time: string;
   unread: boolean;
+  targetPath: string | null;
 };
 
 export type PartnerHteRecord = {
@@ -264,6 +265,7 @@ export type FeedbackRecord = {
   subject: string;
   message: string;
   authorName: string;
+  authorRole: string;
   createdAt: string;
   status: "Open" | "In Progress" | "Resolved";
 };
@@ -1432,13 +1434,14 @@ export const notificationService = {
   async listLive(): Promise<NotificationRecord[]> {
     const userId = await currentUserId();
     const { data, error } = await createClient().from("notification_recipients")
-      .select("notification_id,read_at,created_at,notifications(id,title,message,severity,created_at)")
+      .select("notification_id,read_at,created_at,notifications(id,title,message,severity,related_entity_type,related_entity_id,created_at)")
       .eq("user_id", userId)
       .is("archived_at", null)
       .order("created_at", { ascending: false })
       .limit(100);
     if (error) throw new Error(error.message);
-    type Row = { notification_id: string; read_at: string | null; notifications?: { id: string; title: string; message: string; severity: NotificationRecord["tone"]; created_at: string } | Array<{ id: string; title: string; message: string; severity: NotificationRecord["tone"]; created_at: string }> | null };
+    type NotificationRow = { id: string; title: string; message: string; severity: NotificationRecord["tone"]; related_entity_type: string; related_entity_id: string; created_at: string };
+    type Row = { notification_id: string; read_at: string | null; notifications?: NotificationRow | NotificationRow[] | null };
     return ((data ?? []) as unknown as Row[]).flatMap((row) => {
       const notification = Array.isArray(row.notifications) ? row.notifications[0] : row.notifications;
       if (!notification) return [];
@@ -1449,6 +1452,7 @@ export const notificationService = {
         tone: notification.severity,
         time: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(notification.created_at)),
         unread: !row.read_at,
+        targetPath: notification.related_entity_type === "internship_feedback" && /^[0-9a-f-]{36}$/i.test(notification.related_entity_id) ? `/student/feedback?feedback=${notification.related_entity_id}` : null,
       }];
     });
   },
@@ -1714,10 +1718,10 @@ export const coordinatorService = {
 export const feedbackService = {
   async listLive(): Promise<FeedbackRecord[]> {
     const { data, error } = await createClient().from("internship_feedback")
-      .select("id,internship_assignment_id,author_user_id,subject,message,status,created_at,internship_assignments(student_user_id)")
+      .select("id,internship_assignment_id,author_user_id,author_role,subject,message,status,created_at,internship_assignments(student_user_id)")
       .is("deleted_at", null).order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    type Row = { id: string; internship_assignment_id: string; author_user_id: string; subject: string; message: string; status: string; created_at: string; internship_assignments?: { student_user_id: string } | Array<{ student_user_id: string }> | null };
+    type Row = { id: string; internship_assignment_id: string; author_user_id: string; author_role: string; subject: string; message: string; status: string; created_at: string; internship_assignments?: { student_user_id: string } | Array<{ student_user_id: string }> | null };
     const rows = (data ?? []) as unknown as Row[];
     const userIds = rows.flatMap((row) => [row.author_user_id, ...(joinedOne(row.internship_assignments)?.student_user_id ? [joinedOne(row.internship_assignments)!.student_user_id] : [])]);
     const names = await namesForUsers(userIds);
@@ -1730,6 +1734,7 @@ export const feedbackService = {
         subject: row.subject,
         message: row.message,
         authorName: names.get(row.author_user_id) ?? "Authorized user",
+        authorRole: row.author_role,
         createdAt: row.created_at,
         status: row.status === "resolved" ? "Resolved" : row.status === "in_progress" ? "In Progress" : "Open",
       };

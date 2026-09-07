@@ -6,6 +6,8 @@ import { generateEvaluationPdf, wrapReportText } from '../lib/evaluation-report.
 import { userError } from '../lib/user-error.ts';
 
 const migration = await readFile(new URL('../database/20260904_official_evaluation.sql', import.meta.url), 'utf8');
+const lifecycleMigration = await readFile(new URL('../database/20260907_evaluation_lifecycle_hardening.sql', import.meta.url), 'utf8');
+const workspace = await readFile(new URL('../app/components/EvaluationWorkspace.tsx', import.meta.url), 'utf8');
 const criteria = [...migration.matchAll(/\('(a-\d-\d|b-\d+)','([^']*)','([^']*)',\d+,'([^']*)','([^']*)'\)/g)]
   .map((m,i) => ({ label: m[2], description: m[3], section: m[4], group: m[5], score: i % 5 + 1, minimumScore: 1, maximumScore: 5 }));
 const report = {
@@ -55,7 +57,7 @@ test('oversized official remarks fail explicitly instead of truncating or adding
 test('official form preserves two pages for long identities, cross-year periods and longer remarks', async () => {
   const cases = [
     { name: 'short', studentName: 'QA SAMPLE Ana', context: { ratingPeriod: 'Sep 6, 2026' }, remarks: 'QA SAMPLE ONLY.' },
-    { name: 'long', studentName: 'QA SAMPLE María Alejandra de los Santos Villanueva', context: { ratingPeriod: 'Dec 15, 2026 – Jan 15, 2027' }, remarks: 'QA SAMPLE ONLY. The recorded performance and follow-up have been reviewed. '.repeat(8) },
+    { name: 'long', studentName: 'QA SAMPLE María Alejandra de los Santos Villanueva', evaluatorName: 'QA SAMPLE Dr. María Alejandra Villanueva-Santos', context: { ratingPeriod: 'Dec 15, 2026 – Jan 15, 2027', designation: 'Senior Internship Coordinator', office: 'College of Engineering and Information Technology Internship Office' }, remarks: 'QA SAMPLE ONLY. The recorded performance and follow-up have been reviewed. '.repeat(8) },
   ];
   for (const item of cases) {
     const bytes = await generateEvaluationPdf({ ...report, ...item }, assets);
@@ -65,6 +67,19 @@ test('official form preserves two pages for long identities, cross-year periods 
       await writeFile(process.env.PRAXIZ_PDF_QA_DIR + `/official-evaluation-${item.name}-qa.pdf`, bytes);
     }
   }
+});
+
+test('draft deletion is row-locked, server-authorized, and hidden from every non-Draft row', () => {
+  assert.match(lifecycleMigration, /for update/);
+  assert.match(lifecycleMigration, /evaluator_user_id <> auth\.uid\(\)/);
+  assert.match(lifecycleMigration, /private\.can_score_evaluation_assignment/);
+  assert.match(lifecycleMigration, /status = 'finalized'/);
+  assert.match(lifecycleMigration, /already been finalized/);
+  assert.match(lifecycleMigration, /status <> 'draft'/);
+  assert.match(workspace, /r\.status === 'Draft' && <button className="table-link" title="Delete your draft"/);
+  assert.doesNotMatch(workspace, /disabled=\{r\.status !== 'Draft'\}/);
+  assert.match(workspace, /Delete draft evaluation\?/);
+  assert.match(workspace, /action\.kind === 'delete' \? 'Delete draft' : 'Confirm'/);
 });
 
 test('migration guards ownership, submitted/final states and released-version access', () => {

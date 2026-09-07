@@ -159,9 +159,10 @@ async function generateOfficialPdf(report: FinalizedEvaluationReport, assets: { 
   }
   function underlinedValue(page: PDFPage,value: string,x: number,y: number,width: number,label: string) {
     const lines = wrapReportText(value,body,10,width);
-    if (lines.length>2) throw new Error(`${label} is too long for the official form. Please contact the coordinator to review the recorded details.`);
-    lines.forEach((value,i)=>draw(page,value,x,y+14+(lines.length-1-i)*13,10));
-    line(page,x,y+9,x+width); draw(page,label,x,y-5,10);
+    if (lines.length>3) throw new Error(`${label} is too long for the official form. Please contact the coordinator to review the recorded details.`);
+    lines.forEach((value,i)=>draw(page,value,x+(width-body.widthOfTextAtSize(value,10))/2,y+14+(lines.length-1-i)*13,10));
+    line(page,x,y+9,x+width);
+    draw(page,label,x+(width-body.widthOfTextAtSize(label,10))/2,y-5,10);
   }
   const scoreXs = [476,500,524,548,572];
   function rating(page: PDFPage,score: number,y: number) {
@@ -229,7 +230,8 @@ async function generateOfficialPdf(report: FinalizedEvaluationReport, assets: { 
   if(y-remarks.length*14<180) throw new Error('The recorded remarks exceed the official two-page form space. Ask the coordinator to review the remarks; the original record has not been changed.');
   remarks.forEach(value=>{draw(p2,value,76,y,10);line(p2,76,y-4,566);y-=14;});
   while(y>190) {line(p2,76,y-4,566);y-=22;}
-  underlinedValue(p2,`${report.evaluatorName}${report.context.designation ? ` / ${report.context.designation}` : ''}`,62,117,236,'Rater/Designation');
-  underlinedValue(p2,report.context.office || '',350,117,216,'Office');
+  const signatureLeft=62,signatureGap=36,signatureWidth=234;
+  underlinedValue(p2,`${report.evaluatorName}${report.context.designation ? ` / ${report.context.designation}` : ''}`,signatureLeft,117,signatureWidth,'Rater/Designation');
+  underlinedValue(p2,report.context.office || '',signatureLeft+signatureWidth+signatureGap,117,signatureWidth,'Office');
   return pdf.save();
 }
