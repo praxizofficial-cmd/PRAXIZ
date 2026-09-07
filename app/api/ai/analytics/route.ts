@@ -1,25 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "../../../../lib/supabase/server";
+import { buildVerifiedDataFallback, detectAnalyticsConcerns, type AnalyticsEvidence } from "../../../analytics-insights";
 
 export const dynamic = "force-dynamic";
 
-type AnalyticsInput = {
-  attendance: number | null;
-  attendanceVerified: number;
-  attendanceApplicable: number;
-  dailyLogApproval: number | null;
-  dailyLogsApproved: number;
-  dailyLogsApplicable: number;
-  evaluationFinalization: number | null;
-  evaluationsFinalized: number;
-  evaluationsApplicable: number;
-  documentCompliance: number | null;
-  documentsCompliant: number;
-  documentsRequired: number;
-  assignedInterns: number;
-  concerns: number;
-  ruleBasedAlerts: string[];
-};
+type AnalyticsInput = AnalyticsEvidence;
 
 export async function POST(request: Request) {
   try {
@@ -55,7 +40,6 @@ export async function POST(request: Request) {
     const documentsRequired = Number(body.documentsRequired);
     const assignedInterns = Number(body.assignedInterns);
     const concerns = Number(body.concerns);
-    const ruleBasedAlerts = Array.isArray(body.ruleBasedAlerts) ? body.ruleBasedAlerts.filter((item): item is string => typeof item === "string").slice(0, 12) : [];
 
     // Nullable percentages are valid when there is no applicable data yet.
     // Validate the required counts separately so a null percentage does not
@@ -79,73 +63,43 @@ export async function POST(request: Request) {
       documentCompliance,
     ];
 
-    if (counts.some((value) => !Number.isFinite(value)) || percentages.some((value) => value !== null && !Number.isFinite(value))) {
+    const countPairs = [
+      [attendanceVerified, attendanceApplicable],
+      [dailyLogsApproved, dailyLogsApplicable],
+      [evaluationsFinalized, evaluationsApplicable],
+      [documentsCompliant, documentsRequired],
+    ];
+    if (
+      counts.some((value) => !Number.isInteger(value) || value < 0)
+      || percentages.some((value) => value !== null && (!Number.isFinite(value) || value < 0 || value > 100))
+      || countPairs.some(([numerator, denominator]) => numerator > denominator)
+      || concerns > assignedInterns
+    ) {
       return NextResponse.json(
         { error: "Valid analytics values are required." },
         { status: 400 }
       );
     }
 
-    /*
-     * Deterministic PRAXIZ concern detection.
-     *
-     * Ollama does NOT decide the official risk conditions.
-     * PRAXIZ determines them first from verified indicators.
-     */
-    const detectedConcerns: Array<{
-      severity: "high" | "medium" | "low";
-      indicator: string;
-      message: string;
-    }> = [];
-if (attendanceApplicable > 0 && attendance !== null && attendance < 60) {
-  detectedConcerns.push({
-    severity: "high",
-    indicator: "Attendance verification",
-    message: `Attendance verification is ${attendance}% (${attendanceVerified} of ${attendanceApplicable} applicable sessions).`,
-  });
-} else if (attendanceApplicable > 0 && attendance !== null && attendance < 80) {
-  detectedConcerns.push({
-    severity: "medium",
-    indicator: "Attendance verification",
-    message: `Attendance verification is ${attendance}% (${attendanceVerified} of ${attendanceApplicable} applicable sessions).`,
-  });
-}
-
-if (dailyLogsApplicable > 0 && dailyLogApproval !== null && dailyLogApproval < 50) {
-  detectedConcerns.push({
-    severity: "high",
-    indicator: "Daily log approval",
-    message: `Daily log approval is ${dailyLogApproval}% (${dailyLogsApproved} of ${dailyLogsApplicable} submitted logs).`,
-  });
-} else if (dailyLogsApplicable > 0 && dailyLogApproval !== null && dailyLogApproval < 75) {
-  detectedConcerns.push({
-    severity: "medium",
-    indicator: "Daily log approval",
-    message: `Daily log approval is ${dailyLogApproval}% (${dailyLogsApproved} of ${dailyLogsApplicable} submitted logs).`,
-  });
-}
-
-if (documentsRequired > 0 && documentCompliance !== null && documentCompliance < 50) {
-  detectedConcerns.push({
-    severity: "high",
-    indicator: "Document compliance",
-    message: `Document compliance is ${documentCompliance}% (${documentsCompliant} of ${documentsRequired} required documents).`,
-  });
-} else if (documentsRequired > 0 && documentCompliance !== null && documentCompliance < 75) {
-  detectedConcerns.push({
-    severity: "medium",
-    indicator: "Document compliance",
-    message: `Document compliance is ${documentCompliance}% (${documentsCompliant} of ${documentsRequired} required documents).`,
-  });
-}
-
-if (evaluationsApplicable > 0 && evaluationFinalization !== null && evaluationFinalization < 50) {
-  detectedConcerns.push({
-    severity: "medium",
-    indicator: "Evaluation finalization",
-    message: `Evaluation finalization is ${evaluationFinalization}% (${evaluationsFinalized} of ${evaluationsApplicable} reports).`,
-  });
-}
+    /* Concern thresholds remain deterministic and authoritative even when the
+       optional language model is unavailable. */
+    const evidence: AnalyticsEvidence = {
+      attendance,
+      attendanceVerified,
+      attendanceApplicable,
+      dailyLogApproval,
+      dailyLogsApproved,
+      dailyLogsApplicable,
+      evaluationFinalization,
+      evaluationsFinalized,
+      evaluationsApplicable,
+      documentCompliance,
+      documentsCompliant,
+      documentsRequired,
+      assignedInterns,
+      concerns,
+    };
+    const detectedConcerns = detectAnalyticsConcerns(evidence);
 
 const ollamaBaseUrl =
   process.env.OLLAMA_BASE_URL || "http://localhost:11434";
@@ -185,7 +139,7 @@ Document compliance: ${documentCompliance === null ? "No required documents" : `
 
 PRAXIZ RULE-BASED CONCERNS:
 ${
-  (ruleBasedAlerts.length ? ruleBasedAlerts : detectedConcerns.map(item => `${item.indicator}: ${item.message}`)).length
+  detectedConcerns.length
     ? detectedConcerns
         .map(
           (item) =>
@@ -213,77 +167,41 @@ Do not include markdown.
 Do not wrap the JSON in code fences.
 `.trim();
 
-    const ollamaResponse = await fetch(
-      `${ollamaBaseUrl}/api/generate`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          prompt,
-          stream: false,
-          format: "json",
-          options: {
-            temperature: 0.2,
-          },
-        }),
-      }
-    );
-
-    if (!ollamaResponse.ok) {
-      const detail = await ollamaResponse.text();
-
-      console.error(
-        "PRAXIZ analytics Ollama failure:",
-        ollamaResponse.status,
-        detail
-      );
-
-      return NextResponse.json(
-        { error: "AI performance analysis is currently unavailable." },
-        { status: 502 }
-      );
-    }
-
-    const ollamaData = await ollamaResponse.json();
-
-    let analysis: { summary: string; patterns: string[]; recommendations: string[] };
     try {
-      const parsed = JSON.parse(ollamaData.response) as Partial<typeof analysis>;
-      analysis = {
+      const ollamaResponse = await fetch(`${ollamaBaseUrl}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model, prompt, stream: false, format: "json", options: { temperature: 0.2 } }),
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (!ollamaResponse.ok) throw new Error(`Ollama returned HTTP ${ollamaResponse.status}`);
+      const ollamaData = await ollamaResponse.json() as { response?: unknown };
+      if (typeof ollamaData.response !== "string") throw new Error("Ollama returned an invalid response");
+      const parsed = JSON.parse(ollamaData.response) as { summary?: unknown; patterns?: unknown; recommendations?: unknown };
+      const analysis = {
         summary: typeof parsed.summary === "string" ? parsed.summary.trim() : "",
         patterns: Array.isArray(parsed.patterns) ? parsed.patterns.filter((item): item is string => typeof item === "string").map(item => item.trim()).filter(Boolean).slice(0, 6) : [],
         recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.filter((item): item is string => typeof item === "string").map(item => item.trim()).filter(Boolean).slice(0, 6) : [],
       };
-    } catch {
-      // Keep verified data useful even when a local model returns malformed output.
-      analysis = {
-        summary: assignedInterns ? `The current analysis contains ${assignedInterns} active intern${assignedInterns === 1 ? "" : "s"}.` : "No active interns are currently represented in this analysis.",
-        patterns: detectedConcerns.map(item => `${item.indicator}: ${item.message}`).slice(0, 6),
-        recommendations: detectedConcerns.map(item => `Review ${item.indicator.toLowerCase()} within the authorized workflow.`).slice(0, 6),
-      };
-    }
-
-    return NextResponse.json(
-      {
+      if (!analysis.summary) throw new Error("Ollama returned an empty analysis");
+      return NextResponse.json({
         summary: analysis.summary || "",
-        patterns: Array.isArray(analysis.patterns)
-          ? analysis.patterns
-          : [],
+        patterns: analysis.patterns,
         risks: detectedConcerns,
-        recommendations: Array.isArray(analysis.recommendations)
-          ? analysis.recommendations
-          : [],
+        recommendations: analysis.recommendations,
         model,
-      },
-      {
-        headers: {
-          "Cache-Control": "private, no-store, max-age=0",
-        },
-      }
-    );
+        source: "ollama",
+      }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
+    } catch (modelError) {
+      console.warn("PRAXIZ analytics model unavailable; using verified-data fallback:", modelError instanceof Error ? modelError.message : modelError);
+      const analysis = buildVerifiedDataFallback(evidence, detectedConcerns);
+      return NextResponse.json({
+        ...analysis,
+        risks: detectedConcerns,
+        source: "verified-data-fallback",
+        notice: "The configured AI service is unavailable. This interpretation was generated from verified PRAXIZ indicators and deterministic concern rules.",
+      }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
+    }
   } catch (error) {
     console.error(
       "PRAXIZ AI analytics failed:",

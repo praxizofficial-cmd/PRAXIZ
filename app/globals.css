@@ -883,17 +883,26 @@ html[data-theme="dark"][data-accent="green"] { --blue: #8df4c6; --focus: #8df4c6
   .public-header .icon-button { width: 42px; height: 42px; }.public-link { padding-inline: 8px; font-size: 13px; }
 }
 
-/* Trigger3D-inspired credit footer: a simple bordered rectangle with centered credit. */
-.landing-footer { min-height: 76px; padding: 8px clamp(12px, 3vw, 34px); background: var(--surface); color: #9eb2d1; }
-.landing-footer-placeholder { width: 100%; min-height: 60px; display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr); align-items: center; gap: 24px; padding: 8px clamp(14px, 2.4vw, 28px); border: 0; border-radius: 0; background: transparent; }
-.landing-footer-placeholder .brand { min-width: 0; }.landing-footer-placeholder .brand .brand-mark { width: 42px; height: 42px; }.landing-footer-placeholder .brand .wordmark-frame { width: 128px; }
-.landing-footer-credit { justify-self: center; text-align: center; color: #9eb2d1; font-size: 13px; line-height: 1.4; white-space: nowrap; }
-.landing-footer-placeholder nav { justify-self: end; display: flex; align-items: center; justify-content: flex-end; gap: 20px; color: #9eb2d1; font-size: 12px; }
+/* Spacious, borderless credit footer aligned with the public navigation. */
+.landing-footer { min-height: 108px; padding: 22px clamp(28px, 5vw, 76px); background: var(--surface); color: #9eb2d1; }
+.landing-footer-placeholder { width: 100%; display: grid; grid-template-columns: auto minmax(260px, 1fr) auto; align-items: center; gap: clamp(30px, 4vw, 64px); padding: 0; border: 0; border-radius: 0; background: transparent; }
+.landing-footer-placeholder .brand { min-width: 190px; }.landing-footer-placeholder .brand .brand-mark { width: 46px; height: 46px; }.landing-footer-placeholder .brand .wordmark-frame { width: 138px; }
+.landing-footer-credit { justify-self: center; max-width: 440px; text-align: center; color: #9eb2d1; font-size: 13px; line-height: 1.55; }
+.landing-footer-placeholder nav { justify-self: end; display: flex; align-items: center; justify-content: flex-end; gap: 4px; color: #9eb2d1; font-size: 12px; }
+.landing-footer-placeholder nav a { white-space: nowrap; }
 .landing-footer-placeholder nav a:hover { color: #fff; }
-@media (max-width: 800px) {
-  .landing-footer-placeholder { grid-template-columns: 1fr; justify-items: center; gap: 12px; padding: 18px 14px; }
-  .landing-footer-placeholder .brand, .landing-footer-placeholder nav { justify-self: center; }.landing-footer-credit { white-space: normal; }
-  .landing-footer-placeholder nav { flex-wrap: wrap; justify-content: center; gap: 12px 18px; }
+@media (max-width: 1180px) {
+  .landing-footer { padding-block: 24px; }
+  .landing-footer-placeholder { grid-template-columns: auto minmax(0, 1fr); gap: 18px 32px; }
+  .landing-footer-placeholder nav { justify-self: end; flex-wrap: wrap; row-gap: 4px; }
+  .landing-footer-credit { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+}
+@media (max-width: 720px) {
+  .landing-footer { padding: 28px 20px; }
+  .landing-footer-placeholder { grid-template-columns: 1fr; justify-items: center; gap: 16px; }
+  .landing-footer-placeholder .brand, .landing-footer-placeholder nav, .landing-footer-credit { grid-column: 1; grid-row: auto; justify-self: center; }
+  .landing-footer-placeholder .brand { min-width: 0; }
+  .landing-footer-placeholder nav { flex-wrap: wrap; justify-content: center; row-gap: 6px; }
 }
 
 
@@ -1015,6 +1024,9 @@ select:not([multiple]):not([size]), .field select:not([multiple]):not([size]), .
   color: var(--ink); background-color: color-mix(in srgb, var(--primary) 12%, var(--surface)); box-shadow: inset 0 -3px var(--primary);
 }
 .public-header a:focus-visible, .landing-footer-placeholder nav a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.ai-fallback-note { margin: 14px 0 4px; padding: 13px 15px; display: flex; align-items: flex-start; gap: 10px; color: var(--text); border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--line)); border-radius: 10px; background: var(--accent-soft); font-size: 12px; line-height: 1.55; }
+.ai-fallback-note svg { flex: 0 0 auto; margin-top: 1px; color: var(--primary); }
+.ai-fallback-note p { margin: 0; }
 @media (max-width: 720px) {
   .intern-toolbar { padding: 18px; align-items: flex-start; }
   .intern-toolbar .filter-bar { width: 100%; margin-left: 0; }
