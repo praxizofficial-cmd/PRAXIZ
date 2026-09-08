@@ -21,6 +21,10 @@ export function generateMetadata(): Metadata {
     metadataBase: new URL(baseUrl),
     title,
     description,
+    icons: {
+      icon: "/branding/praxiz-symbol.png",
+      apple: "/branding/praxiz-symbol.png",
+    },
     openGraph: {
       title,
       description,

@@ -407,11 +407,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) throw new Error(error.message);
     },
     async register(input) {
+      if (input.role !== 'student') {
+        throw new Error('Public account creation is available only to Student Interns. Coordinator and HTE Representative accounts must be provisioned by an authorized user.');
+      }
       const supabase = createClient();
       const names = splitName(input.fullName);
       const metadata = {
         ...input.fields,
-        requested_role: registrationRole[input.role],
+        requested_role: registrationRole.student,
         first_name: names.firstName,
         middle_name: names.middleName,
         last_name: names.lastName,
@@ -470,7 +473,7 @@ export function ProtectedRoute({ role, children }: { role: RoleId; children: Rea
   }, [ready, role, user]);
 
   if (!ready || !user || !user.roles.includes(role)) {
-    return <main className="route-loading" role="status" aria-live="polite" aria-busy="true"><div className="workspace-loading-content"><span className="loading-wordmark"><Image unoptimized src="/branding/praxiz-logo.png" alt="PRAXIZ" width={360} height={360} priority /></span><h1>Preparing your workspace</h1><span className="route-loading-bar" aria-hidden="true"><span /></span><p>Loading your authorized internship tools and verified PRAXIZ data.</p><span className="loading-institution">Partido State University</span></div></main>;
+    return <main className="route-loading" role="status" aria-live="polite" aria-busy="true"><div className="workspace-loading-content"><span className="loading-wordmark"><Image unoptimized src="/branding/praxiz-symbol.png" alt="" width={160} height={160} priority /></span><h1>PRAXIZ</h1><span className="loading-institution">Partido State University</span><span className="route-loading-bar" aria-hidden="true"><span /></span><p>Loading your authorized internship tools and verified PRAXIZ data.</p></div></main>;
   }
   return children;
 }

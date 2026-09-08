@@ -39,8 +39,8 @@ export function ThemeControls({ compact = false }: { compact?: boolean }) {
   return <div ref={root} role="group" aria-label="Appearance preferences" className={compact ? 'theme-popover-wrap' : 'appearance-controls'}>
     {compact && <button className="icon-button" aria-label="Appearance preferences" aria-expanded={open} onClick={() => setOpen(!open)}><Palette size={21} /></button>}
     {(!compact || open) && <div className={compact ? 'theme-popover card' : ''}>
-      <label className="field"><span>Color mode</span><select value={mode} onChange={event => applyTheme(event.target.value as ThemeMode, accent)}><option value="system">Use system setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
-      <fieldset className="accent-picker"><legend>Accent color</legend>{(['blue','pink','gold','green'] as const).map(color => <label className={`accent-option accent-${color}`} key={color}><input type="radio" name={compact ? 'public-accent' : 'settings-accent'} checked={accent === color} onChange={() => applyTheme(mode, color)} /><span />{color[0].toUpperCase() + color.slice(1)}</label>)}</fieldset>
+      <fieldset className="mode-picker"><legend>Color mode</legend>{(['system','light','dark'] as const).map(value => <button type="button" aria-pressed={mode === value} key={value} onClick={() => applyTheme(value, accent)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</fieldset>
+      <fieldset className="accent-picker"><legend>Accent color</legend>{(['blue','pink','gold','green'] as const).map(color => <label className={`accent-option accent-${color}`} key={color}><input type="radio" name={compact ? 'public-accent' : 'settings-accent'} checked={accent === color} onChange={() => applyTheme(mode, color)} /><span aria-hidden="true" />{color === 'blue' ? 'PRAXIZ Blue' : color[0].toUpperCase() + color.slice(1)}</label>)}</fieldset>
       <small role="status">Appearance is saved on this device.</small>
     </div>}
   </div>;

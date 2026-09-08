@@ -1,6 +1,6 @@
 "use client";
 
-import type { AnchorHTMLAttributes, ChangeEvent, FormEvent, ReactNode } from "react";
+import type { AnchorHTMLAttributes, ChangeEvent, CSSProperties, FormEvent, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
@@ -122,12 +122,6 @@ const iconMap: Record<string, LucideIcon> = {
   settings: Settings,
 };
 
-const roleOptions: Array<{ id: RoleId; short: string; title: string; caption: string }> = [
-  { id: "student", short: "SI", title: "Student Intern", caption: "PSU OJT student registering for internship" },
-  { id: "coordinator", short: "IC", title: "Internship Coordinator", caption: "Departmental coordinator managing the OJT program" },
-  { id: "hte", short: "HTE", title: "HTE Representative", caption: "Authorized representative of a partner organization" },
-];
-
 function formatTimestamp(value: string): string {
   return new Intl.DateTimeFormat("en-PH", {
     dateStyle: "medium",
@@ -153,8 +147,8 @@ function downloadCsv(filename: string, headers: string[], rows: Array<Array<stri
 
 function Logo({ compact = false }: { compact?: boolean }) {
   return <div className={`brand official-brand ${compact ? "brand-compact" : ""}`}>
-    <Image unoptimized className="university-seal" src="/branding/parsu-logo.png" alt="Partido State University" width={48} height={48} />
-    {!compact && <span className="wordmark-frame"><Image unoptimized src="/branding/praxiz-logo.png" alt="PRAXIZ" width={150} height={150} /></span>}
+    <Image unoptimized className="praxiz-symbol" src="/branding/praxiz-symbol.png" alt="" width={52} height={52} priority />
+    {!compact && <span className="brand-lockup"><strong>PRAXIZ</strong><small>Partido State University</small></span>}
   </div>;
 }
 
@@ -210,13 +204,14 @@ function PublicHeader() {
     <nav id="public-navigation" className={menuOpen ? "public-navigation-open" : ""} aria-label="Public navigation">
       <div className="public-nav-links">
         <PublicSectionLink href="/#about" className="public-link" onClick={() => setMenuOpen(false)}>About</PublicSectionLink>
+        <PublicSectionLink href="/#journey" className="public-link" onClick={() => setMenuOpen(false)}>Journey</PublicSectionLink>
+        <PublicSectionLink href="/#analytics" className="public-link" onClick={() => setMenuOpen(false)}>Analytics</PublicSectionLink>
         <PublicSectionLink href="/#sdgs" className="public-link" onClick={() => setMenuOpen(false)}>SDGs</PublicSectionLink>
-        <PublicSectionLink href="/#how-it-works" className="public-link" onClick={() => setMenuOpen(false)}>How it works</PublicSectionLink>
         <PublicSectionLink href="/#contact" className="public-link" onClick={() => setMenuOpen(false)}>Contact</PublicSectionLink>
       </div>
       <div className="public-nav-actions">
         <Link href="/signin" className="button button-secondary">Sign in</Link>
-        <Link href="/register" className="button button-primary">Create account</Link>
+        <Link href="/register" className="button button-primary">Create Student Intern account</Link>
       </div>
     </nav>
     <div className="public-header-actions">
@@ -261,35 +256,52 @@ function ContactSection() {
 }
 
 function LandingPage() {
+  const journey = [
+    ['01', 'Placement', 'Students are connected to an authorized internship assignment.', BriefcaseBusiness],
+    ['02', 'Attendance', 'System-generated Time In and Time Out support internship monitoring.', Clock3],
+    ['03', 'Daily Logs', 'Students record internship activities, learning, and progress.', FileText],
+    ['04', 'Documents', 'Required internship documents are submitted and monitored.', FileCheck2],
+    ['05', 'Evaluation', 'Authorized evaluators complete the official PSU performance evaluation.', Star],
+    ['06', 'Analytics & Insights', 'Verified indicators support analytics and AI-assisted interpretation.', ChartNoAxesCombined],
+  ] as const;
   return (
     <div className="landing">
       <PublicHeader />
       <main>
-        <section className="hero">
-
-          <span className="semester"><span /> Partido State University · Internship Monitoring</span>
-          <p className="eyebrow">What is PRAXIZ?</p>
-          <h1>From placement to progress, <em>every internship journey connected.</em></h1>
-          <p className="hero-copy">PRAXIZ brings internship assignments, attendance, Daily Logs, document requirements, performance evaluation, analytics, and AI-assisted insights into one secure platform for Partido State University.</p>
-          <div className="hero-actions">
-            <Link className="button button-primary button-large" href="/signin">Sign in to PRAXIZ <ChevronRight size={19} /></Link>
-            <Link className="button button-secondary button-large" href="/register">Create an account</Link>
+        <section className="hero v9-hero">
+          <div className="hero-copy-column">
+            <span className="semester"><span /> Partido State University</span>
+            <p className="eyebrow">PRAXIZ Internship Platform</p>
+            <h1>Progress, <em>Powered by Technology.</em></h1>
+            <p className="hero-copy">PRAXIZ connects internship monitoring, evaluation, analytics, and AI-assisted insights in one secure platform for Partido State University.</p>
+            <div className="hero-actions">
+              <Link className="button button-primary button-large" href="/signin">Sign in to PRAXIZ <ChevronRight size={19} /></Link>
+              <Link className="button button-secondary button-large" href="/register">Create Student Intern account</Link>
+            </div>
+          </div>
+          <div className="hero-journey" aria-labelledby="hero-journey-title">
+            <div className="hero-journey-heading"><span>Internship journey</span><strong id="hero-journey-title">A connected path to insight</strong></div>
+            <ol>{journey.map(([number, title, copy, Icon], index) => <li key={number} style={{ '--journey-index': index } as CSSProperties}>
+              <span className="journey-node"><Icon size={18} aria-hidden="true" /></span>
+              <span className="journey-copy"><small>{number}</small><strong>{title}</strong><span>{copy}</span></span>
+            </li>)}</ol>
           </div>
         </section>
-        <section className="landing-section landing-about" id="about"><span className="eyebrow dark">About PRAXIZ</span><div className="landing-section-heading"><h2>Campus, workplace, monitoring, evaluation, analytics, and insights.</h2><p>The platform supports the complete monitored internship process while keeping each stakeholder inside an authorized workspace.</p></div><div className="feature-grid" aria-label="Platform capabilities"><article><span><CalendarCheck2 size={21} /></span><h3>Monitor</h3><p>Attendance, Daily Logs, and internship progress grounded in verified records.</p></article><article><span><FileText size={21} /></span><h3>Evaluate</h3><p>Document compliance, feedback, and official performance evaluation.</p></article><article><span><ChartNoAxesCombined size={21} /></span><h3>Understand</h3><p>Program-scoped analytics and visual indicators for authorized reviewers.</p></article></div></section>
-        <section className="landing-section journey-section" id="how-it-works"><span className="eyebrow dark">Internship journey</span><div className="landing-section-heading"><h2>One connected path from placement to progress.</h2><p>Each stage supports the next without exposing records outside a user’s legitimate scope.</p></div><div className="journey-grid" aria-label="Internship journey stages">{[['01','Placement','Assignments connect students, programs, campuses, and host establishments.'],['02','Attendance & Daily Logs','Verified time and daily activity records make progress visible.'],['03','Documents','Requirements and submissions remain traceable through the workflow.'],['04','Evaluation','Authorized evaluators use configured official criteria.'],['05','Analytics & Insights','Coordinators interpret verified indicators and decide with context.']].map(([number,title,copy]) => <article key={number}><span>{number}</span><div><h3>{title}</h3><p>{copy}</p></div></article>)}</div></section>
-        <section className="landing-section analytics-story"><div className="landing-section-heading"><span className="eyebrow dark">Performance analytics & data visualization</span><h2>From internship records to meaningful insights.</h2><p>PRAXIZ transforms verified internship records into visual indicators that help Internship Coordinators monitor progress, identify concerns, and understand internship performance.</p></div><div className="analytics-story-card"><span className="analytics-story-line" /><div><strong>Verified indicators</strong><p>Attendance verification · Daily Log approval · Document compliance · Evaluation finalization</p></div><div><strong>AI-assisted, human-guided</strong><p>AI interprets configured indicators while official records and authorized decisions remain authoritative.</p></div></div></section>
+        <section className="landing-section landing-about reveal-section" id="about"><span className="eyebrow dark">What is PRAXIZ?</span><div className="landing-section-heading"><h2>One institutional workflow, built around the internship journey.</h2><p>PRAXIZ connects campus and workplace records while keeping every user inside an authorized role and scope.</p></div><div className="feature-grid editorial-pillars" aria-label="Platform capabilities"><article><b>01</b><span><CalendarCheck2 size={21} /></span><h3>Monitor</h3><p>Attendance, Daily Logs, and internship progress.</p></article><article><b>02</b><span><FileText size={21} /></span><h3>Evaluate</h3><p>Documents, feedback, and official performance evaluation.</p></article><article><b>03</b><span><ChartNoAxesCombined size={21} /></span><h3>Understand</h3><p>Analytics, data visualization, and AI-assisted insights.</p></article></div></section>
+        <section className="landing-section journey-section reveal-section" id="journey"><span className="eyebrow dark">The internship journey</span><div className="landing-section-heading"><h2>Placement. Monitor. Evaluate. Understand.</h2><p>A recurring connector rail makes the real PRAXIZ workflow visible—from an authorized assignment to human-guided insight.</p></div><div className="journey-grid v9-journey" aria-label="Internship journey stages">{[['Placement','Internship assignment · HTE connection'],['Monitor','Attendance · Daily Logs · Documents · Progress'],['Evaluate','Official PSU evaluation · Feedback and follow-up'],['Understand','Analytics · Visualization · AI-assisted interpretation']].map(([title,copy], index) => <article key={title}><span>0{index + 1}</span><div><h3>{title}</h3><p>{copy}</p></div></article>)}</div></section>
+        <section className="landing-section analytics-story reveal-section" id="analytics"><div className="landing-section-heading"><span className="eyebrow dark">Performance analytics & data visualization</span><h2>From internship records to meaningful insights.</h2><p>PRAXIZ transforms verified internship data into useful indicators for Internship Coordinators—without fabricating operational values.</p></div><div className="analytics-preview" aria-label="Illustrative analytics workflow"><div><span>Verified records</span><strong>Attendance · Logs · Documents · Evaluations</strong></div><ChevronRight aria-hidden="true" /><div><span>Program-scoped view</span><strong>Patterns · concerns · progress</strong></div><ChevronRight aria-hidden="true" /><div><span>Coordinator action</span><strong>Review · follow up · decide</strong></div></div></section>
+        <section className="landing-section ai-story reveal-section"><div><span className="eyebrow dark">Responsible AI</span><h2>AI-assisted, human-guided.</h2></div><div className="ai-flow"><span>Verified PRAXIZ data</span><ChevronRight /><span>Analytics</span><ChevronRight /><span>AI interpretation</span><ChevronRight /><strong>Authorized human decision</strong></div><p>AI supports interpretation. Official records and authorized users remain authoritative.</p></section>
         <section className="landing-section landing-sdgs" id="sdgs"><span className="eyebrow">Sustainable Development Goals</span><div className="landing-section-heading"><h2>Education strengthened through responsible digital partnership.</h2><p>PRAXIZ supports three closely related United Nations Sustainable Development Goals through its academic and industry internship workflow.</p></div><div className="sdg-grid"><article className="sdg-four"><Image unoptimized src="/sdgs/sdg-4.png" alt="SDG 4: Quality Education" width={144} height={144} /><div><h3>Quality Education</h3><p>Structured internship learning, documented activities, feedback, and evaluation support experiential education.</p></div></article><article className="sdg-nine"><Image unoptimized src="/sdgs/sdg-9.png" alt="SDG 9: Industry, Innovation and Infrastructure" width={144} height={144} /><div><h3>Industry, Innovation and Infrastructure</h3><p>A secure digital workflow helps PSU and industry partners manage internship records consistently.</p></div></article><article className="sdg-seventeen"><Image unoptimized src="/sdgs/sdg-17.png" alt="SDG 17: Partnerships for the Goals" width={144} height={144} /><div><h3>Partnerships for the Goals</h3><p>Students, coordinators, and Host Training Establishments collaborate through shared, role-appropriate processes.</p></div></article></div></section>
         <section className="landing-section stakeholders" id="who-uses-praxiz"><span className="eyebrow dark">Who uses PRAXIZ</span><div className="landing-section-heading"><h2>Role-appropriate workspaces, one shared process.</h2></div><div className="stakeholder-grid"><article><UserRound /><strong>Student Intern</strong><p>Records attendance, logs, documents, and progress.</p></article><article><UsersRound /><strong>Internship Coordinator</strong><p>Coordinates placements and program monitoring.</p></article><article><BriefcaseBusiness /><strong>HTE Representative</strong><p>Reviews assigned interns and evaluates performance.</p></article></div></section>
         <ContactSection />
       </main>
-      <footer className="landing-footer"><div className="landing-footer-placeholder"><Logo /><span className="landing-footer-credit">© 2026 Partido State University · PRAXIZ. All rights reserved.</span><nav><PublicSectionLink href="/#about">About</PublicSectionLink><PublicSectionLink href="/#sdgs">SDGs</PublicSectionLink><PublicSectionLink href="/#contact">Contact</PublicSectionLink><Link href="/privacy">Privacy Policy</Link><Link href="/terms">Terms of Service</Link><Link href="/signin">Sign in</Link></nav></div></footer>
+      <footer className="landing-footer"><div className="landing-footer-placeholder"><div><Logo /><span className="footer-institution">Partido State University</span></div><span className="landing-footer-credit">© 2026 Partido State University · PRAXIZ. All rights reserved.</span><nav><PublicSectionLink href="/#about">About</PublicSectionLink><PublicSectionLink href="/#journey">Journey</PublicSectionLink><PublicSectionLink href="/#analytics">Analytics</PublicSectionLink><PublicSectionLink href="/#sdgs">SDGs</PublicSectionLink><PublicSectionLink href="/#contact">Contact</PublicSectionLink><Link href="/privacy">Privacy Policy</Link><Link href="/terms">Terms of Service</Link><Link href="/signin">Sign in</Link></nav></div></footer>
     </div>
   );
 }
 
 function ContactPage() {
-  return <div className="landing contact-page"><PublicHeader /><main><ContactSection /></main><footer className="landing-footer"><div className="landing-footer-placeholder"><Logo /><span className="landing-footer-credit">© 2026 Partido State University · PRAXIZ. All rights reserved.</span><nav><PublicSectionLink href="/#about">About</PublicSectionLink><PublicSectionLink href="/#sdgs">SDGs</PublicSectionLink><Link href="/contact">Contact</Link><Link href="/privacy">Privacy Policy</Link><Link href="/terms">Terms of Service</Link><Link href="/signin">Sign in</Link></nav></div></footer></div>;
+  return <div className="landing contact-page"><PublicHeader /><main><ContactSection /></main><footer className="landing-footer"><div className="landing-footer-placeholder"><Logo /><span className="landing-footer-credit">© 2026 Partido State University · PRAXIZ. All rights reserved.</span><nav><PublicSectionLink href="/#about">About</PublicSectionLink><PublicSectionLink href="/#journey">Journey</PublicSectionLink><PublicSectionLink href="/#analytics">Analytics</PublicSectionLink><PublicSectionLink href="/#sdgs">SDGs</PublicSectionLink><Link href="/contact">Contact</Link><Link href="/privacy">Privacy Policy</Link><Link href="/terms">Terms of Service</Link><Link href="/signin">Sign in</Link></nav></div></footer></div>;
 }
 
 function AuthAside({ title, copy, children }: { title: string; copy: string; children?: ReactNode }) {
@@ -346,7 +358,7 @@ function SignInPage() {
             {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
             <ActionButton type="submit" disabled={loading}>{loading ? "Recognizing account…" : "Sign in to PRAXIZ"}</ActionButton>
           </form>
-          <p className="auth-switch">Don’t have an account yet? <Link href="/register">Create an account</Link></p>
+          <p className="auth-switch">Eligible Student Intern? <Link href="/register">Create a Student Intern account</Link></p>
           <p className="secure-form-note"><ShieldCheck size={16} aria-hidden="true" /><span>Authentication and role access are verified by Supabase.</span></p>
         </div>
       </main>
@@ -470,10 +482,10 @@ function ProgramMultiSelect({ options, value, onChange }: { options: ProgramChoi
   </div>;
 }
 
-function RegistrationFields({ role }: { role: RoleId }) {
-  const isHte = role === "hte";
-  const isStudent = role === "student";
-  const hasProgramScope = isStudent || role === "coordinator";
+function RegistrationFields({ accountRole }: { accountRole: RoleId }) {
+  const isHte = accountRole === "hte";
+  const isStudent = accountRole === "student";
+  const hasProgramScope = isStudent || accountRole === "coordinator";
   const [campusId, setCampusId] = useState("");
   const [collegeId, setCollegeId] = useState("");
   const [programId, setProgramId] = useState("");
@@ -507,13 +519,12 @@ function RegistrationFields({ role }: { role: RoleId }) {
 
 function RegisterPage() {
   const { register } = useAuth();
-  const [role, setRole] = useState<RoleId | null>(null);
   const [agree, setAgree] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!agree || !role) return;
+    if (!agree) return;
     const formData = new FormData(event.currentTarget);
     const password = String(formData.get("password") ?? "");
     const confirmPassword = String(formData.get("confirmPassword") ?? "");
@@ -526,21 +537,12 @@ function RegisterPage() {
         .filter(([key]) => key !== "password" && key !== "confirmPassword")
         .map(([key, value]) => [key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`), String(value)]),
     );
-    const requestedPrograms = formData.getAll("program_ids").map(String).filter(Boolean);
-    if (role === "coordinator") {
-      if (!requestedPrograms.length) {
-        setError("Select at least one program you will handle.");
-        return;
-      }
-      rawFields.program_ids = JSON.stringify([...new Set(requestedPrograms)]);
-      rawFields.program_id = requestedPrograms[0];
-    }
-    const fullName = role === "hte" ? String(formData.get("representativeName") ?? "") : String(formData.get("fullName") ?? "");
+    const fullName = String(formData.get("fullName") ?? "");
     setLoading(true);
     setError("");
     try {
       await register({
-        role,
+        role: 'student',
         email: String(formData.get("email") ?? ""),
         password,
         fullName,
@@ -554,13 +556,13 @@ function RegisterPage() {
   }
   return (
     <div className="auth-page registration-page">
-      <AuthAside title={role ? `${roles[role].label} registration` : "Create an account"} copy={role ? "Provide your official information below. A system administrator will verify your account before activation." : "Choose the role that matches your responsibility in the internship program."}>
-        <div className="role-stack">{roleOptions.map((option) => <button key={option.id} className={`role-choice ${role === option.id ? "selected" : ""}`} onClick={() => setRole(option.id)}><span className={`role-dot role-${option.id}`}>{option.short}</span><span><strong>{option.title}</strong><small>{option.caption}</small></span>{role === option.id && <Check size={18} />}</button>)}</div>
+      <AuthAside title="Create a Student Intern account" copy="Public registration is reserved for Partido State University Student Interns. Coordinator and HTE Representative accounts are created by authorized PRAXIZ users.">
+        <div className="student-registration-note"><span className="role-dot role-student">SI</span><div><strong>Student Intern</strong><small>PSU OJT student registration</small></div><Check size={18} /></div>
       </AuthAside>
       <main className="auth-main registration-main">
         <div className="registration-wrap">
-          <span className="eyebrow dark">Account verification</span><h2>Create account</h2><p className="form-intro">Select your role, then fill in your registration details.</p>
-          {!role ? <div className="role-empty"><UsersRound size={34} /><h3>Select a role to begin</h3><p>Each stakeholder receives a form and access level tailored to their responsibility.</p></div> : <form className="registration-form" onSubmit={submit}><div className="form-card-heading"><span className={`role-dot role-${role}`}>{roleOptions.find((r) => r.id === role)?.short}</span><span><strong>{roles[role].label} registration</strong><small>Fields marked * are required for verification</small></span></div><RegistrationFields role={role} /><div className="consent"><input id="registration-consent" type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /><label htmlFor="registration-consent">I confirm the information is accurate and agree to PRAXIZ’s <Link href="/terms" target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>Terms of Service<span className="sr-only"> (opens in a new tab)</span></Link> and <Link href="/privacy" target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>Privacy Policy<span className="sr-only"> (opens in a new tab)</span></Link>.</label></div>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<ActionButton type="submit" disabled={!agree || loading}>{loading ? "Creating secure account…" : "Submit registration"}</ActionButton></form>}
+          <span className="eyebrow dark">Account verification</span><h2>Create Student Intern account</h2><p className="form-intro">Enter your verified institutional identity and internship program information.</p>
+          <form className="registration-form" onSubmit={submit}><div className="form-card-heading"><span className="role-dot role-student">SI</span><span><strong>Student Intern registration</strong><small>Fields marked * are required for verification</small></span></div><RegistrationFields accountRole="student" /><div className="consent"><input id="registration-consent" type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /><label htmlFor="registration-consent">I confirm the information is accurate and agree to PRAXIZ’s <Link href="/terms" target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>Terms of Service<span className="sr-only"> (opens in a new tab)</span></Link> and <Link href="/privacy" target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>Privacy Policy<span className="sr-only"> (opens in a new tab)</span></Link>.</label></div>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<ActionButton type="submit" disabled={!agree || loading}>{loading ? "Creating secure account…" : "Submit Student Intern registration"}</ActionButton></form>
           <p className="auth-switch">Already have an account? <Link href="/signin">Sign in here</Link></p>
         </div>
       </main>
@@ -817,7 +819,7 @@ function AttendanceReviewDialog({ record, close, onSaved }: { record: Attendance
       setError(userError(reason, "The attendance decision could not be saved."));
     } finally { lock.current = false; setLoading(false); setConfirmation(null); }
   }
-  return <Dialog title="Review attendance session" onClose={close} busy={loading} wide><InfoCallout icon={ShieldCheck}><p><strong>{record.studentName}</strong> · {record.date}</p></InfoCallout><div className="readonly-event-grid"><div><span>Time In</span><strong>{record.timeIn}</strong><small>Original event · read-only</small></div><div><span>Time Out</span><strong>{record.timeOut}</strong><small>Original event · read-only</small></div></div><label className="field"><span>Verification remarks</span><textarea value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Add the basis for your review decision…" /></label><p className="form-hint">A reason is required when flagging or rejecting a session.</p>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading} icon={Check} onClick={() => setConfirmation("verified")}>Verify</ActionButton><ActionButton variant="secondary" disabled={loading || !remarks.trim()} icon={Flag} onClick={() => setConfirmation("flagged")}>Flag</ActionButton><ActionButton variant="danger" disabled={loading || !remarks.trim()} icon={X} onClick={() => setConfirmation("rejected")}>Reject</ActionButton></div>{confirmation && <Dialog title={`${confirmation === "verified" ? "Verify" : confirmation === "flagged" ? "Flag" : "Reject"} this attendance session?`} onClose={() => setConfirmation(null)} busy={loading} protectChanges={false}><p>{record.studentName} · {record.date}</p><p>{confirmation === "verified" ? "This session will count toward verified internship hours." : "This session will not count toward verified internship hours until an authorized review resolves it."} The original timestamps and review history are retained.</p><div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => setConfirmation(null)}>Keep reviewing</ActionButton><ActionButton disabled={loading} onClick={() => void decide(confirmation)}>{loading ? "Saving…" : confirmation === "verified" ? "Verify session" : confirmation === "flagged" ? "Flag session" : "Reject session"}</ActionButton></div></Dialog>}</Dialog>;
+  return <Dialog title="Review attendance session" onClose={close} busy={loading} wide><InfoCallout icon={ShieldCheck}><p><strong>{record.studentName}</strong> · {record.date}</p></InfoCallout><div className="readonly-event-grid"><div><span>Time In</span><strong>{record.timeIn}</strong><small>Original event · read-only</small></div><div><span>Time Out</span><strong>{record.timeOut}</strong><small>Original event · read-only</small></div></div>{record.pairIssue ? <p className="form-error"><AlertTriangle size={16} />{record.pairIssue}. Review the original server events before making a decision.</p> : <p className="form-success"><CheckCircle2 size={16} /> Complete original Time In and Time Out pair</p>}<label className="field"><span>Verification remarks</span><textarea value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Add the basis for your review decision…" /></label><p className="form-hint">A reason is required when flagging or rejecting a session.</p>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading || !!record.pairIssue} icon={Check} onClick={() => setConfirmation("verified")}>Verify</ActionButton><ActionButton variant="secondary" disabled={loading || !remarks.trim()} icon={Flag} onClick={() => setConfirmation("flagged")}>Flag</ActionButton><ActionButton variant="danger" disabled={loading || !remarks.trim()} icon={X} onClick={() => setConfirmation("rejected")}>Reject</ActionButton></div>{confirmation && <Dialog title={`${confirmation === "verified" ? "Verify" : confirmation === "flagged" ? "Flag" : "Reject"} this attendance session?`} onClose={() => setConfirmation(null)} busy={loading} protectChanges={false}><p>{record.studentName} · {record.date}</p><p>{confirmation === "verified" ? "This session will count toward verified internship hours." : "This session will not count toward verified internship hours until an authorized review resolves it."} The original timestamps and review history are retained.</p><div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => setConfirmation(null)}>Keep reviewing</ActionButton><ActionButton disabled={loading} onClick={() => void decide(confirmation)}>{loading ? "Saving…" : confirmation === "verified" ? "Verify session" : confirmation === "flagged" ? "Flag session" : "Reject session"}</ActionButton></div></Dialog>}</Dialog>;
 }
 
 function AttendancePage({ role }: { role: RoleId }) {
@@ -825,6 +827,7 @@ function AttendancePage({ role }: { role: RoleId }) {
   const hte = role === "hte";
   const [currentSession, setCurrentSession] = useState<AttendanceSession | null>(null);
   const [attendanceRows, setAttendanceRows] = useState(attendanceRecords);
+  const [attendancePeriod, setAttendancePeriod] = useState('all');
   const [confirmTimeIn, setConfirmTimeIn] = useState(false);
   const [attendanceSuccess, setAttendanceSuccess] = useState("");
   const [historyStudent, setHistoryStudent] = useState<{ id: string; name: string } | null>(null);
@@ -838,6 +841,9 @@ function AttendancePage({ role }: { role: RoleId }) {
   const requiredHours = progress?.requiredHours ?? 0;
   const hoursPercent = requiredHours ? Math.min(100, Math.round((renderedHours / requiredHours) * 100)) : 0;
   const remainingHours = Math.max(0, requiredHours - renderedHours);
+  const attendancePeriods = [...new Set(attendanceRows.map(row => row.workDate.slice(0, 7)))].sort().reverse();
+  const visibleAttendanceRows = attendancePeriod === 'all' ? attendanceRows : attendanceRows.filter(row => row.workDate.startsWith(attendancePeriod));
+  const periodLabel = (period: string) => new Intl.DateTimeFormat('en-PH', { month: 'long', year: 'numeric', timeZone: 'Asia/Manila' }).format(new Date(`${period}-01T00:00:00+08:00`));
 
   useEffect(() => {
     let active = true;
@@ -922,12 +928,12 @@ function AttendancePage({ role }: { role: RoleId }) {
   function exportAttendanceCsv() {
     const escape = (value: string) => `"${(/^[=+\-@]/.test(value) ? "'" : "")}${value.replaceAll('"', '""')}"`;
     const header = ["Student", "Date", "Day", "Time In", "Time Out", "Verified Hours", "Status", "Verified By", "Remarks"];
-    const rows = attendanceRows.map((record) => [record.studentName, record.date, record.day, record.timeIn, record.timeOut, record.hours, record.status, record.verifiedBy, record.remarks]);
+    const rows = visibleAttendanceRows.map((record) => [record.studentName, record.date, record.day, record.timeIn, record.timeOut, record.hours, record.status, record.verifiedBy, record.remarks]);
     const blob = new Blob([[header, ...rows].map((row) => row.map(escape).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `praxiz-attendance-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.download = `praxiz-attendance-${attendancePeriod === 'all' ? 'all-records' : attendancePeriod}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -935,7 +941,7 @@ function AttendancePage({ role }: { role: RoleId }) {
   return <><PageHeader title={student ? "Attendance" : hte ? "Attendance verification" : "Attendance monitoring"} subtitle={student ? "Record immutable Time In and Time Out events and follow their verification status." : "Review attendance sessions without changing the original event timestamps."} />
     {attendanceSuccess && <p className="inline-success" role="status">{attendanceSuccess}</p>}{attendanceError && <p className="form-error"><AlertTriangle size={16} /> {attendanceError}</p>}
     {student ? <><section className={`attendance-action-card card ${currentSession?.status === "Active" ? "session-active" : ""}`}><div className="attendance-action-copy"><span className="eyebrow dark">Today’s attendance session</span><h2>{!currentSession ? "Ready to record Time In" : currentSession.status === "Active" ? "Attendance session active" : "Attendance submitted for verification"}</h2><p>{!currentSession ? "Press Time In when you begin work at your assigned HTE. Supabase will record the authoritative server timestamp." : currentSession.status === "Active" ? "Your original Time In event is locked. Press Time Out only when your work session ends." : "Both original events are locked. Verified hours will be added to progress only after an authorized reviewer confirms this session."}</p><div className="integrity-note"><ShieldCheck size={18} /><span>Attendance timestamps cannot be typed or edited. They are generated and protected by the PRAXIZ database.</span></div></div><div className="attendance-action-panel">{!currentSession ? <><Clock3 size={32} /><strong>{attendanceLoading ? "Checking today’s session…" : "No active session"}</strong><ActionButton icon={Clock3} disabled={attendanceLoading || !progress} onClick={() => setConfirmTimeIn(true)}>{attendanceLoading ? "Please wait…" : "Time In"}</ActionButton></> : <><StatusBadge status={currentSession.status} /><dl><div><dt>Time In</dt><dd>{formatTimestamp(currentSession.timeIn.occurredAt)}</dd></div><div><dt>Time Out</dt><dd>{currentSession.timeOut ? formatTimestamp(currentSession.timeOut.occurredAt) : "Not recorded"}</dd></div></dl>{currentSession.status === "Active" && <ActionButton icon={Clock3} disabled={attendanceLoading} onClick={() => setConfirmTimeOut(true)}>Time Out</ActionButton>}{currentSession.status === "Pending Verification" && <span className="pending-copy"><Clock3 size={17} /> Awaiting authorized review</span>}</>}</div></section><section className="card hours-overview"><div><strong>{renderedHours} hrs</strong><span>Verified rendered hours</span></div><div><strong>{requiredHours} hrs</strong><span>Required internship hours</span></div><div><strong className="orange-text">{remainingHours} hrs</strong><span>Remaining verified hours</span></div><div className="hours-progress"><div className="metric-row"><span>{renderedHours} of {requiredHours} verified hours</span><strong>{hoursPercent}%</strong></div><ProgressBar value={hoursPercent} /></div></section><div className="stats-grid three"><StatCard label="Attendance rate" value={`${progress?.attendanceRate ?? 0}%`} icon={CalendarCheck2} /><StatCard label="Recorded sessions" value={String(attendanceRows.length)} detail="loaded from Supabase" icon={CheckCircle2} tone="green" /><StatCard label="Timestamp source" value="Server" icon={Clock3} tone="violet" /></div></> : <><div className="verification-principle"><ShieldCheck size={20} /><p><strong>Original event protection:</strong> reviewers may verify, flag, or reject a session and add remarks. Time In and Time Out values are read-only.</p></div><div className="stats-grid three"><StatCard label="Visible sessions" value={String(attendanceRows.length)} icon={Clock3} tone="orange" /><StatCard label="Verified" value={String(attendanceRows.filter((row) => row.status === "Verified").length)} icon={CheckCircle2} tone="green" /><StatCard label="Flagged or rejected" value={String(attendanceRows.filter((row) => row.status === "Flagged" || row.status === "Rejected").length)} icon={AlertTriangle} tone="red" /></div></>}
-    <section className="card table-card"><div className="card-title"><h2>{student ? "Attendance history" : "Sessions for review"}</h2><div className="inline-actions"><ActionButton variant="secondary" icon={Download} disabled={attendanceRows.length === 0} onClick={exportAttendanceCsv}>Export CSV</ActionButton></div></div><div className="table-scroll"><table className="data-table"><thead><tr>{!student && <th>Student</th>}<th>Date</th><th>Day</th><th>Time In</th><th>Time Out</th><th>Verified hours</th><th>Status</th><th>Verified by</th><th>Remarks</th>{!student && <th>Actions</th>}</tr></thead><tbody>{attendanceRows.map((record) => <tr key={record.id}>{!student && <td><b>{record.studentName}</b></td>}<td><b>{record.date}</b></td><td>{record.day}</td><td>{record.timeIn}</td><td>{record.timeOut}</td><td>{record.hours}</td><td><StatusBadge status={record.status} /></td><td>{record.verifiedBy}</td><td>{record.remarks}</td>{!student && <td className="table-actions"><div className="table-action-group"><button className="table-link" onClick={() => setSelectedReview(record)} aria-label={`Review attendance for ${record.studentName} on ${record.date}`}>Review</button><button className="table-link" disabled={!record.studentUserId} onClick={() => setHistoryStudent({ id: record.studentUserId!, name: record.studentName })} aria-label={`View attendance history for ${record.studentName}`}>View history</button></div></td>}</tr>)}{!attendanceLoading && attendanceRows.length === 0 && <tr><td colSpan={student ? 8 : 10}>No attendance sessions are available yet.</td></tr>}</tbody></table></div></section>{confirmTimeIn && <ConfirmDialog title="Record Time In?" message="Your Time In will use the server timestamp at confirmation. This event cannot be edited." confirmLabel={attendanceLoading ? "Recording…" : "Record Time In"} busy={attendanceLoading} onCancel={() => setConfirmTimeIn(false)} onConfirm={recordTimeIn} />}{historyStudent && <StudentAttendanceHistory studentId={historyStudent.id} name={historyStudent.name} onClose={() => setHistoryStudent(null)} />}{confirmTimeOut && <ConfirmDialog busy={attendanceLoading} title="End attendance session?" message="Time Out will be recorded using the Supabase server timestamp. The resulting event cannot be edited." confirmLabel={attendanceLoading ? "Recording…" : "Record Time Out"} onCancel={() => setConfirmTimeOut(false)} onConfirm={recordTimeOut} />}{selectedReview && <AttendanceReviewDialog record={selectedReview} close={() => setSelectedReview(null)} onSaved={() => { void refreshAttendance(); }} />}</>;
+    <section className="card table-card"><div className="card-title"><div><h2>{student ? "Attendance history" : "Sessions for review"}</h2><p>{visibleAttendanceRows.length} record{visibleAttendanceRows.length === 1 ? '' : 's'} in the selected period</p></div><div className="attendance-table-actions"><label className="field compact-field"><span>Month and year</span><select value={attendancePeriod} onChange={event => setAttendancePeriod(event.target.value)}><option value="all">All records</option>{attendancePeriods.map(period => <option value={period} key={period}>{periodLabel(period)}</option>)}</select></label><ActionButton variant="secondary" icon={Download} disabled={visibleAttendanceRows.length === 0} onClick={exportAttendanceCsv}>Export filtered CSV</ActionButton></div></div><div className="table-scroll"><table className="data-table"><thead><tr>{!student && <th>Student</th>}<th>Date</th><th>Day</th><th>Time In</th><th>Time Out</th><th>Verified hours</th><th>Status</th><th>Verified by</th><th>Remarks</th>{!student && <th>Actions</th>}</tr></thead><tbody>{visibleAttendanceRows.map((record) => <tr key={record.id}>{!student && <td><b>{record.studentName}</b></td>}<td><b>{record.date}</b></td><td>{record.day}</td><td>{record.timeIn}</td><td>{record.timeOut}</td><td>{record.hours}</td><td><StatusBadge status={record.status} /></td><td>{record.verifiedBy}</td><td>{record.remarks}</td>{!student && <td className="table-actions"><div className="table-action-group"><button className="table-link" onClick={() => setSelectedReview(record)} aria-label={`Review attendance for ${record.studentName} on ${record.date}`}>Review</button><button className="table-link" disabled={!record.studentUserId} onClick={() => setHistoryStudent({ id: record.studentUserId!, name: record.studentName })} aria-label={`View attendance history for ${record.studentName}`}>View history</button></div></td>}</tr>)}{!attendanceLoading && visibleAttendanceRows.length === 0 && <tr><td colSpan={student ? 8 : 10}>No authorized attendance sessions match this month and year.</td></tr>}</tbody></table></div></section>{confirmTimeIn && <ConfirmDialog title="Record Time In?" message="Your Time In will use the server timestamp at confirmation. This event cannot be edited." confirmLabel={attendanceLoading ? "Recording…" : "Record Time In"} busy={attendanceLoading} onCancel={() => setConfirmTimeIn(false)} onConfirm={recordTimeIn} />}{historyStudent && <StudentAttendanceHistory studentId={historyStudent.id} name={historyStudent.name} onClose={() => setHistoryStudent(null)} />}{confirmTimeOut && <ConfirmDialog busy={attendanceLoading} title="End attendance session?" message="Time Out will be recorded using the Supabase server timestamp. The resulting event cannot be edited." confirmLabel={attendanceLoading ? "Recording…" : "Record Time Out"} onCancel={() => setConfirmTimeOut(false)} onConfirm={recordTimeOut} />}{selectedReview && <AttendanceReviewDialog record={selectedReview} close={() => setSelectedReview(null)} onSaved={() => { void refreshAttendance(); }} />}</>;
 }
 
 function StudentDailyLogDialog({ log, close, onSaved }: { log: DailyLogRecord | null; close: () => void; onSaved: () => void }) {
@@ -1191,16 +1197,16 @@ function SettingsPanel() {
     finally { saveLock.current = false; setSaving(false); }
   }
   const choices = [{ key: 'emailNotifications', label: 'Email notifications', hint: 'Submission, verification, and account updates' }, { key: 'weeklyProgressSummary', label: 'Weekly progress summary', hint: 'A digest of verified internship progress' }, { key: 'monitoringNotices', label: 'Monitoring notices', hint: 'Attendance and compliance reminders' }] as const;
-  return <div className="settings-stack">
-    <section className="settings-section"><div><UserRound /><h2>Account</h2><p>Your verified institutional identity.</p></div><div><strong>{user?.fullName}</strong><p>{user?.email}</p><Link className="text-link" href={user ? `/${user.role}/profile` : '/signin'}>View and edit your profile</Link></div></section>
-    <section className="settings-section"><div><Bell /><h2>Notifications</h2><p>Preferences are stored in your account.</p></div><div>{choices.map(choice => <label className="toggle-row" key={choice.key} htmlFor={choice.key}><span><strong id={`${choice.key}-label`}>{choice.label}</strong><small>{choice.hint}</small></span><input aria-labelledby={`${choice.key}-label`} id={choice.key} type="checkbox" checked={preferences[choice.key]} disabled={loading || saving} onChange={() => setPreferences(value => ({ ...value, [choice.key]: !value[choice.key] }))} /></label>)}{notice && <p className="form-success" role="status">{notice}</p>}{error && <p className="form-error" role="alert">{error}</p>}<ActionButton disabled={loading || saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save notification preferences'}</ActionButton></div></section>
-    <section className="settings-section"><div><Settings /><h2>Appearance</h2><p>Four accents and light, dark, or system mode. Saved on this device.</p></div><ThemeControls /></section>
-    <section className="settings-section"><div><LockKeyhole /><h2>Security</h2><p>Passwords are managed by secure account recovery.</p></div><Link className="text-link" href="/forgot-password">Reset your password</Link></section>
+  return <div className="settings-stack settings-card-grid">
+    <section className="card settings-card account-settings-card"><header><UserRound /><div><h2>Account</h2><p>Your verified institutional identity.</p></div></header><div className="settings-identity"><ProfileAvatar name={user?.fullName ?? 'PRAXIZ user'} path={user?.avatarPath} /><div><strong>{user?.fullName}</strong><span>{user?.email}</span><small>{user ? roles[user.role].label : ''}</small></div></div><Link className="button button-secondary" href={user ? `/${user.role}/profile` : '/signin'}>View profile</Link></section>
+    <section className="card settings-card security-settings-card"><header><LockKeyhole /><div><h2>Security</h2><p>Passwords are managed through secure account recovery.</p></div></header><Link className="button button-secondary" href="/forgot-password">Reset password</Link></section>
+    <section className="card settings-card notification-settings-card"><header><Bell /><div><h2>Notifications</h2><p>Preferences are stored in your account.</p></div></header><div>{choices.map(choice => <label className="toggle-row" key={choice.key} htmlFor={choice.key}><span><strong id={`${choice.key}-label`}>{choice.label}</strong><small>{choice.hint}</small></span><input role="switch" aria-checked={preferences[choice.key]} aria-labelledby={`${choice.key}-label`} id={choice.key} type="checkbox" checked={preferences[choice.key]} disabled={loading || saving} onChange={() => setPreferences(value => ({ ...value, [choice.key]: !value[choice.key] }))} /></label>)}</div>{notice && <p className="form-success" role="status">{notice}</p>}{error && <p className="form-error" role="alert">{error}</p>}<div className="settings-card-actions"><ActionButton disabled={loading || saving} onClick={() => void save()}>{saving ? 'Saving…' : notice ? 'Saved' : 'Save preferences'}</ActionButton></div></section>
+    <section className="card settings-card appearance-settings-card"><header><Settings /><div><h2>Appearance</h2><p>Choose a color mode and PRAXIZ accent for this device.</p></div></header><ThemeControls /></section>
   </div>;
 }
 
 function ProfilePage({ role, settings = false }: { role: RoleId; settings?: boolean }) {
-  return <><PageHeader title={settings ? "Settings" : "Profile"} subtitle={settings ? "Manage your account, notifications, appearance, and security." : "Your identity and institutional account information."} />{settings ? <section className="card"><SettingsPanel /></section> : <ProfileDetails role={role} />}</>;
+  return <><PageHeader title={settings ? "Settings" : "Profile"} subtitle={settings ? "Manage your account, notifications, appearance, and security." : "Your identity and institutional account information."} />{settings ? <SettingsPanel /> : <ProfileDetails role={role} />}</>;
 }
 
 function InternManagementPage({ role }: { role: RoleId }) {
@@ -1432,18 +1438,27 @@ function FeedbackPage() {
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<FeedbackRecord | null>(null);
   const canCreate = user?.role === "coordinator" || user?.role === "hte";
+  const openFeedback = useCallback(async (item: FeedbackRecord) => {
+    setSelected(item);
+    if (user?.role !== 'student' || item.readStatus === 'Read') return;
+    try {
+      await feedbackService.markRead(item.id);
+      setRecords(current => current.map(record => record.id === item.id ? { ...record, readAt: new Date().toISOString(), readStatus: 'Read' } : record));
+      setSelected(current => current?.id === item.id ? { ...current, readAt: new Date().toISOString(), readStatus: 'Read' } : current);
+    } catch (reason) { setError(userError(reason, 'Feedback could not be marked as read.')); }
+  }, [user?.role]);
   const load = useCallback(async () => {
     try {
       const [items, options] = await Promise.all([feedbackService.listLive(), canCreate ? evaluationService.listAssignments() : Promise.resolve([])]);
       setRecords(items); setAssignments(options);
       const requested = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("feedback");
-      if (requested) setSelected(items.find(item => item.id === requested) ?? null);
+      if (requested) { const requestedItem = items.find(item => item.id === requested); if (requestedItem) void openFeedback(requestedItem); }
     }
     catch (reason) { setError(userError(reason, "Feedback records could not be loaded.")); }
     finally { setLoading(false); }
-  }, [canCreate]);
+  }, [canCreate, openFeedback]);
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
-  return <><PageHeader title="Feedback & follow-up" subtitle={canCreate ? "Assignment-bound guidance visible only to authorized participants." : "Read feedback recorded for your internship assignment."} action={canCreate ? <ActionButton icon={Plus} disabled={loading || assignments.length === 0} onClick={() => setAdding(true)}>New feedback</ActionButton> : undefined} />{error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Open" value={String(records.filter((item) => item.status === "Open").length)} icon={MessageSquareText} tone="orange" /><StatCard label="In progress" value={String(records.filter((item) => item.status === "In Progress").length)} icon={Clock3} tone="violet" /><StatCard label="Resolved" value={String(records.filter((item) => item.status === "Resolved").length)} icon={CheckCircle2} tone="green" /></div><section className="card table-card"><h2>{loading ? "Loading feedback…" : "Feedback records"}</h2><div className="table-scroll"><table className="data-table"><thead><tr><th>Student</th><th>Subject</th><th>Feedback</th><th>Author</th><th>Author role</th><th>Date and time</th><th>Status</th><th>Actions</th></tr></thead><tbody>{records.map((item) => <tr key={item.id}><td><b>{item.studentName}</b></td><td><b>{item.subject}</b></td><td><span className="feedback-preview">{item.message}</span></td><td>{item.authorName}</td><td>{item.authorRole}</td><td><time dateTime={item.createdAt}>{new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" }).format(new Date(item.createdAt))}</time></td><td><StatusBadge status={item.status} /></td><td><button className="table-link" aria-label={`View feedback: ${item.subject}`} onClick={() => setSelected(item)}><Eye size={16} />View</button></td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={8}>No feedback has been recorded for your authorized assignments.</td></tr>}</tbody></table></div></section>{adding && <FeedbackDialog assignments={assignments} close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}{selected && <Dialog title={selected.subject} protectChanges={false} onClose={() => setSelected(null)}><dl className="info-list"><div><dt>Student</dt><dd>{selected.studentName}</dd></div><div><dt>Author</dt><dd>{selected.authorName}</dd></div><div><dt>Author role</dt><dd>{selected.authorRole}</dd></div><div><dt>Date and time</dt><dd><time dateTime={selected.createdAt}>{new Intl.DateTimeFormat("en-PH", { dateStyle: "long", timeStyle: "short", timeZone: "Asia/Manila" }).format(new Date(selected.createdAt))}</time></dd></div><div><dt>Status</dt><dd><StatusBadge status={selected.status} /></dd></div></dl><h3>Feedback message</h3><p className="preserve-text">{selected.message}</p><div className="modal-actions"><ActionButton onClick={() => setSelected(null)}>Done</ActionButton></div></Dialog>}</>;
+  return <><PageHeader title="Feedback & follow-up" subtitle={canCreate ? "Assignment-bound guidance visible only to authorized participants." : "Read feedback recorded for your internship assignment."} action={canCreate ? <ActionButton icon={Plus} disabled={loading || assignments.length === 0} onClick={() => setAdding(true)}>New feedback</ActionButton> : undefined} />{error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Open" value={String(records.filter((item) => item.status === "Open").length)} icon={MessageSquareText} tone="orange" /><StatCard label="In progress" value={String(records.filter((item) => item.status === "In Progress").length)} icon={Clock3} tone="violet" /><StatCard label="Resolved" value={String(records.filter((item) => item.status === "Resolved").length)} icon={CheckCircle2} tone="green" /></div><section className="card table-card"><h2>{loading ? "Loading feedback…" : "Feedback records"}</h2><div className="table-scroll"><table className="data-table"><thead><tr><th>Student</th><th>Subject</th><th>Feedback</th><th>Author</th><th>Author role</th><th>Date and time</th><th>Follow-up status</th><th>Read status</th><th>Actions</th></tr></thead><tbody>{records.map((item) => <tr key={item.id}><td><b>{item.studentName}</b></td><td><b>{item.subject}</b></td><td><span className="feedback-preview">{item.message}</span></td><td>{item.authorName}</td><td>{item.authorRole}</td><td><time dateTime={item.createdAt}>{new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" }).format(new Date(item.createdAt))}</time></td><td><StatusBadge status={item.status} /></td><td><span className={`badge feedback-read-${item.readStatus.toLowerCase()}`}>{item.readStatus}</span></td><td><button className="table-link" aria-label={`View feedback: ${item.subject}`} onClick={() => void openFeedback(item)}><Eye size={16} />View</button></td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={9}>No feedback has been recorded for your authorized assignments.</td></tr>}</tbody></table></div></section>{adding && <FeedbackDialog assignments={assignments} close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}{selected && <Dialog title={selected.subject} protectChanges={false} onClose={() => setSelected(null)}><dl className="info-list"><div><dt>Student</dt><dd>{selected.studentName}</dd></div><div><dt>Author</dt><dd>{selected.authorName}</dd></div><div><dt>Author role</dt><dd>{selected.authorRole}</dd></div><div><dt>Date and time</dt><dd><time dateTime={selected.createdAt}>{new Intl.DateTimeFormat("en-PH", { dateStyle: "long", timeStyle: "short", timeZone: "Asia/Manila" }).format(new Date(selected.createdAt))}</time></dd></div><div><dt>Follow-up status</dt><dd><StatusBadge status={selected.status} /></dd></div><div><dt>Read status</dt><dd><span className={`badge feedback-read-${selected.readStatus.toLowerCase()}`}>{selected.readStatus}</span></dd></div></dl><h3>Feedback message</h3><p className="preserve-text">{selected.message}</p><div className="modal-actions"><ActionButton onClick={() => setSelected(null)}>Done</ActionButton></div></Dialog>}</>;
 }
 
 function UserAccessDialog({ account, close }: { account: UserAccountRecord; close: () => void }) {
@@ -1474,6 +1489,28 @@ function UserAccessDialog({ account, close }: { account: UserAccountRecord; clos
   </Dialog>;
 }
 
+function ProvisionAccountDialog({ accountRole, hte, close, onCreated }: { accountRole: 'coordinator' | 'hte'; hte?: PartnerHteRecord; close: () => void; onCreated?: () => void }) {
+  const [fullName, setFullName] = useState(''); const [email, setEmail] = useState(''); const [programIds, setProgramIds] = useState<string[]>([]);
+  const [programs, setPrograms] = useState<ProgramChoice[]>([]); const [loading, setLoading] = useState(accountRole === 'coordinator'); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+  useEffect(() => {
+    if (accountRole !== 'coordinator') return;
+    let active = true;
+    void institutionalService.loadRegistrationInstitutionalOptions().then(result => { if (active) setPrograms(result.programs.map(program => ({ id: program.id, code: program.code, name: program.name }))); }).catch(reason => { if (active) setError(userError(reason, 'Academic programs could not be loaded.')); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [accountRole]);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      const response = await fetch('/api/accounts/provision', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: accountRole, fullName, email, programIds, hteId: hte?.id }) });
+      const result = await response.json() as { error?: string; message?: string };
+      if (!response.ok) throw new Error(result.error || 'The account invitation could not be created.');
+      setNotice(result.message || 'Invitation sent.'); onCreated?.();
+    } catch (reason) { setError(userError(reason)); } finally { setBusy(false); }
+  }
+  const label = accountRole === 'coordinator' ? 'Internship Coordinator' : 'HTE Representative';
+  return <Dialog title={`Create ${label} account`} onClose={close} busy={busy} wide><InfoCallout icon={ShieldCheck}><p>This secure server-side invitation creates the authorized role. The recipient sets their own password and signs in through the universal email-and-password form.</p></InfoCallout>{hte && <p><strong>Partner HTE:</strong> {hte.name}</p>}{notice ? <div className="inline-success"><CheckCircle2 /><div><strong>Invitation created</strong><p>{notice}</p></div></div> : <form onSubmit={submit}><div className="two-fields"><label className="field"><span>Full name *</span><input required minLength={3} maxLength={180} value={fullName} onChange={event => setFullName(event.target.value)} /></label><label className="field"><span>Email address *</span><input required type="email" maxLength={180} value={email} onChange={event => setEmail(event.target.value)} /></label></div>{accountRole === 'coordinator' && <div className="field"><span>Authorized programs *</span><ProgramMultiSelect options={programs} value={programIds} onChange={setProgramIds} /></div>}{error && <p className="form-error" role="alert"><AlertTriangle size={16} />{error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={busy || loading || (accountRole === 'coordinator' && !programIds.length)}>{busy ? 'Sending invitation…' : `Create ${label}`}</ActionButton></div></form>}</Dialog>;
+}
+
 function UserAccountsPage() {
   const [records, setRecords] = useState<UserAccountRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1481,6 +1518,7 @@ function UserAccountsPage() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<UserAccountRecord | null>(null);
+  const [provisioning, setProvisioning] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -1495,11 +1533,12 @@ function UserAccountsPage() {
   }, []);
 
   const visibleRecords = records.filter((record) => (statusFilter === "All" || record.status === statusFilter) && (!search || `${record.name} ${record.email} ${record.role} ${record.reference} ${record.status}`.toLowerCase().includes(search.toLowerCase())));
-  return <><PageHeader title="User accounts" subtitle="View live identities and help users recover access without exposing or replacing their passwords." action={<Link className="button button-primary" href="/admin/registrations"><UserCheck size={18} /> Review registrations</Link>} />
+  return <><PageHeader title="User accounts" subtitle="View live identities and help users recover access without exposing or replacing their passwords." action={<div className="inline-actions"><ActionButton icon={Plus} onClick={() => setProvisioning(true)}>Create Internship Coordinator</ActionButton><Link className="button button-secondary" href="/admin/registrations"><UserCheck size={18} /> Review Student Intern registrations</Link></div>} />
     <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Safe access recovery:</strong> administrators can send a one-time reset link to the registered email address, but cannot view or set a user’s password.</p></div>
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
     <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading accounts…" : `${visibleRecords.length} account${visibleRecords.length === 1 ? "" : "s"}`}</h2><div className="filter-bar"><select aria-label="Account status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="All">All statuses</option>{[...new Set(records.map(r => r.status))].map(status => <option key={status} value={status}>{status}</option>)}</select><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, or reference…" /></label></div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Reference</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleRecords.map((record) => <tr key={record.id}><td><b>{record.name}</b></td><td className="email-cell" title={record.email}>{record.email}</td><td>{record.role}</td><td>{record.reference}</td><td><StatusBadge status={record.status} /></td><td><button className="table-link" onClick={() => setSelected(record)}>Manage access</button></td></tr>)}{!loading && visibleRecords.length === 0 && <tr><td colSpan={6}>No live user accounts match this view.</td></tr>}</tbody></table></div></section>
     {selected && <UserAccessDialog account={selected} close={() => setSelected(null)} />}
+    {provisioning && <ProvisionAccountDialog accountRole="coordinator" close={() => setProvisioning(false)} />}
   </>;
 }
 
@@ -1513,11 +1552,11 @@ function PartnerHteDialog({ close, onSaved }: { close: () => void; onSaved: () =
 
 function PartnerHtesPage() {
   const [selected, setSelected] = useState<PartnerHteRecord | null>(null); const [status, setStatus] = useState("All");
-  const [records, setRecords] = useState<PartnerHteRecord[]>([]); const [search, setSearch] = useState(""); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [adding, setAdding] = useState(false);
+  const [records, setRecords] = useState<PartnerHteRecord[]>([]); const [search, setSearch] = useState(""); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [adding, setAdding] = useState(false); const [provisioning, setProvisioning] = useState<PartnerHteRecord | null>(null);
   const load = useCallback(async () => { try { setRecords(await coordinatorService.listPartnerHtes()); } catch (reason) { setError(userError(reason, "Partner HTEs could not be loaded.")); } finally { setLoading(false); } }, []);
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
   const shown = records.filter((item) => (status === "All" || item.status === status) && (!search || `${item.name} ${item.representative} ${item.industry} ${item.location} ${item.status}`.toLowerCase().includes(search.toLowerCase())));
-  return <><PageHeader title="Partner HTEs" subtitle="Verified and pending organizations available within the authorized internship workflow." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Add partner HTE</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading organizations…" : `${shown.length} organization${shown.length === 1 ? "" : "s"}`}</h2><label className="field field-compact"><span>Verification status</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="All">All</option>{[...new Set(["Verified", "Pending", "Rejected", ...records.map(r => r.status)])].map(s => <option key={s} value={s}>{s}</option>)}</select></label><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search organizations…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Representative</th><th>Assigned interns</th><th>Verification</th><th>Actions</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.representative}</td><td>{item.assignedInterns}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" onClick={() => setSelected(item)}><Eye size={16} />View details</button></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={5}>No real HTE organization matches this view.</td></tr>}</tbody></table></div></section>{selected && <Dialog title={selected.name} onClose={() => setSelected(null)}><dl className="info-list"><div><dt>Representative</dt><dd>{selected.representative}</dd></div><div><dt>Industry</dt><dd>{selected.industry}</dd></div><div><dt>Location</dt><dd>{selected.location}</dd></div><div><dt>Assigned interns</dt><dd>{selected.assignedInterns}</dd></div><div><dt>Verification</dt><dd>{selected.status}</dd></div></dl></Dialog>}{adding && <PartnerHteDialog close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}</>;
+  return <><PageHeader title="Partner HTEs" subtitle="Verified and pending organizations available within the authorized internship workflow." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Add partner HTE</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading organizations…" : `${shown.length} organization${shown.length === 1 ? "" : "s"}`}</h2><label className="field field-compact"><span>Verification status</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="All">All</option>{[...new Set(["Verified", "Pending", "Rejected", ...records.map(r => r.status)])].map(s => <option key={s} value={s}>{s}</option>)}</select></label><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search organizations…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Representative</th><th>Assigned interns</th><th>Verification</th><th>Actions</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.representative}</td><td>{item.assignedInterns}</td><td><StatusBadge status={item.status} /></td><td><div className="inline-actions"><button className="table-link" onClick={() => setSelected(item)}><Eye size={16} />View details</button>{item.status === 'Verified' && <button className="table-link" onClick={() => setProvisioning(item)}><Plus size={16} />Create HTE Representative</button>}</div></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={5}>No real HTE organization matches this view.</td></tr>}</tbody></table></div></section>{selected && <Dialog title={selected.name} onClose={() => setSelected(null)}><dl className="info-list"><div><dt>Representative</dt><dd>{selected.representative}</dd></div><div><dt>Industry</dt><dd>{selected.industry}</dd></div><div><dt>Location</dt><dd>{selected.location}</dd></div><div><dt>Assigned interns</dt><dd>{selected.assignedInterns}</dd></div><div><dt>Verification</dt><dd>{selected.status}</dd></div></dl></Dialog>}{adding && <PartnerHteDialog close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}{provisioning && <ProvisionAccountDialog accountRole="hte" hte={provisioning} close={() => setProvisioning(null)} onCreated={() => void load()} />}</>;
 }
 
 function AssignmentDialog({ close, onSaved }: { close: () => void; onSaved: () => void }) {

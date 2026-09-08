@@ -41,12 +41,16 @@ type AttendanceSessionRow = {
 
 export type AttendanceHistoryRow = {
   id: string;
+  workDate: string;
   studentUserId?: string;
   studentName: string;
   date: string;
   day: string;
   timeIn: string;
   timeOut: string;
+  timeInAt: string | null;
+  timeOutAt: string | null;
+  pairIssue: string | null;
   hours: string;
   status: AttendanceStatus;
   verifiedBy: string;
@@ -268,6 +272,8 @@ export type FeedbackRecord = {
   authorRole: string;
   createdAt: string;
   status: "Open" | "In Progress" | "Resolved";
+  readAt: string | null;
+  readStatus: "Unread" | "Read";
 };
 
 export type StudentProgressSummary = {
@@ -858,14 +864,28 @@ export const attendanceService = {
       const verification = [...(row.attendance_verifications ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
       const minutes = verification?.decision === "verified" ? verification.verified_minutes : null;
       const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
+      const timeInAt = timeIn?.occurred_at ?? null;
+      const timeOutAt = timeOut?.occurred_at ?? null;
+      let pairIssue: string | null = null;
+      if (!timeInAt) pairIssue = 'Missing Time In';
+      else if (!timeOutAt) pairIssue = 'Missing Time Out';
+      else {
+        const duration = new Date(timeOutAt).getTime() - new Date(timeInAt).getTime();
+        if (!Number.isFinite(duration) || duration <= 0) pairIssue = 'Invalid chronology';
+        else if (duration > 24 * 60 * 60 * 1000) pairIssue = 'Invalid duration';
+      }
       return {
         id: row.id,
+        workDate: row.work_date,
         studentUserId: assignment?.student_user_id,
         studentName: assignment?.student_user_id ? nameById.get(assignment.student_user_id) ?? "Assigned intern" : "Assigned intern",
         date: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(new Date(`${row.work_date}T00:00:00+08:00`)),
         day: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", weekday: "long" }).format(new Date(`${row.work_date}T00:00:00+08:00`)),
         timeIn: formatClock(timeIn?.occurred_at),
         timeOut: formatClock(timeOut?.occurred_at),
+        timeInAt,
+        timeOutAt,
+        pairIssue,
         hours: minutes == null ? "—" : `${Math.floor(minutes / 60)}h ${minutes % 60}m`,
         status: attendanceStatus(row.status),
         verifiedBy: verification ? nameById.get(verification.reviewer_user_id) ?? "Authorized reviewer" : "—",
@@ -1718,10 +1738,10 @@ export const coordinatorService = {
 export const feedbackService = {
   async listLive(): Promise<FeedbackRecord[]> {
     const { data, error } = await createClient().from("internship_feedback")
-      .select("id,internship_assignment_id,author_user_id,author_role,subject,message,status,created_at,internship_assignments(student_user_id)")
+      .select("id,internship_assignment_id,author_user_id,author_role,subject,message,status,created_at,recipient_read_at,internship_assignments(student_user_id)")
       .is("deleted_at", null).order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    type Row = { id: string; internship_assignment_id: string; author_user_id: string; author_role: string; subject: string; message: string; status: string; created_at: string; internship_assignments?: { student_user_id: string } | Array<{ student_user_id: string }> | null };
+    type Row = { id: string; internship_assignment_id: string; author_user_id: string; author_role: string; subject: string; message: string; status: string; created_at: string; recipient_read_at: string | null; internship_assignments?: { student_user_id: string } | Array<{ student_user_id: string }> | null };
     const rows = (data ?? []) as unknown as Row[];
     const userIds = rows.flatMap((row) => [row.author_user_id, ...(joinedOne(row.internship_assignments)?.student_user_id ? [joinedOne(row.internship_assignments)!.student_user_id] : [])]);
     const names = await namesForUsers(userIds);
@@ -1737,6 +1757,8 @@ export const feedbackService = {
         authorRole: row.author_role,
         createdAt: row.created_at,
         status: row.status === "resolved" ? "Resolved" : row.status === "in_progress" ? "In Progress" : "Open",
+        readAt: row.recipient_read_at,
+        readStatus: row.recipient_read_at ? "Read" : "Unread",
       };
     });
   },
@@ -1746,6 +1768,10 @@ export const feedbackService = {
       p_subject: input.subject,
       p_message: input.message,
     });
+    if (error) throw new Error(error.message);
+  },
+  async markRead(feedbackId: string): Promise<void> {
+    const { error } = await createClient().rpc('mark_internship_feedback_read', { p_feedback_id: feedbackId });
     if (error) throw new Error(error.message);
   },
 };
