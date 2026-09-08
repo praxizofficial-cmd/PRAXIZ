@@ -6,7 +6,9 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   build: {
-    minify: "esbuild",
+    // Rolldown's current production minifier can rewrite Vinext's module
+    // identity helper incorrectly in the generated Vercel SSR function.
+    minify: false,
   },
   css: {
     postcss: {
