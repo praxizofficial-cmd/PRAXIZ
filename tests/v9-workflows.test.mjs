@@ -14,6 +14,7 @@ const provisioningMigration = read('../database/20260908_privileged_account_prov
 const completionMigration = read('../database/20260908_complete_privileged_provisioning.sql');
 const completionFixMigration = read('../database/20260908_fix_complete_privileged_provisioning.sql');
 const provisioningRoute = read('../app/api/accounts/provision/route.ts');
+const contactRoute = read('../app/api/contact/route.ts');
 const layout = read('../app/layout.tsx');
 
 test('v9 branding and landing journey use the approved identity and exact slogan', () => {
@@ -28,6 +29,7 @@ test('v9 branding and landing journey use the approved identity and exact slogan
 
 test('public registration is restricted to Student Intern accounts', () => {
   assert.match(app, /Create Student Intern account/);
+  assert.match(app, />Create account<\/Link>/);
   assert.match(app, /await register\(\{\s*role: 'student'/);
   assert.match(auth, /if \(input\.role !== 'student'\)/);
   assert.match(auth, /requested_role: registrationRole\.student/);
@@ -53,20 +55,35 @@ test('authorized account provisioning is server-side and role-gated', () => {
 
 test('evaluation reports separate details, report, and protected PDF actions', () => {
   assert.match(evaluation, />View details<\/button>/);
-  assert.match(evaluation, />View report<\/button>/);
-  assert.match(evaluation, /detail\.status === 'Finalized'/);
-  for (const action of ['View PDF', 'Print', 'Download', 'Open']) assert.match(pdfViewer, new RegExp(action));
+  assert.match(evaluation, /r\.status === 'Finalized'.*EvaluationPdfDownload/);
+  assert.doesNotMatch(evaluation, />View report<\/button>/);
+  for (const action of ['View PDF', 'Print', 'Download', 'Open in new tab']) assert.match(pdfViewer, new RegExp(action));
+  assert.match(pdfViewer, /Print evaluation PDF\?/);
+  assert.match(pdfViewer, /Download evaluation PDF\?/);
   assert.match(pdfViewer, /target="_blank" rel="noopener noreferrer"/);
   assert.match(pdfViewer, /title="Official PSU-F-PLU-02 evaluation PDF"/);
 });
 
 test('attendance and feedback workflows expose the requested filters and independent states', () => {
-  assert.match(app, /Month and year/);
+  assert.match(app, /<span>Month<\/span>/);
+  assert.match(app, /<span>Year<\/span>/);
   assert.match(app, /Export filtered CSV/);
-  assert.match(app, /<th>Follow-up status<\/th><th>Read status<\/th>/);
+  assert.match(app, /<th className="feedback-status-cell">Status<\/th>/);
+  assert.doesNotMatch(app, /<th>Follow-up status<\/th>/);
   assert.match(services, /recipient_read_at/);
   assert.match(services, /readStatus: row\.recipient_read_at \? "Read" : "Unread"/);
   assert.match(feedbackMigration, /mark_internship_feedback_read/);
+});
+
+test('v10 contact delivery remains server-side and registration year choices are scoped', () => {
+  assert.match(app, /Send message/);
+  assert.doesNotMatch(app, /Open email draft/);
+  assert.match(contactRoute, /RESEND_API_KEY/);
+  assert.match(contactRoute, /praxiz\.official@gmail\.com/);
+  const registration = app.slice(app.indexOf('function RegistrationFields'), app.indexOf('function RegistrationSuccessPage'));
+  assert.match(registration, /Third Year/);
+  assert.match(registration, /Fourth Year/);
+  assert.doesNotMatch(registration, /First Year|Second Year|Fifth Year/);
 });
 
 test('settings retain four compact cards and semantic controls', () => {
