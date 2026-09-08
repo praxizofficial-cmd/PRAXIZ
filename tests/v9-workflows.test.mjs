@@ -57,11 +57,35 @@ test('evaluation reports separate details, report, and protected PDF actions', (
   assert.match(evaluation, />View details<\/button>/);
   assert.match(evaluation, /r\.status === 'Finalized'.*EvaluationPdfDownload/);
   assert.doesNotMatch(evaluation, />View report<\/button>/);
-  for (const action of ['View PDF', 'Print', 'Download', 'Open in new tab']) assert.match(pdfViewer, new RegExp(action));
-  assert.match(pdfViewer, /Print evaluation PDF\?/);
-  assert.match(pdfViewer, /Download evaluation PDF\?/);
+  for (const action of ['View PDF', 'Open in new tab']) assert.match(pdfViewer, new RegExp(action));
+  assert.doesNotMatch(pdfViewer, /<Printer|<Download|Print evaluation PDF\?|Download evaluation PDF\?/);
+  assert.match(pdfViewer, /<iframe/);
   assert.match(pdfViewer, /target="_blank" rel="noopener noreferrer"/);
   assert.match(pdfViewer, /title="Official PSU-F-PLU-02 evaluation PDF"/);
+});
+
+test('v11 public interactions are connected, keyboard-ready, and use one contextual description', () => {
+  assert.match(app, /className="journey-node-button"/);
+  assert.match(app, /aria-pressed=\{activeJourneyIndex === index\}/);
+  assert.match(app, /id="active-journey-description" aria-live="polite"/);
+  assert.match(app, /className=\{`analytics-flow-lines analytics-line-\$\{activeAnalyticsInput\}`\}/);
+  assert.match(app, /aria-pressed=\{activeAnalyticsInput === index\}/);
+  assert.match(css, /@keyframes hero-path-draw/);
+  assert.match(css, /@keyframes analytics-path-draw/);
+});
+
+test('v11 authentication, feedback, notifications, and loading states use shared accessible patterns', () => {
+  const signin = app.slice(app.indexOf('function SignInPage'), app.indexOf('function ForgotPasswordPage'));
+  const registration = app.slice(app.indexOf('function RegisterPage'), app.indexOf('function RegistrationSuccessPage'));
+  assert.match(signin, /Back to PRAXIZ/);
+  assert.match(signin, /auth-title-row/);
+  assert.match(registration, /Back to PRAXIZ/);
+  assert.match(app, /function FeedbackDetailDialog/);
+  assert.match(app, />Close<\/ActionButton>/);
+  assert.match(app, /notification-empty/);
+  assert.match(app, /notification-all-link/);
+  assert.match(auth, /Preparing your workspace/);
+  assert.match(auth, /Loading your authorized internship tools and verified PRAXIZ data\./);
 });
 
 test('attendance and feedback workflows expose the requested filters and independent states', () => {

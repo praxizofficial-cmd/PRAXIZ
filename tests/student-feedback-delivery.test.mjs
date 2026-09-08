@@ -32,6 +32,6 @@ test("student navigation, read-only detail, and exact notification deep links ar
   assert.match(service, /`\/student\/feedback\?feedback=\$\{notification\.related_entity_id\}`/);
   assert.match(app, /canCreate \? <ActionButton/);
   assert.match(app, /Author role/);
-  assert.match(app, /Feedback message/);
+  assert.match(app, /id="feedback-message-heading">Message/);
   assert.match(app, /new URLSearchParams\(window\.location\.search\)\.get\("feedback"\)/);
 });

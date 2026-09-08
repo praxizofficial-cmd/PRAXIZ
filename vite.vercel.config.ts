@@ -5,6 +5,9 @@ import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  build: {
+    minify: "esbuild",
+  },
   css: {
     postcss: {
       plugins: [tailwindcss()],
