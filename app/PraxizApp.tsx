@@ -58,13 +58,15 @@ import { InfoCallout } from "./components/InfoCallout";
 import { PublicSectionLink } from "./components/PublicSectionLink";
 import { PolicyPage } from "./components/PolicyPage";
 import { userError } from "../lib/user-error";
+import { createClient as createSupabaseBrowserClient } from "../lib/supabase/client";
 import { summarizeCompliance } from "../lib/compliance-summary";
 import { AuthProvider, ProtectedRoute, useAuth } from "./auth/supabase-auth";
 import { hasPermission } from "./permissions";
+import { reportingWeekFor } from "./services/weekly-log-stabilization";
 import {
   adminService,
   attendanceService,
-  dailyLogService,
+  weeklyLogService,
   documentService,
   evaluationService,
   coordinatorService,
@@ -77,8 +79,9 @@ import {
   type AcademicYearRecord,
   type AssignmentOptions,
   type AuditLogRecord,
+  type ContactMessageRecord,
   type AttendanceHistoryRow,
-  type DailyLogRecord,
+  type WeeklyLogRecord,
   type DocumentRecord,
   type DocumentTemplateRecord,
   type EvaluationAssignment,
@@ -93,7 +96,8 @@ import {
   type UserAccountRecord,
 } from "./services/praxiz-services";
 import { programsForCollege, unitsForCampus } from "./services/institutional-stabilization";
-import { normalizeEvaluationCode, type EvaluationTemplateCriterionInput, type EvaluationTemplateEvaluator, type EvaluationTemplateStage } from "./services/evaluation-template-stabilization";
+import { attendanceDecisionBlock, resolveAttendancePair } from "./services/attendance-stabilization";
+import { normalizeEvaluationCode, type EvaluationTemplateCriterionInput, type EvaluationTemplateStage } from "./services/evaluation-template-stabilization";
 import { mimeTypesForPreset, type DocumentTemplateMimePreset, type DocumentTemplatePhase } from "./services/workflow-template-stabilization";
 import { roleIds, type AttendanceSession, type Campus, type College, type Intern, type RoleId } from "./types";
 
@@ -127,6 +131,23 @@ function formatTimestamp(value: string): string {
     dateStyle: "medium",
     timeStyle: "medium",
   }).format(new Date(value));
+}
+
+function LocalAttendanceClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(now);
+  const date = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(now);
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return <div className="attendance-live-clock" aria-label={`Current local time ${time}, ${date}`}>
+    <Clock3 size={28} aria-hidden="true" />
+    <time dateTime={now.toISOString()} suppressHydrationWarning>{time}</time>
+    <span suppressHydrationWarning>{date}</span>
+    <small>{zone || "Local device time"}</small>
+  </div>;
 }
 
 function downloadCsv(filename: string, headers: string[], rows: Array<Array<string | number>>): void {
@@ -235,7 +256,7 @@ function ContactMessageForm() {
       const result = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(result.error || 'Unable to send your message. Please try again.');
       setForm({ name: '', email: '', subject: '', message: '' });
-      setNotice('Message sent');
+      setNotice('Message sent to PRAXIZ support.');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to send your message. Please try again.');
     } finally { setSending(false); }
@@ -251,7 +272,7 @@ function ContactMessageForm() {
     {notice && <p className="form-success" role="status">{notice}</p>}
     {error && <p className="form-error" role="alert"><AlertTriangle size={16} />{error}</p>}
     <button className="button button-primary contact-submit" type="submit" disabled={sending}>{sending ? 'Sending…' : 'Send message'} <Send size={17} /></button>
-    <small className="contact-form-note">Your message is delivered securely to PRAXIZ’s official support inbox.</small>
+    <small className="contact-form-note">Messages are delivered securely to the protected PRAXIZ support inbox.</small>
   </form>;
 }
 
@@ -275,68 +296,418 @@ function LandingPage() {
   const [activeAnalyticsInput, setActiveAnalyticsInput] = useState(0);
   useEffect(() => {
     const root = landingRef.current;
-    const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (!root || !finePointer.matches || reducedMotion.matches) return;
     let frame = 0;
     const move = (event: PointerEvent) => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        root.style.setProperty('--pointer-x', `${event.clientX}px`);
-        root.style.setProperty('--pointer-y', `${event.clientY}px`);
-        root.style.setProperty('--pointer-opacity', '1');
+        root.style.setProperty("--pointer-x", `${event.clientX}px`);
+        root.style.setProperty("--pointer-y", `${event.clientY}px`);
+        root.style.setProperty("--pointer-opacity", "1");
       });
     };
-    const leave = () => root.style.setProperty('--pointer-opacity', '0');
-    window.addEventListener('pointermove', move, { passive: true });
-    document.addEventListener('mouseleave', leave);
-    return () => { cancelAnimationFrame(frame); window.removeEventListener('pointermove', move); document.removeEventListener('mouseleave', leave); };
+    const leave = () => root.style.setProperty("--pointer-opacity", "0");
+    window.addEventListener("pointermove", move, { passive: true });
+    document.addEventListener("mouseleave", leave);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("pointermove", move);
+      document.removeEventListener("mouseleave", leave);
+    };
   }, []);
   const journey = [
-    ['Placement', 'Authorized internship assignment', BriefcaseBusiness],
-    ['Attendance', 'Protected Time In and Time Out', Clock3],
-    ['Daily Logs', 'Activities, learning, and progress', FileText],
-    ['Documents', 'Required submissions', FileCheck2],
-    ['Evaluation', 'Official PSU performance review', Star],
-    ['Analytics & Insights', 'Human-guided interpretation', ChartNoAxesCombined],
+    ["Placement", "Authorized internship assignment", BriefcaseBusiness],
+    ["Attendance", "Protected Time In and Time Out", Clock3],
+    ["Weekly Logs", "Accomplishments, learning, and progress", FileText],
+    ["Documents", "Required submissions", FileCheck2],
+    ["Evaluation", "Official PSU performance review", Star],
+    [
+      "Analytics & Insights",
+      "Human-guided interpretation",
+      ChartNoAxesCombined,
+    ],
   ] as const;
-  const analyticsInputs = [[Clock3,'Attendance'],[FileText,'Daily Logs'],[FileCheck2,'Documents'],[Star,'Evaluations']] as const;
+  const analyticsInputs = [
+    [Clock3, "Attendance"],
+    [FileText, "Weekly Logs"],
+    [FileCheck2, "Documents"],
+    [Star, "Evaluations"],
+  ] as const;
   return (
     <div className="landing" ref={landingRef}>
       <div className="pointer-light" aria-hidden="true" />
       <PublicHeader />
       <main>
         <section className="hero v9-hero">
-          <div className="hero-copy-column">
-            <span className="semester"><span /> Partido State University</span>
-            <p className="eyebrow">PRAXIZ Internship Platform</p>
-            <h1>Progress, <em>Powered by Technology.</em></h1>
-            <p className="hero-copy">PRAXIZ connects internship monitoring, evaluation, analytics, and AI-assisted insights in one secure platform for Partido State University.</p>
-            <div className="hero-actions">
-              <Link className="button button-primary button-large" href="/signin">Sign in to PRAXIZ <ChevronRight size={19} /></Link>
-              <Link className="button button-secondary button-large" href="/register">Create account</Link>
+          <div className="hero-copy-column hero-staged-copy">
+            <span className="semester hero-stage hero-stage-0">
+              <span /> Partido State University
+            </span>
+            <p className="eyebrow hero-stage hero-stage-1">
+              PRAXIZ Internship Platform
+            </p>
+            <h1 className="hero-stage hero-stage-2">
+              Progress, <em>Powered by Technology.</em>
+            </h1>
+            <p className="hero-copy hero-stage hero-stage-3">
+              PRAXIZ connects internship monitoring, evaluation, analytics, and
+              AI-assisted insights in one secure platform for Partido State
+              University.
+            </p>
+            <div className="hero-actions hero-stage hero-stage-4">
+              <Link
+                className="button button-primary button-large"
+                href="/signin"
+              >
+                Sign in to PRAXIZ <ChevronRight size={19} />
+              </Link>
+              <Link
+                className="button button-secondary button-large"
+                href="/register"
+              >
+                Create account
+              </Link>
             </div>
           </div>
-          <div className="hero-journey" aria-labelledby="hero-journey-title">
-            <div className="hero-journey-heading"><span>Internship journey</span><strong id="hero-journey-title">A connected path to insight</strong></div>
-            <div className="hero-journey-path">
-              <svg viewBox="0 0 900 250" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M55 196 C170 252 218 78 344 126 S535 224 635 103 S790 49 850 50" /></svg>
-              <ol>{journey.map(([title, , Icon], index) => <li key={title} style={{ '--journey-index': index } as CSSProperties}>
-                <button type="button" className="journey-node-button" aria-pressed={activeJourneyIndex === index} aria-describedby="active-journey-description" onClick={() => setActiveJourneyIndex(index)}>
-                  <span className="journey-node"><Icon size={24} aria-hidden="true" /></span>
-                  <span className="journey-label">{title}</span>
-                </button>
-              </li>)}</ol>
+          <div
+            className="hero-journey hero-stage hero-stage-5"
+            aria-labelledby="hero-journey-title"
+          >
+            <div className="hero-journey-heading">
+              <span>Internship journey</span>
+              <strong id="hero-journey-title">
+                A connected path to insight
+              </strong>
             </div>
-            <div className="journey-active-description" id="active-journey-description" aria-live="polite"><strong>{journey[activeJourneyIndex][0]}</strong><span>{journey[activeJourneyIndex][1]}</span></div>
+            <div className="hero-journey-path">
+              <svg
+                viewBox="0 0 900 250"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <path
+                  pathLength="1"
+                  d="M55 196 C170 252 218 78 344 126 S535 224 635 103 S790 49 850 50"
+                />
+              </svg>
+              <ol>
+                {journey.map(([title, , Icon], index) => (
+                  <li
+                    key={title}
+                    style={{ "--journey-index": index } as CSSProperties}
+                  >
+                    <button
+                      type="button"
+                      className="journey-node-button"
+                      aria-pressed={activeJourneyIndex === index}
+                      aria-describedby="active-journey-description"
+                      onClick={() => setActiveJourneyIndex(index)}
+                    >
+                      <span className="journey-node">
+                        <Icon size={24} aria-hidden="true" />
+                      </span>
+                      <span className="journey-label">{title}</span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <div
+              className="journey-active-description"
+              id="active-journey-description"
+              aria-live="polite"
+            >
+              <strong>{journey[activeJourneyIndex][0]}</strong>
+              <span>{journey[activeJourneyIndex][1]}</span>
+            </div>
           </div>
         </section>
-        <section className="landing-section landing-about reveal-section" id="about"><span className="eyebrow dark">What is PRAXIZ?</span><div className="landing-section-heading"><h2>One institutional workflow, built around the internship journey.</h2><p>PRAXIZ connects campus and workplace records while keeping every user inside an authorized role and scope.</p></div><div className="feature-grid editorial-pillars" aria-label="Platform capabilities"><article><span><CalendarCheck2 size={21} /></span><h3>Monitor</h3><p>Attendance, Daily Logs, and internship progress.</p></article><article><span><FileText size={21} /></span><h3>Evaluate</h3><p>Documents, feedback, and official performance evaluation.</p></article><article><span><ChartNoAxesCombined size={21} /></span><h3>Understand</h3><p>Analytics, data visualization, and AI-assisted insights.</p></article></div></section>
-        <section className="landing-section journey-section reveal-section" id="journey"><span className="eyebrow dark">The internship journey</span><div className="landing-section-heading"><h2>Placement. Monitor. Evaluate. Understand.</h2><p>A guided path connects an authorized placement to verified, human-guided insight.</p></div><div className="journey-grid v9-journey" aria-label="Internship journey stages">{[[BriefcaseBusiness,'Placement','Internship assignment · HTE connection'],[CalendarCheck2,'Monitor','Attendance · Daily Logs · Documents · Progress'],[Star,'Evaluate','Official PSU evaluation · Feedback'],[ChartNoAxesCombined,'Understand','Analytics · Visualization · AI-assisted interpretation']].map(([Icon,title,copy]) => { const JourneyIcon = Icon as LucideIcon; return <article key={String(title)}><span><JourneyIcon size={20} /></span><div><h3>{String(title)}</h3><p>{String(copy)}</p></div></article>; })}</div></section>
-        <section className="landing-section analytics-story reveal-section" id="analytics"><div className="landing-section-heading"><span className="eyebrow dark">Performance analytics & data visualization</span><h2>From internship records to meaningful insights.</h2><p>Verified records flow into interpretation and authorized coordinator action—without fabricated metrics.</p></div><div className="analytics-preview" aria-label="Illustrative analytics workflow"><div className="analytics-inputs">{analyticsInputs.map(([Icon,label], index) => { const InputIcon = Icon as LucideIcon; return <button type="button" key={String(label)} aria-pressed={activeAnalyticsInput === index} onPointerEnter={() => setActiveAnalyticsInput(index)} onFocus={() => setActiveAnalyticsInput(index)} onClick={() => setActiveAnalyticsInput(index)}><InputIcon size={17} />{String(label)}</button>; })}</div><svg className={`analytics-flow-lines analytics-line-${activeAnalyticsInput}`} viewBox="0 0 100 240" preserveAspectRatio="none" aria-hidden="true"><defs><marker id="analytics-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker></defs>{[28,89,151,212].map((y,index) => <path className={`analytics-source-line source-${index}`} pathLength="1" key={y} d={`M 0 ${y} C 45 ${y}, 52 120, 100 120`} markerEnd="url(#analytics-arrow)" />)}</svg><div className="analytics-interpretation"><ChartNoAxesCombined size={28} /><strong>Performance Interpretation</strong><span>{analyticsInputs[activeAnalyticsInput][1]} contributes verified indicators.</span></div><ChevronRight className="analytics-output" aria-hidden="true" /><div className="analytics-action"><span>Coordinator Action</span><strong>Review</strong><strong>Follow up</strong><strong>Decide</strong></div></div></section>
-        <section className="landing-section ai-story reveal-section"><div><span className="eyebrow dark">Responsible AI</span><h2>AI-assisted, human-guided.</h2></div><div className="ai-flow"><span>Verified PRAXIZ data</span><ChevronRight /><span>Analytics</span><ChevronRight /><span>AI interpretation</span><ChevronRight /><strong>Authorized human decision</strong></div><p>AI supports interpretation. Official records and authorized users remain authoritative.</p></section>
-        <section className="landing-section landing-sdgs" id="sdgs"><span className="eyebrow">Sustainable Development Goals</span><div className="landing-section-heading"><h2>Education strengthened through responsible digital partnership.</h2><p>PRAXIZ supports three closely related United Nations Sustainable Development Goals through its academic and industry internship workflow.</p></div><div className="sdg-grid"><article className="sdg-four"><Image unoptimized src="/sdgs/sdg-4.png" alt="SDG 4: Quality Education" width={144} height={144} /><div><h3>Quality Education</h3><p>Structured internship learning, documented activities, feedback, and evaluation support experiential education.</p></div></article><article className="sdg-nine"><Image unoptimized src="/sdgs/sdg-9.png" alt="SDG 9: Industry, Innovation and Infrastructure" width={144} height={144} /><div><h3>Industry, Innovation and Infrastructure</h3><p>A secure digital workflow helps PSU and industry partners manage internship records consistently.</p></div></article><article className="sdg-seventeen"><Image unoptimized src="/sdgs/sdg-17.png" alt="SDG 17: Partnerships for the Goals" width={144} height={144} /><div><h3>Partnerships for the Goals</h3><p>Students, coordinators, and Host Training Establishments collaborate through shared, role-appropriate processes.</p></div></article></div></section>
-        <section className="landing-section stakeholders" id="who-uses-praxiz"><span className="eyebrow dark">Who uses PRAXIZ</span><div className="landing-section-heading"><h2>Role-appropriate workspaces, one shared process.</h2></div><div className="stakeholder-grid"><article><UserRound /><strong>Student Intern</strong><p>Records attendance, logs, documents, and progress.</p></article><article><UsersRound /><strong>Internship Coordinator</strong><p>Coordinates placements and program monitoring.</p></article><article><BriefcaseBusiness /><strong>HTE Representative</strong><p>Reviews assigned interns and evaluates performance.</p></article></div></section>
+        <section
+          className="landing-section landing-about reveal-section"
+          id="about"
+        >
+          <span className="eyebrow dark">What is PRAXIZ?</span>
+          <div className="landing-section-heading">
+            <h2>One platform for the complete internship experience.</h2>
+            <p>
+              PRAXIZ brings together the essential records, coordination, and
+              insights needed to support PSU internships.
+            </p>
+          </div>
+          <div
+            className="feature-grid editorial-pillars"
+            aria-label="Platform capabilities"
+          >
+            <article>
+              <span>
+                <CalendarCheck2 size={21} />
+              </span>
+              <h3>Centralized Records</h3>
+              <p>Attendance, Weekly Logs, and Documents.</p>
+            </article>
+            <article>
+              <span>
+                <UsersRound size={21} />
+              </span>
+              <h3>Guided Oversight</h3>
+              <p>Internship coordination, Feedback, and Official evaluation.</p>
+            </article>
+            <article>
+              <span>
+                <ChartNoAxesCombined size={21} />
+              </span>
+              <h3>Meaningful Insights</h3>
+              <p>
+                Performance analytics, Data visualization, and AI-assisted
+                insights.
+              </p>
+            </article>
+          </div>
+        </section>
+        <section
+          className="landing-section journey-section reveal-section"
+          id="journey"
+        >
+          <span className="eyebrow dark">The internship journey</span>
+          <div className="landing-section-heading">
+            <h2>Placement. Monitor. Evaluate. Understand.</h2>
+            <p>
+              A guided path connects an authorized placement to verified,
+              human-guided insight.
+            </p>
+          </div>
+          <div
+            className="journey-grid v9-journey"
+            aria-label="Internship journey stages"
+          >
+            {[
+              [
+                BriefcaseBusiness,
+                "Placement",
+                "Internship assignment · HTE connection",
+              ],
+              [
+                CalendarCheck2,
+                "Monitor",
+                "Attendance · Weekly Logs · Documents · Progress",
+              ],
+              [Star, "Evaluate", "Official PSU evaluation · Feedback"],
+              [
+                ChartNoAxesCombined,
+                "Understand",
+                "Analytics · Visualization · AI-assisted interpretation",
+              ],
+            ].map(([Icon, title, copy]) => {
+              const JourneyIcon = Icon as LucideIcon;
+              return (
+                <article key={String(title)}>
+                  <span>
+                    <JourneyIcon size={20} />
+                  </span>
+                  <div>
+                    <h3>{String(title)}</h3>
+                    <p>{String(copy)}</p>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+        <section
+          className="landing-section analytics-story reveal-section"
+          id="analytics"
+        >
+          <div className="landing-section-heading">
+            <span className="eyebrow dark">
+              Performance analytics & data visualization
+            </span>
+            <h2>From internship records to meaningful insights.</h2>
+            <p>
+              Verified records flow into interpretation and authorized
+              coordinator action—without fabricated metrics.
+            </p>
+          </div>
+          <div
+            className="analytics-preview"
+            aria-label="Illustrative analytics workflow"
+          >
+            <div className="analytics-inputs">
+              {analyticsInputs.map(([Icon, label], index) => {
+                const InputIcon = Icon as LucideIcon;
+                return (
+                  <button
+                    type="button"
+                    key={String(label)}
+                    aria-pressed={activeAnalyticsInput === index}
+                    onPointerEnter={() => setActiveAnalyticsInput(index)}
+                    onFocus={() => setActiveAnalyticsInput(index)}
+                    onClick={() => setActiveAnalyticsInput(index)}
+                  >
+                    <InputIcon size={17} />
+                    {String(label)}
+                  </button>
+                );
+              })}
+            </div>
+            <svg
+              className={`analytics-flow-lines analytics-line-${activeAnalyticsInput}`}
+              viewBox="0 0 100 240"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <defs>
+                <marker
+                  id="analytics-arrow"
+                  viewBox="0 0 10 10"
+                  refX="9"
+                  refY="5"
+                  markerWidth="5"
+                  markerHeight="5"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 z" />
+                </marker>
+              </defs>
+              {[28, 89, 151, 212].map((y, index) => (
+                <path
+                  className={`analytics-source-line source-${index}`}
+                  pathLength="1"
+                  key={y}
+                  d={`M 0 ${y} C 45 ${y}, 52 120, 100 120`}
+                  markerEnd="url(#analytics-arrow)"
+                />
+              ))}
+            </svg>
+            <div className="analytics-interpretation">
+              <ChartNoAxesCombined size={28} />
+              <strong>Performance Interpretation</strong>
+              <span>
+                {analyticsInputs[activeAnalyticsInput][1]} contributes verified
+                indicators.
+              </span>
+            </div>
+            <ChevronRight className="analytics-output" aria-hidden="true" />
+            <div className="analytics-action">
+              <span>Coordinator Action</span>
+              <strong>Review</strong>
+              <strong>Follow up</strong>
+              <strong>Decide</strong>
+            </div>
+          </div>
+        </section>
+        <section className="landing-section ai-story reveal-section">
+          <div>
+            <span className="eyebrow dark">Responsible AI</span>
+            <h2>AI-assisted, human-guided.</h2>
+          </div>
+          <div className="ai-flow">
+            <span>Verified PRAXIZ data</span>
+            <ChevronRight />
+            <span>Analytics</span>
+            <ChevronRight />
+            <span>AI interpretation</span>
+            <ChevronRight />
+            <strong>Authorized human decision</strong>
+          </div>
+          <p>
+            AI supports interpretation. Official records and authorized users
+            remain authoritative.
+          </p>
+        </section>
+        <section className="landing-section landing-sdgs sdg-reveal" id="sdgs">
+          <span className="eyebrow">Sustainable Development Goals</span>
+          <div className="landing-section-heading">
+            <h2>
+              Education strengthened through responsible digital partnership.
+            </h2>
+            <p>
+              PRAXIZ supports three closely related United Nations Sustainable
+              Development Goals through its academic and industry internship
+              workflow.
+            </p>
+          </div>
+          <div className="sdg-grid">
+            <article
+              className="sdg-four"
+            >
+              <Image
+                unoptimized
+                src="/sdgs/sdg-4.png"
+                alt="SDG 4: Quality Education"
+                width={144}
+                height={144}
+              />
+              <div>
+                <h3>Quality Education</h3>
+                <p>
+                  Structured internship learning, documented activities,
+                  feedback, and evaluation support experiential education.
+                </p>
+              </div>
+            </article>
+            <article
+              className="sdg-nine"
+            >
+              <Image
+                unoptimized
+                src="/sdgs/sdg-9.png"
+                alt="SDG 9: Industry, Innovation and Infrastructure"
+                width={144}
+                height={144}
+              />
+              <div>
+                <h3>Industry, Innovation and Infrastructure</h3>
+                <p>
+                  A secure digital workflow helps PSU and industry partners
+                  manage internship records consistently.
+                </p>
+              </div>
+            </article>
+            <article
+              className="sdg-seventeen"
+            >
+              <Image
+                unoptimized
+                src="/sdgs/sdg-17.png"
+                alt="SDG 17: Partnerships for the Goals"
+                width={144}
+                height={144}
+              />
+              <div>
+                <h3>Partnerships for the Goals</h3>
+                <p>
+                  Students, coordinators, and Host Training Establishments
+                  collaborate through shared, role-appropriate processes.
+                </p>
+              </div>
+            </article>
+          </div>
+        </section>
+        <section className="landing-section stakeholders" id="who-uses-praxiz">
+          <span className="eyebrow dark">Who uses PRAXIZ</span>
+          <div className="landing-section-heading">
+            <h2>Role-appropriate workspaces, one shared process.</h2>
+          </div>
+          <div className="stakeholder-grid">
+            <article>
+              <UserRound />
+              <strong>Student Intern</strong>
+              <p>Records attendance, logs, documents, and progress.</p>
+            </article>
+            <article>
+              <UsersRound />
+              <strong>Internship Coordinator</strong>
+              <p>Coordinates placements and program monitoring.</p>
+            </article>
+            <article>
+              <BriefcaseBusiness />
+              <strong>HTE Representative</strong>
+              <p>Reviews assigned interns and evaluates performance.</p>
+            </article>
+          </div>
+        </section>
         <ContactSection />
       </main>
       <PublicFooter />
@@ -395,7 +766,7 @@ function SignInPage() {
         <div className="auth-form-wrap auth-card">
           <Link href="/" className="auth-card-back"><ArrowLeft size={17} /> Back to PRAXIZ</Link>
           <span className="eyebrow dark">Secure access</span>
-          <div className="auth-title-row"><span className="auth-card-icon"><LockKeyhole size={22} aria-hidden="true" /></span><h2>Sign in</h2></div><p className="form-intro">Enter your credentials. PRAXIZ will identify your active role and open the correct workspace automatically.</p>
+          <div className="auth-title-row"><h2>Sign in</h2></div><p className="form-intro">Enter your credentials. PRAXIZ will identify your active role and open the correct workspace automatically.</p>
           <form onSubmit={submit} noValidate>
             <label className="field"><span>Email address</span><input name="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Enter your registered email" /></label>
             <label className="field"><span>Password <Link href="/forgot-password">Forgot password?</Link></span><span className="password-input"><input name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" /><button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={19} /> : <Eye size={19} />}</button></span></label>
@@ -403,8 +774,8 @@ function SignInPage() {
             {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
             <ActionButton type="submit" disabled={loading}>{loading ? "Recognizing account…" : "Sign in to PRAXIZ"}</ActionButton>
           </form>
-          <p className="auth-switch">Eligible Student Intern? <Link href="/register">Create account</Link></p>
-          <p className="secure-form-note"><ShieldCheck size={16} aria-hidden="true" /><span>Authentication and role access are verified by Supabase.</span></p>
+          <div className="auth-help-group"><p className="auth-switch">Eligible Student Intern? <Link href="/register">Create account</Link></p>
+          <p className="secure-form-note"><ShieldCheck size={16} aria-hidden="true" /><span>Authentication and role access are verified by Supabase.</span></p></div>
         </div>
       </main>
     </div>
@@ -556,7 +927,7 @@ function RegistrationFields({ accountRole }: { accountRole: RoleId }) {
     <div className="two-fields"><label className="field"><span>{isHte ? "Organization / company name" : "Full name"} *</span><input required name={isHte ? "organizationName" : "fullName"} placeholder={isHte ? "e.g. TechSouth Philippines, Inc." : "e.g. Maria B. Santos"} /></label><label className="field"><span>{isStudent ? "Student number" : isHte ? "Representative full name" : "Employee number"} *</span><input required name={isStudent ? "studentNumber" : isHte ? "representativeName" : "employeeNumber"} placeholder={isStudent ? "e.g. 2023-00123" : isHte ? "e.g. Allan D. Maraña" : "Enter official identifier"} /></label></div>
     {isHte && <div className="two-fields"><label className="field"><span>Position / title *</span><input required name="position" placeholder="e.g. OJT Supervisor" /></label><label className="field"><span>Contact number *</span><input required name="contactNumber" inputMode="tel" placeholder="e.g. +63 9XX XXX XXXX" /></label></div>}
     <label className="field"><span>{isStudent ? "Institutional email" : "Official email address"} *</span><input required name="email" type="email" autoComplete="email" placeholder={isStudent ? "studentid.pbox@parsu.edu.ph" : "name@organization.edu.ph"} /></label>
-    {!isHte && <><div className="two-fields"><label className="field"><span>Campus *</span><select required name="campusId" value={campusId} disabled={!registrationOptions} onChange={(event) => { setCampusId(event.target.value); setCollegeId(""); setProgramId(""); setProgramIds([]); }}><option value="" disabled>{registrationOptions ? "Select campus" : "Loading institutional options..."}</option>{campusOptions.map((campus) => <option key={campus.id} value={campus.id}>{campus.shortName}</option>)}</select></label><label className="field"><span>College / academic unit *</span><select required name="collegeId" value={collegeId} disabled={!campusId} onChange={(event) => { setCollegeId(event.target.value); setProgramId(""); setProgramIds([]); }}><option value="" disabled>Select college or unit</option>{collegeOptions.map((college) => <option key={college.id} value={college.id}>{college.name}</option>)}</select></label></div>{hasProgramScope && <div className={isStudent ? "two-fields" : "coordinator-program-field"}><div className="field"><span id="registration-program-label">{isStudent ? "Program / course" : "Programs handled"} *</span>{isStudent ? <select aria-labelledby="registration-program-label" required name="programId" value={programId} disabled={!collegeId} onChange={(event) => setProgramId(event.target.value)}><option value="" disabled>Select program</option>{programOptions.map((program) => <option key={program.id} value={program.id}>{program.code} — {program.name}</option>)}</select> : <ProgramMultiSelect options={programOptions} value={programIds} onChange={setProgramIds} />}</div>{isStudent && <label className="field"><span>Year level *</span><select required name="yearLevel" defaultValue=""><option value="" disabled>Select year level</option><option value="3">Third Year</option><option value="4">Fourth Year</option></select></label>}</div>}{institutionalError && <p className="form-error"><AlertTriangle size={16} /> {institutionalError}</p>}</>}
+    {!isHte && <><div className="two-fields"><label className="field"><span>Campus *</span><select required name="campusId" value={campusId} disabled={!registrationOptions} onChange={(event) => { setCampusId(event.target.value); setCollegeId(""); setProgramId(""); setProgramIds([]); }}><option value="" disabled>{registrationOptions ? "Select campus" : "Loading institutional options..."}</option>{campusOptions.map((campus) => <option key={campus.id} value={campus.id}>{campus.shortName}</option>)}</select></label><label className="field"><span>College / academic unit *</span><select required name="collegeId" value={collegeId} disabled={!campusId} onChange={(event) => { setCollegeId(event.target.value); setProgramId(""); setProgramIds([]); }}><option value="" disabled>Select college or unit</option>{collegeOptions.map((college) => <option key={college.id} value={college.id}>{college.name}</option>)}</select></label></div>{hasProgramScope && <><div className={isStudent ? "two-fields" : "coordinator-program-field"}><div className="field"><span id="registration-program-label">{isStudent ? "Program / course" : "Programs handled"} *</span>{isStudent ? <select aria-labelledby="registration-program-label" required name="programId" value={programId} disabled={!collegeId} onChange={(event) => setProgramId(event.target.value)}><option value="" disabled>Select program</option>{programOptions.map((program) => <option key={program.id} value={program.id}>{program.code} — {program.name}</option>)}</select> : <ProgramMultiSelect options={programOptions} value={programIds} onChange={setProgramIds} />}</div></div>{isStudent && <><div className="two-fields"><label className="field"><span>Year level *</span><select required name="yearLevel" defaultValue=""><option value="" disabled>Select year level</option><option value="3">Third Year</option><option value="4">Fourth Year</option></select></label><label className="field"><span>Section *</span><select required name="section" defaultValue=""><option value="" disabled>Select section</option>{["A", "B", "C", "D", "E"].map((section) => <option key={section} value={section}>{section}</option>)}</select></label></div><label className="field"><span>Academic term *</span><select required name="academicTermId" defaultValue="" disabled={!registrationOptions?.terms.length}><option value="" disabled>{registrationOptions?.terms.length ? "Select academic term" : "No academic term is available"}</option>{registrationOptions?.terms.map((term) => <option key={term.id} value={term.id}>{term.academicYear} · {term.term}</option>)}</select></label></>}</>}{institutionalError && <p className="form-error"><AlertTriangle size={16} /> {institutionalError}</p>}</>}
     {isHte && <><label className="field"><span>Office address *</span><textarea required name="officeAddress" placeholder="Enter the official business address" /></label><label className="field"><span>Available internship slots *</span><input required name="availableSlots" type="number" min="1" placeholder="e.g. 5" /></label></>}
     <div className="two-fields"><label className="field"><span>Password *</span><input required name="password" type="password" minLength={8} autoComplete="new-password" placeholder="Create a password" /></label><label className="field"><span>Confirm password *</span><input required name="confirmPassword" type="password" minLength={8} autoComplete="new-password" placeholder="Re-enter password" /></label></div>
   </>;
@@ -754,9 +1125,9 @@ function StudentDashboard() {
   const remainingHours = Math.max(0, data.requiredHours - data.renderedHours);
   return <><PageHeader title={`Good day, ${user?.fullName ?? "Student Intern"}`} subtitle="Here is an overview of your verified internship progress." />
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <div className="stats-grid four"><StatCard label="Rendered hours" value={String(data.renderedHours)} detail={`/ ${data.requiredHours} verified hours`} icon={Clock3} progress={hoursPercent} /><StatCard label="Attendance rate" value={`${data.attendanceRate}%`} detail={`${data.verifiedSessions} of ${data.recordedSessions} sessions verified`} icon={CalendarCheck2} tone="green" progress={data.attendanceRate} /><StatCard label="Daily logs" value={String(data.logsSubmitted)} detail={`${data.logsApproved} approved`} icon={FileText} tone="orange" progress={logsPercent} /><StatCard label="Document compliance" value={hasDocumentRequirements ? `${documentPercent}%` : "Not configured"} detail={hasDocumentRequirements ? `${data.documentsApproved} of ${data.documentsRequired} approved` : "No requirements assigned"} icon={FileCheck2} tone="violet" progress={documentPercent} /></div>
+    <div className="stats-grid four"><StatCard label="Rendered hours" value={String(data.renderedHours)} detail={`/ ${data.requiredHours} verified hours`} icon={Clock3} progress={hoursPercent} /><StatCard label="Attendance rate" value={`${data.attendanceRate}%`} detail={`${data.verifiedSessions} of ${data.recordedSessions} sessions verified`} icon={CalendarCheck2} tone="green" progress={data.attendanceRate} /><StatCard label="Weekly logs" value={String(data.logsSubmitted)} detail={`${data.logsApproved} approved`} icon={FileText} tone="orange" progress={logsPercent} /><StatCard label="Document compliance" value={hasDocumentRequirements ? `${documentPercent}%` : "Not configured"} detail={hasDocumentRequirements ? `${data.documentsApproved} of ${data.documentsRequired} approved` : "No requirements assigned"} icon={FileCheck2} tone="violet" progress={documentPercent} /></div>
     <div className="dashboard-grid"><div className="dashboard-main-col"><section className="card progress-card"><div className="card-title"><h2>Internship progress</h2><StatusBadge status={data.status} /></div><div className="metric-row"><span>{data.renderedHours} of {data.requiredHours} verified hours</span><strong>{hoursPercent}% of required hours</strong></div><ProgressBar value={hoursPercent} /><p className="muted-note">{remainingHours} verified hours remain. Pending attendance will not count until it is reviewed.</p></section>
-      <section className="card"><h2>Quick actions</h2><div className="quick-actions"><Link className="quick-action-primary" href="/student/attendance"><Clock3 /> Time In / Time Out</Link><Link href="/student/daily-logs"><FileText /> Add daily log</Link><Link href="/student/documents"><Upload /> Upload document</Link><Link href="/student/progress"><LineChart /> View progress</Link></div></section>
+      <section className="card"><h2>Quick actions</h2><div className="quick-actions"><Link className="quick-action-primary" href="/student/attendance"><Clock3 /> Time In / Time Out</Link><Link href="/student/weekly-logs"><FileText /> Add weekly log</Link><Link href="/student/documents"><Upload /> Upload document</Link><Link href="/student/progress"><LineChart /> View progress</Link></div></section>
       <section className="card"><h2>Recent updates</h2><div className="activity-list">{recent.map((item) => <div className="activity-row" key={item.id}><span><strong>{item.title}</strong><small>{item.message}</small></span><span><small>{item.time}</small><StatusBadge status={item.unread ? "Unread" : "Read"} /></span></div>)}{recent.length === 0 && <p className="muted-note">No updates have been sent to your account yet.</p>}</div></section></div>
       <aside className="dashboard-side-col"><section className="card"><h2>Internship information</h2><dl className="info-list"><div><dt>Campus</dt><dd>{user?.campus ?? data.campus}</dd></div><div><dt>Program</dt><dd>{user?.academicProgram ?? data.program}</dd></div><div><dt>Host training establishment</dt><dd>{data.hte}</dd></div><div><dt>Internship coordinator</dt><dd>{data.coordinator}</dd></div><div><dt>Period</dt><dd>{data.startDate} – {data.endDate}</dd></div><div><dt>Required hours</dt><dd>{data.requiredHours} hours</dd></div></dl></section><section className="card"><h2>Requirement status</h2>{data.requirements.length > 0 ? <ul className="check-list">{data.requirements.map((requirement) => <li className={requirement.complete ? "" : "pending"} key={requirement.name}>{requirement.complete ? <Check /> : <Clock3 />} {requirement.name}<small>{requirement.status}</small></li>)}</ul> : <p className="muted-note">No requirements configured for this assignment.</p>}<div className="metric-row small"><span>{hasDocumentRequirements ? `${data.documentsApproved} of ${data.documentsRequired} requirements` : "No requirements configured"}</span><strong>{hasDocumentRequirements ? `${documentPercent}%` : "Not configured"}</strong></div><ProgressBar value={documentPercent} tone="green" /></section></aside></div></>;
 }
@@ -764,13 +1135,13 @@ function StudentDashboard() {
 function HteDashboard() {
   const { user } = useAuth();
   const [rows, setRows] = useState<Intern[]>([]);
-  const [logs, setLogs] = useState<DailyLogRecord[]>([]);
+  const [logs, setLogs] = useState<WeeklyLogRecord[]>([]);
   const [evaluationRows, setEvaluationRows] = useState<EvaluationRecord[]>([]);
   const [attendanceRows, setAttendanceRows] = useState<AttendanceHistoryRow[]>([]);
   const [error, setError] = useState("");
      useEffect(() => {
     let active = true;
-    void Promise.all([internshipService.listLiveInterns(), dailyLogService.listLive(), evaluationService.listLive(), attendanceService.listLiveHistory()]).then(([internRows, logRows, liveEvaluations, liveAttendance]) => {
+    void Promise.all([internshipService.listLiveInterns(), weeklyLogService.listLive(), evaluationService.listLive(), attendanceService.listLiveHistory()]).then(([internRows, logRows, liveEvaluations, liveAttendance]) => {
       if (!active) return;
       setRows(internRows);
       setLogs(logRows);
@@ -788,7 +1159,7 @@ function HteDashboard() {
   return <><PageHeader title={`Good day, ${user?.fullName ?? "HTE Representative"}`} subtitle="Authorized host training establishment representative portal." />
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
     <div className="stats-grid four"><StatCard label="Assigned interns" value={String(rows.length)} icon={UsersRound} /><StatCard label="Attendance awaiting" value={String(attendanceAwaiting)} icon={Clock3} tone="orange" /><StatCard label="Open evaluations" value={String(pendingEvaluations)} icon={Star} tone="violet" /><StatCard label="Verified hours" value={String(totalHours)} icon={Gauge} tone="green" /></div>
-    <div className="dashboard-grid"><section className="card table-card"><div className="card-title"><h2>Assigned interns</h2><Link className="text-link" href="/hte/interns">View all</Link></div><InternTable rows={rows.slice(0, 5)} compact />{rows.length === 0 && <p className="muted-note">No interns are currently assigned within your authorized scope.</p>}</section><aside className="card"><div className="card-title"><h2>Pending log reviews</h2><Link className="text-link" href="/hte/logs">Open queue</Link></div><div className="review-list">{pendingLogs.slice(0, 4).map((log) => <article key={log.id}><div><strong>Daily log</strong><small>{log.studentName} · {log.week}</small><small>{log.date}</small></div><StatusBadge status={log.status} /><div className="mini-actions"><Link href="/hte/logs">Review</Link></div></article>)}{pendingLogs.length === 0 && <p className="muted-note">No submitted logs are waiting for review.</p>}</div></aside></div></>;
+    <div className="dashboard-grid"><section className="card table-card"><div className="card-title"><h2>Assigned interns</h2><Link className="text-link" href="/hte/interns">View all</Link></div><InternTable rows={rows.slice(0, 5)} compact />{rows.length === 0 && <p className="muted-note table-empty-note">No interns are currently assigned within your authorized scope.</p>}</section><aside className="card"><div className="card-title"><h2>Pending Weekly Log reviews</h2><Link className="text-link" href="/hte/weekly-logs">Open queue</Link></div><div className="review-list">{pendingLogs.slice(0, 4).map((log) => <article key={log.id}><div><strong>Weekly Log</strong><small>{log.studentName}</small><small>{log.reportingPeriod}</small></div><StatusBadge status={log.status} /><div className="mini-actions"><Link href="/hte/weekly-logs">Review</Link></div></article>)}{pendingLogs.length === 0 && <p className="muted-note">No submitted Weekly Logs are waiting for review.</p>}</div></aside></div></>;
 }
 
 function CoordinatorDashboard() {
@@ -841,8 +1212,110 @@ function AdminDashboard() {
   return <><PageHeader title="System administration" subtitle="Manage access, registrations, institutional master data, and system activity." action={<Link className="button button-primary" href="/admin/registrations"><UserCheck size={18} /> Review registrations</Link>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid four"><StatCard label="Active accounts" value={String(data.activeAccounts)} detail="live Supabase profiles" icon={UsersRound} /><StatCard label="Pending registrations" value={String(data.pendingRegistrations)} icon={Clock3} tone="orange" /><StatCard label="Role assignments" value={String(data.roleAssignments)} detail="active scopes" icon={ShieldCheck} tone="green" /><StatCard label="Audit events" value={String(data.securityEvents)} detail="last 24 hours" icon={LockKeyhole} tone="violet" /></div><div className="dashboard-grid"><section className="card table-card"><h2>Pending registrations</h2><RegistrationTable /></section><aside className="card admin-controls"><h2>Administration controls</h2><p className="muted-note">Review role policies, permissions, and recent system activity.</p><div className="admin-control-links"><Link href="/admin/roles"><ShieldCheck size={20} aria-hidden="true" /><span><strong>Roles & permissions</strong><small>Review current access policies</small></span><ChevronRight size={18} aria-hidden="true" /></Link><Link href="/admin/audit-logs"><FileText size={20} aria-hidden="true" /><span><strong>Audit history</strong><small>Inspect recent system activity</small></span><ChevronRight size={18} aria-hidden="true" /></Link></div></aside></div></>;
 }
 
-function InternTable({ rows, compact = false, onView, emptyMessage }: { rows: Intern[]; compact?: boolean; onView?: (intern: Intern) => void; emptyMessage?: string }) {
-  return <div className="table-scroll"><table className={`data-table ${compact ? "compact-table" : ""}`}><thead><tr><th>Student</th>{!compact && <th>Campus</th>}{!compact && <th>Program</th>}<th>HTE</th>{!compact && <th>HTE representative</th>}<th>Hours</th><th>Attendance</th>{!compact && <th>Requirements</th>}<th>Status</th>{onView && <th>Actions</th>}</tr></thead><tbody>{rows.map((intern) => { const requiredHours = intern.requiredHours ?? 0; const awaitingAssignment = intern.status === "Awaiting Assignment"; return <tr key={intern.studentUserId ?? intern.name}><td><span className="person-cell"><i>{intern.initials}</i><b>{intern.name}</b></span></td>{!compact && <td>{intern.campus}</td>}{!compact && <td>{intern.program}</td>}<td>{intern.hte}</td>{!compact && <td>{intern.hteRepresentative}</td>}<td>{awaitingAssignment ? "—" : <span className="hours-cell">{intern.hours}/{requiredHours}<ProgressBar value={requiredHours ? Math.min(100, intern.hours / requiredHours * 100) : 0} /></span>}</td><td>{awaitingAssignment ? "—" : `${intern.attendance}%`}</td>{!compact && <td>{awaitingAssignment ? "—" : intern.requirements}</td>}<td><StatusBadge status={intern.status} /></td>{onView && <td className="table-actions"><button className="table-link" disabled={!intern.studentUserId} onClick={() => onView(intern)} aria-label={`View intern record for ${intern.name}`}><Eye size={16} aria-hidden="true" />View</button></td>}</tr>; })}{rows.length === 0 && emptyMessage && <tr><td colSpan={(compact ? 5 : 9) + (onView ? 1 : 0)} className="table-empty"><p role="status">{emptyMessage}</p></td></tr>}</tbody></table></div>;
+function InternTable({
+  rows,
+  compact = false,
+  onView,
+  emptyMessage,
+}: {
+  rows: Intern[];
+  compact?: boolean;
+  onView?: (intern: Intern) => void;
+  emptyMessage?: string;
+}) {
+  return (
+    <div className="table-scroll">
+      <table className={`data-table ${compact ? "compact-table" : ""}`}>
+        <thead>
+          <tr>
+            <th>Student</th>
+            {!compact && <th>Campus</th>}
+            {!compact && <th>Program</th>}
+            {!compact && <th>Year level</th>}
+            {!compact && <th>Section</th>}
+            <th>HTE</th>
+            {!compact && <th>HTE representative</th>}
+            <th>Hours</th>
+            <th>Attendance</th>
+            {!compact && <th>Requirements</th>}
+            <th>Status</th>
+            {onView && <th>Actions</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((intern) => {
+            const requiredHours = intern.requiredHours ?? 0;
+            const awaitingAssignment = intern.status === "Awaiting Assignment";
+            return (
+              <tr key={intern.studentUserId ?? intern.name}>
+                <td className="identity-cell">
+                  <span className="person-cell">
+                    <i>{intern.initials}</i>
+                    <b className="table-primary-text" title={intern.name}>{intern.name}</b>
+                  </span>
+                </td>
+                {!compact && <td>{intern.campus}</td>}
+                {!compact && <td>{intern.program}</td>}
+                {!compact && <td>{intern.yearLevel ? `Year ${intern.yearLevel}` : "—"}</td>}
+                {!compact && <td>{intern.section ?? "—"}</td>}
+                <td className="identity-cell"><span className="table-primary-text" title={intern.hte}>{intern.hte}</span></td>
+                {!compact && <td>{intern.hteRepresentative}</td>}
+                <td>
+                  {awaitingAssignment ? (
+                    "—"
+                  ) : (
+                    <span className="hours-cell">
+                      {intern.hours}/{requiredHours}
+                      <ProgressBar
+                        value={
+                          requiredHours
+                            ? Math.min(
+                                100,
+                                (intern.hours / requiredHours) * 100,
+                              )
+                            : 0
+                        }
+                      />
+                    </span>
+                  )}
+                </td>
+                <td>{awaitingAssignment ? "—" : `${intern.attendance}%`}</td>
+                {!compact && (
+                  <td>{awaitingAssignment ? "—" : intern.requirements}</td>
+                )}
+                <td>
+                  <StatusBadge status={intern.status} />
+                </td>
+                {onView && (
+                  <td className="table-actions">
+                    <button
+                      className="table-link"
+                      disabled={!intern.studentUserId}
+                      onClick={() => onView(intern)}
+                      aria-label={`View intern record for ${intern.name}`}
+                    >
+                      <Eye size={16} aria-hidden="true" />
+                      View
+                    </button>
+                  </td>
+                )}
+              </tr>
+            );
+          })}
+          {rows.length === 0 && emptyMessage && (
+            <tr>
+              <td
+                colSpan={(compact ? 5 : 11) + (onView ? 1 : 0)}
+                className="table-empty"
+              >
+                <p role="status">{emptyMessage}</p>
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function AttendanceReviewDialog({ record, close, onSaved }: { record: AttendanceHistoryRow; close: () => void; onSaved: () => void }) {
@@ -851,8 +1324,23 @@ function AttendanceReviewDialog({ record, close, onSaved }: { record: Attendance
   const lock = useRef(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const displayedPair = record.pairSource === "approved_corrected"
+    ? resolveAttendancePair({
+        original: { timeInAt: null, timeOutAt: null },
+        correction: { status: "approved", timeInAt: record.timeInAt, timeOutAt: record.timeOutAt },
+      })
+    : resolveAttendancePair({ original: { timeInAt: record.timeInAt, timeOutAt: record.timeOutAt } });
+  const pair = { ...displayedPair, blockingReason: record.pairIssue ?? displayedPair.blockingReason };
+  const pairLabel = pair.authoritativePair === "approved_corrected" ? "Approved corrected event" : "Original event";
+  const pairSummary = pair.authoritativePair === "approved_corrected" ? "approved corrected" : "original";
+  const pairReviewReady = pair.complete && !pair.blockingReason;
+  const verifyBlocked = attendanceDecisionBlock(record.status, "verified", pair, true);
+  const flagBlocked = attendanceDecisionBlock(record.status, "flagged", pair, Boolean(remarks.trim()));
+  const rejectBlocked = attendanceDecisionBlock(record.status, "rejected", pair, Boolean(remarks.trim()));
   async function decide(decision: "verified" | "flagged" | "rejected") {
-    if (lock.current || (decision !== "verified" && !remarks.trim())) return;
+    const blocked = attendanceDecisionBlock(record.status, decision, pair, Boolean(remarks.trim()));
+    if (blocked) { setError(blocked); return; }
+    if (lock.current) return;
     lock.current = true;
     setLoading(true);
     setError("");
@@ -863,70 +1351,121 @@ function AttendanceReviewDialog({ record, close, onSaved }: { record: Attendance
       setError(userError(reason, "The attendance decision could not be saved."));
     } finally { lock.current = false; setLoading(false); setConfirmation(null); }
   }
-  return <Dialog title="Review attendance session" onClose={close} busy={loading} wide><InfoCallout icon={ShieldCheck}><p><strong>{record.studentName}</strong> · {record.date}</p></InfoCallout><div className="readonly-event-grid"><div><span>Time In</span><strong>{record.timeIn}</strong><small>Original event · read-only</small></div><div><span>Time Out</span><strong>{record.timeOut}</strong><small>Original event · read-only</small></div></div>{record.pairIssue ? <p className="form-error"><AlertTriangle size={16} />{record.pairIssue}. Review the original server events before making a decision.</p> : <p className="form-success"><CheckCircle2 size={16} /> Complete original Time In and Time Out pair</p>}<label className="field"><span>Verification remarks</span><textarea value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Add the basis for your review decision…" /></label><p className="form-hint">A reason is required when flagging or rejecting a session.</p>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading || !!record.pairIssue} icon={Check} onClick={() => setConfirmation("verified")}>Verify</ActionButton><ActionButton variant="secondary" disabled={loading || !remarks.trim()} icon={Flag} onClick={() => setConfirmation("flagged")}>Flag</ActionButton><ActionButton variant="danger" disabled={loading || !remarks.trim()} icon={X} onClick={() => setConfirmation("rejected")}>Reject</ActionButton></div>{confirmation && <Dialog title={`${confirmation === "verified" ? "Verify" : confirmation === "flagged" ? "Flag" : "Reject"} this attendance session?`} onClose={() => setConfirmation(null)} busy={loading} protectChanges={false}><p>{record.studentName} · {record.date}</p><p>{confirmation === "verified" ? "This session will count toward verified internship hours." : "This session will not count toward verified internship hours until an authorized review resolves it."} The original timestamps and review history are retained.</p><div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => setConfirmation(null)}>Keep reviewing</ActionButton><ActionButton disabled={loading} onClick={() => void decide(confirmation)}>{loading ? "Saving…" : confirmation === "verified" ? "Verify session" : confirmation === "flagged" ? "Flag session" : "Reject session"}</ActionButton></div></Dialog>}</Dialog>;
+  return <Dialog title="Review attendance session" onClose={close} busy={loading} wide><InfoCallout icon={ShieldCheck}><p><strong>{record.studentName}</strong> · {record.date}</p></InfoCallout><div className="readonly-event-grid"><div><span>Time In</span><strong>{record.timeIn}</strong><small>{pairLabel} · read-only</small></div><div><span>Time Out</span><strong>{record.timeOut}</strong><small>{pairLabel} · read-only</small></div></div>{pairReviewReady ? <p className="form-success"><CheckCircle2 size={16} /> Complete {pairSummary} Time In and Time Out pair</p> : <p className="form-error"><AlertTriangle size={16} />{pair.blockingReason ?? "A complete authoritative Time In and Time Out pair is required"}. Verify is unavailable, but an authorized reviewer may flag or reject the session with a reason.</p>}<label className="field"><span>Verification remarks</span><textarea value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Add the basis for your review decision…" /></label><p className="form-hint">A reason is required when flagging or rejecting a session.</p>{verifyBlocked && pair.complete && <p className="form-hint review-state-hint">{verifyBlocked}</p>}{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading || Boolean(verifyBlocked)} icon={Check} onClick={() => setConfirmation("verified")}>Verify</ActionButton><ActionButton variant="secondary" disabled={loading || Boolean(flagBlocked)} icon={Flag} onClick={() => setConfirmation("flagged")}>Flag</ActionButton><ActionButton variant="danger" disabled={loading || Boolean(rejectBlocked)} icon={X} onClick={() => setConfirmation("rejected")}>Reject</ActionButton></div>{confirmation && <Dialog title={`${confirmation === "verified" ? "Verify" : confirmation === "flagged" ? "Flag" : "Reject"} this attendance session?`} onClose={() => setConfirmation(null)} busy={loading} protectChanges={false}><p>{record.studentName} · {record.date}</p><p>{confirmation === "verified" ? "This session will count toward verified internship hours." : "This session will not count toward verified internship hours until an authorized review resolves it."} The original timestamps and review history are retained.</p><div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => setConfirmation(null)}>Keep reviewing</ActionButton><ActionButton disabled={loading} onClick={() => void decide(confirmation)}>{loading ? "Saving…" : confirmation === "verified" ? "Verify session" : confirmation === "flagged" ? "Flag session" : "Reject session"}</ActionButton></div></Dialog>}</Dialog>;
 }
 
 function AttendancePage({ role }: { role: RoleId }) {
   const student = role === "student";
   const hte = role === "hte";
-  const [currentSession, setCurrentSession] = useState<AttendanceSession | null>(null);
+  const [currentSession, setCurrentSession] =
+    useState<AttendanceSession | null>(null);
   const [attendanceRows, setAttendanceRows] = useState(attendanceRecords);
-  const [attendanceMonth, setAttendanceMonth] = useState('all');
-  const [attendanceYear, setAttendanceYear] = useState('all');
+  const [attendanceMonth, setAttendanceMonth] = useState("all");
+  const [attendanceYear, setAttendanceYear] = useState("all");
   const [confirmTimeIn, setConfirmTimeIn] = useState(false);
-  const [confirmationTimestamp, setConfirmationTimestamp] = useState('');
+  const [confirmationTimestamp, setConfirmationTimestamp] = useState("");
   const [attendanceSuccess, setAttendanceSuccess] = useState("");
-  const [historyStudent, setHistoryStudent] = useState<{ id: string; name: string } | null>(null);
+  const [historyStudent, setHistoryStudent] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const attendanceLock = useRef(false);
   const [confirmTimeOut, setConfirmTimeOut] = useState(false);
   const [attendanceLoading, setAttendanceLoading] = useState(true);
   const [attendanceError, setAttendanceError] = useState("");
-  const [selectedReview, setSelectedReview] = useState<AttendanceHistoryRow | null>(null);
+  const [selectedReview, setSelectedReview] =
+    useState<AttendanceHistoryRow | null>(null);
   const [progress, setProgress] = useState<StudentProgressSummary | null>(null);
   const renderedHours = progress?.renderedHours ?? 0;
   const requiredHours = progress?.requiredHours ?? 0;
-  const hoursPercent = requiredHours ? Math.min(100, Math.round((renderedHours / requiredHours) * 100)) : 0;
+  const hoursPercent = requiredHours
+    ? Math.min(100, Math.round((renderedHours / requiredHours) * 100))
+    : 0;
   const remainingHours = Math.max(0, requiredHours - renderedHours);
-  const attendanceMonths = [...new Set(attendanceRows.map(row => row.workDate.slice(5, 7)))].sort();
-  const attendanceYears = [...new Set(attendanceRows.map(row => row.workDate.slice(0, 4)))].sort().reverse();
-  const visibleAttendanceRows = attendanceRows.filter(row => (attendanceMonth === 'all' || row.workDate.slice(5, 7) === attendanceMonth) && (attendanceYear === 'all' || row.workDate.slice(0, 4) === attendanceYear));
-  const monthLabel = (month: string) => new Intl.DateTimeFormat('en-PH', { month: 'long', timeZone: 'Asia/Manila' }).format(new Date(`2026-${month}-01T00:00:00+08:00`));
+  const attendanceMonths = [
+    ...new Set(attendanceRows.map((row) => row.workDate.slice(5, 7))),
+  ].sort();
+  const attendanceYears = [
+    ...new Set(attendanceRows.map((row) => row.workDate.slice(0, 4))),
+  ]
+    .sort()
+    .reverse();
+  const visibleAttendanceRows = attendanceRows.filter(
+    (row) =>
+      (attendanceMonth === "all" ||
+        row.workDate.slice(5, 7) === attendanceMonth) &&
+      (attendanceYear === "all" || row.workDate.slice(0, 4) === attendanceYear),
+  );
+  const monthLabel = (month: string) =>
+    new Intl.DateTimeFormat("en-PH", {
+      month: "long",
+      timeZone: "Asia/Manila",
+    }).format(new Date(`2026-${month}-01T00:00:00+08:00`));
 
-  async function openAttendanceConfirmation(kind: 'in' | 'out') {
+  async function openAttendanceConfirmation(kind: "in" | "out") {
     try {
-      const response = await fetch('/api/system-time', { cache: 'no-store' });
-      const result = await response.json() as { timestamp?: string };
-      setConfirmationTimestamp(result.timestamp ? formatTimestamp(result.timestamp) : formatTimestamp(new Date().toISOString()));
-    } catch { setConfirmationTimestamp(formatTimestamp(new Date().toISOString())); }
-    if (kind === 'in') setConfirmTimeIn(true); else setConfirmTimeOut(true);
+      const response = await fetch("/api/system-time", { cache: "no-store" });
+      const result = (await response.json()) as { timestamp?: string };
+      setConfirmationTimestamp(
+        result.timestamp
+          ? formatTimestamp(result.timestamp)
+          : formatTimestamp(new Date().toISOString()),
+      );
+    } catch {
+      setConfirmationTimestamp(formatTimestamp(new Date().toISOString()));
+    }
+    if (kind === "in") setConfirmTimeIn(true);
+    else setConfirmTimeOut(true);
   }
 
   useEffect(() => {
     let active = true;
     const request = student
-      ? Promise.all([attendanceService.getTodaySession(), attendanceService.listLiveHistory()])
-      : Promise.all([Promise.resolve(null), attendanceService.listLiveHistory()]);
-    void request.then(([session, rows]) => {
-      if (!active) return;
-      setCurrentSession(session);
-      setAttendanceRows(rows);
-    }).catch((reason) => {
-      if (active) setAttendanceError(userError(reason, "Attendance could not be loaded."));
-    }).finally(() => {
-      if (active) setAttendanceLoading(false);
-    });
-    return () => { active = false; };
+      ? Promise.all([
+          attendanceService.getTodaySession(),
+          attendanceService.listLiveHistory(),
+        ])
+      : Promise.all([
+          Promise.resolve(null),
+          attendanceService.listLiveHistory(),
+        ]);
+    void request
+      .then(([session, rows]) => {
+        if (!active) return;
+        setCurrentSession(session);
+        setAttendanceRows(rows);
+      })
+      .catch((reason) => {
+        if (active)
+          setAttendanceError(
+            userError(reason, "Attendance could not be loaded."),
+          );
+      })
+      .finally(() => {
+        if (active) setAttendanceLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [student]);
 
   useEffect(() => {
     if (!student) return;
     let active = true;
-    void internshipService.getStudentProgress().then((summary) => {
-      if (active) setProgress(summary);
-    }).catch((reason) => {
-      if (active) setAttendanceError(userError(reason, "Progress totals could not be loaded."));
-    });
-    return () => { active = false; };
+    void internshipService
+      .getStudentProgress()
+      .then((summary) => {
+        if (active) setProgress(summary);
+      })
+      .catch((reason) => {
+        if (active)
+          setAttendanceError(
+            userError(reason, "Progress totals could not be loaded."),
+          );
+      });
+    return () => {
+      active = false;
+    };
   }, [student]);
 
   async function recordTimeIn() {
@@ -938,7 +1477,9 @@ function AttendancePage({ role }: { role: RoleId }) {
       const session = await attendanceService.timeIn();
       setCurrentSession(session);
       setConfirmTimeIn(false);
-      setAttendanceSuccess(`Time In recorded: ${formatTimestamp(session.timeIn.occurredAt)}`);
+      setAttendanceSuccess(
+        `Time In recorded: ${formatTimestamp(session.timeIn.occurredAt)}`,
+      );
       setAttendanceRows(await attendanceService.listLiveHistory());
     } catch (reason) {
       setAttendanceError(userError(reason, "Time In could not be recorded."));
@@ -956,7 +1497,9 @@ function AttendancePage({ role }: { role: RoleId }) {
     try {
       const session = await attendanceService.timeOut(currentSession);
       setCurrentSession(session);
-      setAttendanceSuccess(`Time Out recorded: ${formatTimestamp(session.timeOut!.occurredAt)}`);
+      setAttendanceSuccess(
+        `Time Out recorded: ${formatTimestamp(session.timeOut!.occurredAt)}`,
+      );
       setAttendanceRows(await attendanceService.listLiveHistory());
       setConfirmTimeOut(false);
     } catch (reason) {
@@ -974,7 +1517,9 @@ function AttendancePage({ role }: { role: RoleId }) {
       setAttendanceRows(await attendanceService.listLiveHistory());
       setSelectedReview(null);
     } catch (reason) {
-      setAttendanceError(userError(reason, "Attendance could not be refreshed."));
+      setAttendanceError(
+        userError(reason, "Attendance could not be refreshed."),
+      );
     } finally {
       attendanceLock.current = false;
       setAttendanceLoading(false);
@@ -982,29 +1527,430 @@ function AttendancePage({ role }: { role: RoleId }) {
   }
 
   function exportAttendanceCsv() {
-    const escape = (value: string) => `"${(/^[=+\-@]/.test(value) ? "'" : "")}${value.replaceAll('"', '""')}"`;
-    const header = ["Student", "Date", "Day", "Time In", "Time Out", "Verified Hours", "Status", "Verified By", "Remarks"];
-    const rows = visibleAttendanceRows.map((record) => [record.studentName, record.date, record.day, record.timeIn, record.timeOut, record.hours, record.status, record.verifiedBy, record.remarks]);
-    const blob = new Blob([[header, ...rows].map((row) => row.map(escape).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const escape = (value: string) =>
+      `"${/^[=+\-@]/.test(value) ? "'" : ""}${value.replaceAll('"', '""')}"`;
+    const header = [
+      "Student",
+      "Date",
+      "Day",
+      "Time In",
+      "Time Out",
+      "Verified Hours",
+      "Status",
+      "Verified By",
+      "Remarks",
+    ];
+    const rows = visibleAttendanceRows.map((record) => [
+      record.studentName,
+      record.date,
+      record.day,
+      record.timeIn,
+      record.timeOut,
+      record.hours,
+      record.status,
+      record.verifiedBy,
+      record.remarks,
+    ]);
+    const blob = new Blob(
+      [[header, ...rows].map((row) => row.map(escape).join(",")).join("\r\n")],
+      { type: "text/csv;charset=utf-8" },
+    );
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    const period = `${attendanceYear === 'all' ? 'all-years' : attendanceYear}-${attendanceMonth === 'all' ? 'all-months' : attendanceMonth}`;
+    const period = `${attendanceYear === "all" ? "all-years" : attendanceYear}-${attendanceMonth === "all" ? "all-months" : attendanceMonth}`;
     anchor.download = `praxiz-attendance-${period}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
 
-  return <><PageHeader title={student ? "Attendance" : hte ? "Attendance verification" : "Attendance monitoring"} subtitle={student ? "Record immutable Time In and Time Out events and follow their verification status." : "Review attendance sessions without changing the original event timestamps."} />
-    {attendanceSuccess && <p className="inline-success" role="status">{attendanceSuccess}</p>}{attendanceError && <p className="form-error"><AlertTriangle size={16} /> {attendanceError}</p>}
-    {student ? <><section className={`attendance-action-card card ${currentSession?.status === "Active" ? "session-active" : ""}`}><div className="attendance-action-copy"><span className="eyebrow dark">Today’s attendance session</span><h2>{!currentSession ? "Ready to record Time In" : currentSession.status === "Active" ? "Attendance session active" : "Attendance submitted for verification"}</h2><p>{!currentSession ? "Press Time In when you begin work at your assigned HTE. Supabase will record the authoritative server timestamp." : currentSession.status === "Active" ? "Your original Time In event is locked. Press Time Out only when your work session ends." : "Both original events are locked. Verified hours will be added to progress only after an authorized reviewer confirms this session."}</p><div className="integrity-note"><ShieldCheck size={18} /><span>Attendance timestamps cannot be typed or edited. They are generated and protected by the PRAXIZ database.</span></div></div><div className="attendance-action-panel">{!currentSession ? <><Clock3 size={32} /><strong>{attendanceLoading ? "Checking today’s session…" : "No active session"}</strong><ActionButton icon={Clock3} disabled={attendanceLoading || !progress} onClick={() => void openAttendanceConfirmation('in')}>{attendanceLoading ? "Please wait…" : "Time In"}</ActionButton></> : <><StatusBadge status={currentSession.status} /><dl><div><dt>Time In</dt><dd>{formatTimestamp(currentSession.timeIn.occurredAt)}</dd></div><div><dt>Time Out</dt><dd>{currentSession.timeOut ? formatTimestamp(currentSession.timeOut.occurredAt) : "Not recorded"}</dd></div></dl>{currentSession.status === "Active" && <ActionButton icon={Clock3} disabled={attendanceLoading} onClick={() => void openAttendanceConfirmation('out')}>Time Out</ActionButton>}{currentSession.status === "Pending Verification" && <span className="pending-copy"><Clock3 size={17} /> Awaiting authorized review</span>}</>}</div></section><section className="card hours-overview"><div><strong>{renderedHours} hrs</strong><span>Verified rendered hours</span></div><div><strong>{requiredHours} hrs</strong><span>Required internship hours</span></div><div><strong className="orange-text">{remainingHours} hrs</strong><span>Remaining verified hours</span></div><div className="hours-progress"><div className="metric-row"><span>{renderedHours} of {requiredHours} verified hours</span><strong>{hoursPercent}%</strong></div><ProgressBar value={hoursPercent} /></div></section><div className="stats-grid three"><StatCard label="Attendance rate" value={`${progress?.attendanceRate ?? 0}%`} icon={CalendarCheck2} /><StatCard label="Recorded sessions" value={String(attendanceRows.length)} detail="loaded from Supabase" icon={CheckCircle2} tone="green" /><StatCard label="Timestamp source" value="Server" icon={Clock3} tone="violet" /></div></> : <><div className="verification-principle"><ShieldCheck size={20} /><p><strong>Original event protection:</strong> reviewers may verify, flag, or reject a session and add remarks. Time In and Time Out values are read-only.</p></div><div className="stats-grid three"><StatCard label="Visible sessions" value={String(attendanceRows.length)} icon={Clock3} tone="orange" /><StatCard label="Verified" value={String(attendanceRows.filter((row) => row.status === "Verified").length)} icon={CheckCircle2} tone="green" /><StatCard label="Flagged or rejected" value={String(attendanceRows.filter((row) => row.status === "Flagged" || row.status === "Rejected").length)} icon={AlertTriangle} tone="red" /></div></>}
-    <section className="card table-card"><div className="card-title"><div><h2>{student ? "Attendance history" : "Sessions for review"}</h2><p>{visibleAttendanceRows.length} record{visibleAttendanceRows.length === 1 ? '' : 's'} in the selected period</p></div><div className="attendance-table-actions"><div className="attendance-filter-group"><label className="field compact-field"><span>Month</span><select value={attendanceMonth} onChange={event => setAttendanceMonth(event.target.value)}><option value="all">All months</option>{attendanceMonths.map(month => <option value={month} key={month}>{monthLabel(month)}</option>)}</select></label><label className="field compact-field"><span>Year</span><select value={attendanceYear} onChange={event => setAttendanceYear(event.target.value)}><option value="all">All years</option>{attendanceYears.map(year => <option value={year} key={year}>{year}</option>)}</select></label></div><ActionButton variant="secondary" icon={Download} disabled={visibleAttendanceRows.length === 0} onClick={exportAttendanceCsv}>Export filtered CSV</ActionButton></div></div><div className="table-scroll"><table className="data-table"><thead><tr>{!student && <th>Student</th>}<th>Date</th><th>Day</th><th>Time In</th><th>Time Out</th><th>Verified hours</th><th>Status</th><th>Verified by</th><th>Remarks</th>{!student && <th>Actions</th>}</tr></thead><tbody>{visibleAttendanceRows.map((record) => <tr key={record.id}>{!student && <td><b>{record.studentName}</b></td>}<td><b>{record.date}</b></td><td>{record.day}</td><td>{record.timeIn}</td><td>{record.timeOut}</td><td>{record.hours}</td><td><StatusBadge status={record.status} /></td><td>{record.verifiedBy}</td><td>{record.remarks}</td>{!student && <td className="table-actions"><div className="table-action-group"><button className="table-link" onClick={() => setSelectedReview(record)} aria-label={`Review attendance for ${record.studentName} on ${record.date}`}>Review</button><button className="table-link" disabled={!record.studentUserId} onClick={() => setHistoryStudent({ id: record.studentUserId!, name: record.studentName })} aria-label={`View attendance history for ${record.studentName}`}>View history</button></div></td>}</tr>)}{!attendanceLoading && visibleAttendanceRows.length === 0 && <tr><td colSpan={student ? 8 : 10}>No authorized attendance sessions match this month and year.</td></tr>}</tbody></table></div></section>{confirmTimeIn && <ConfirmDialog title="Record Time In?" message={<span>Your Time In will be recorded using the PRAXIZ server timestamp:<strong className="confirmation-time">{confirmationTimestamp}</strong>This event cannot be edited.</span>} confirmLabel={attendanceLoading ? "Recording…" : "Record Time In"} busy={attendanceLoading} onCancel={() => setConfirmTimeIn(false)} onConfirm={recordTimeIn} />}{historyStudent && <StudentAttendanceHistory studentId={historyStudent.id} name={historyStudent.name} onClose={() => setHistoryStudent(null)} />}{confirmTimeOut && <ConfirmDialog busy={attendanceLoading} title="End attendance session?" message={<span>Your Time Out will be recorded using the PRAXIZ server timestamp:<strong className="confirmation-time">{confirmationTimestamp}</strong>The resulting event cannot be edited.</span>} confirmLabel={attendanceLoading ? "Recording…" : "Record Time Out"} onCancel={() => setConfirmTimeOut(false)} onConfirm={recordTimeOut} />}{selectedReview && <AttendanceReviewDialog record={selectedReview} close={() => setSelectedReview(null)} onSaved={() => { void refreshAttendance(); }} />}</>;
+  return (
+    <>
+      <PageHeader
+        title={
+          student
+            ? "Attendance"
+            : hte
+              ? "Attendance verification"
+              : "Attendance monitoring"
+        }
+        subtitle={
+          student
+            ? "Record immutable Time In and Time Out events and follow their verification status."
+            : "Review attendance sessions without changing the original event timestamps."
+        }
+      />
+      {attendanceSuccess && (
+        <p className="inline-success" role="status">
+          {attendanceSuccess}
+        </p>
+      )}
+      {attendanceError && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {attendanceError}
+        </p>
+      )}
+      {student ? (
+        <>
+          <section
+            className={`attendance-action-card card ${currentSession?.status === "Active" ? "session-active" : ""}`}
+          >
+            <div className="attendance-action-copy">
+              <span className="eyebrow dark">Today’s attendance session</span>
+              <h2>
+                {!currentSession
+                  ? "Ready to record Time In"
+                  : currentSession.status === "Active"
+                    ? "Attendance session active"
+                    : "Attendance submitted for verification"}
+              </h2>
+              <p>
+                {!currentSession
+                  ? "Press Time In when you begin work at your assigned HTE. Supabase will record the authoritative server timestamp."
+                  : currentSession.status === "Active"
+                    ? "Your original Time In event is locked. Press Time Out only when your work session ends."
+                    : "Both original events are locked. Verified hours will be added to progress only after an authorized reviewer confirms this session."}
+              </p>
+              <div className="integrity-note">
+                <ShieldCheck size={18} />
+                <span>
+                  Attendance timestamps cannot be typed or edited. They are
+                  generated and protected by the PRAXIZ database.
+                </span>
+              </div>
+            </div>
+            <div className="attendance-action-panel">
+              {!currentSession ? (
+                <>
+                  <LocalAttendanceClock />
+                  <strong>
+                    {attendanceLoading
+                      ? "Checking today’s session…"
+                      : "No active session"}
+                  </strong>
+                  <ActionButton
+                    icon={Clock3}
+                    disabled={attendanceLoading || !progress}
+                    onClick={() => void openAttendanceConfirmation("in")}
+                  >
+                    {attendanceLoading ? "Please wait…" : "Time In"}
+                  </ActionButton>
+                </>
+              ) : (
+                <>
+                  <StatusBadge status={currentSession.status} />
+                  <dl>
+                    <div>
+                      <dt>Time In</dt>
+                      <dd>
+                        {formatTimestamp(currentSession.timeIn.occurredAt)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Time Out</dt>
+                      <dd>
+                        {currentSession.timeOut
+                          ? formatTimestamp(currentSession.timeOut.occurredAt)
+                          : "Not recorded"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {currentSession.status === "Active" && (
+                    <ActionButton
+                      icon={Clock3}
+                      disabled={attendanceLoading}
+                      onClick={() => void openAttendanceConfirmation("out")}
+                    >
+                      Time Out
+                    </ActionButton>
+                  )}
+                  {currentSession.status === "Pending Verification" && (
+                    <span className="pending-copy">
+                      <Clock3 size={17} /> Awaiting authorized review
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
+          <section className="card hours-overview">
+            <div>
+              <strong>{renderedHours} hrs</strong>
+              <span>Verified rendered hours</span>
+            </div>
+            <div>
+              <strong>{requiredHours} hrs</strong>
+              <span>Required internship hours</span>
+            </div>
+            <div>
+              <strong className="orange-text">{remainingHours} hrs</strong>
+              <span>Remaining verified hours</span>
+            </div>
+            <div className="hours-progress">
+              <div className="metric-row">
+                <span>
+                  {renderedHours} of {requiredHours} verified hours
+                </span>
+                <strong>{hoursPercent}%</strong>
+              </div>
+              <ProgressBar value={hoursPercent} />
+            </div>
+          </section>
+          <div className="stats-grid three">
+            <StatCard
+              label="Attendance rate"
+              value={`${progress?.attendanceRate ?? 0}%`}
+              icon={CalendarCheck2}
+            />
+            <StatCard
+              label="Recorded sessions"
+              value={String(attendanceRows.length)}
+              detail="loaded from Supabase"
+              icon={CheckCircle2}
+              tone="green"
+            />
+            <StatCard
+              label="Timestamp source"
+              value="Server"
+              icon={Clock3}
+              tone="violet"
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="verification-principle">
+            <ShieldCheck size={20} />
+            <p>
+              <strong>Original event protection:</strong> reviewers may verify,
+              flag, or reject a session and add remarks. Time In and Time Out
+              values are read-only.
+            </p>
+          </div>
+          <div className="stats-grid three">
+            <StatCard
+              label="Visible sessions"
+              value={String(attendanceRows.length)}
+              icon={Clock3}
+              tone="orange"
+            />
+            <StatCard
+              label="Verified"
+              value={String(
+                attendanceRows.filter((row) => row.status === "Verified")
+                  .length,
+              )}
+              icon={CheckCircle2}
+              tone="green"
+            />
+            <StatCard
+              label="Flagged or rejected"
+              value={String(
+                attendanceRows.filter(
+                  (row) =>
+                    row.status === "Flagged" || row.status === "Rejected",
+                ).length,
+              )}
+              icon={AlertTriangle}
+              tone="red"
+            />
+          </div>
+        </>
+      )}
+      <section className="card table-card">
+        <div className="card-title">
+          <div>
+            <h2>{student ? "Attendance history" : "Sessions for review"}</h2>
+            <p>
+              {visibleAttendanceRows.length} record
+              {visibleAttendanceRows.length === 1 ? "" : "s"} in the selected
+              period
+            </p>
+          </div>
+          <div className="attendance-table-actions">
+            <div className="attendance-filter-group">
+              <label className="field compact-field">
+                <span>Month</span>
+                <select
+                  value={attendanceMonth}
+                  onChange={(event) => setAttendanceMonth(event.target.value)}
+                >
+                  <option value="all">All months</option>
+                  {attendanceMonths.map((month) => (
+                    <option value={month} key={month}>
+                      {monthLabel(month)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field compact-field">
+                <span>Year</span>
+                <select
+                  value={attendanceYear}
+                  onChange={(event) => setAttendanceYear(event.target.value)}
+                >
+                  <option value="all">All years</option>
+                  {attendanceYears.map((year) => (
+                    <option value={year} key={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <ActionButton
+              variant="secondary"
+              icon={Download}
+              disabled={visibleAttendanceRows.length === 0}
+              onClick={exportAttendanceCsv}
+            >
+              Export filtered CSV
+            </ActionButton>
+          </div>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {!student && <th>Student</th>}
+                <th>Date</th>
+                <th>Day</th>
+                <th>Time In</th>
+                <th>Time Out</th>
+                <th>Verified hours</th>
+                <th>Status</th>
+                <th>Verified by</th>
+                <th>Remarks</th>
+                {!student && <th>Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {visibleAttendanceRows.map((record) => (
+                <tr key={record.id}>
+                  {!student && (
+                    <td className="identity-cell">
+                      <b className="table-primary-text">{record.studentName}</b>
+                    </td>
+                  )}
+                  <td>
+                    <b>{record.date}</b>
+                  </td>
+                  <td>{record.day}</td>
+                  <td>{record.timeIn}</td>
+                  <td>{record.timeOut}</td>
+                  <td>{record.hours}</td>
+                  <td>
+                    <StatusBadge status={record.status} />
+                  </td>
+                  <td>{record.verifiedBy}</td>
+                  <td>{record.remarks}</td>
+                  {!student && (
+                    <td className="table-actions">
+                      <div className="table-action-group">
+                        {["Pending Verification", "Flagged"].includes(record.status) ? (
+                          <button
+                            className="table-link"
+                            onClick={() => setSelectedReview(record)}
+                            aria-label={`Review attendance for ${record.studentName} on ${record.date}`}
+                          >
+                            Review
+                          </button>
+                        ) : (
+                          <span className="table-state-label">
+                            {record.status === "Active" ? "In progress" : "Reviewed"}
+                          </span>
+                        )}
+                        <button
+                          className="table-link"
+                          disabled={!record.studentUserId}
+                          onClick={() =>
+                            setHistoryStudent({
+                              id: record.studentUserId!,
+                              name: record.studentName,
+                            })
+                          }
+                          aria-label={`View attendance history for ${record.studentName}`}
+                        >
+                          View history
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+              {!attendanceLoading && visibleAttendanceRows.length === 0 && (
+                <tr>
+                  <td colSpan={student ? 8 : 10}>
+                    No authorized attendance sessions match this month and year.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {confirmTimeIn && (
+        <ConfirmDialog
+          title="Record Time In?"
+          message={
+            <span>
+              Your Time In will be recorded using the PRAXIZ server timestamp:
+              <strong className="confirmation-time">
+                {confirmationTimestamp}
+              </strong>
+              This event cannot be edited.
+            </span>
+          }
+          confirmLabel={attendanceLoading ? "Recording…" : "Record Time In"}
+          busy={attendanceLoading}
+          onCancel={() => setConfirmTimeIn(false)}
+          onConfirm={recordTimeIn}
+        />
+      )}
+      {historyStudent && (
+        <StudentAttendanceHistory
+          studentId={historyStudent.id}
+          name={historyStudent.name}
+          onClose={() => setHistoryStudent(null)}
+        />
+      )}
+      {confirmTimeOut && (
+        <ConfirmDialog
+          busy={attendanceLoading}
+          title="End attendance session?"
+          message={
+            <span>
+              Your Time Out will be recorded using the PRAXIZ server timestamp:
+              <strong className="confirmation-time">
+                {confirmationTimestamp}
+              </strong>
+              The resulting event cannot be edited.
+            </span>
+          }
+          confirmLabel={attendanceLoading ? "Recording…" : "Record Time Out"}
+          onCancel={() => setConfirmTimeOut(false)}
+          onConfirm={recordTimeOut}
+        />
+      )}
+      {selectedReview && (
+        <AttendanceReviewDialog
+          record={selectedReview}
+          close={() => setSelectedReview(null)}
+          onSaved={() => {
+            void refreshAttendance();
+          }}
+        />
+      )}
+    </>
+  );
 }
 
-function StudentDailyLogDialog({ log, close, onSaved }: { log: DailyLogRecord | null; close: () => void; onSaved: () => void }) {
-  const [logDate, setLogDate] = useState(log?.logDate ?? new Date().toISOString().slice(0, 10));
+function StudentWeeklyLogDialog({ log, close, onSaved }: { log: WeeklyLogRecord | null; close: () => void; onSaved: () => void }) {
+  const initialPeriod = log ? { weekStartDate: log.weekStartDate, weekEndDate: log.weekEndDate } : reportingWeekFor(new Date().toISOString().slice(0, 10));
+  const [weekStartDate, setWeekStartDate] = useState(initialPeriod.weekStartDate);
+  const [weekEndDate, setWeekEndDate] = useState(initialPeriod.weekEndDate);
   const [hours, setHours] = useState(String(log?.hours ?? 8));
-  const [activities, setActivities] = useState(log?.summary ?? "");
+  const [accomplishments, setAccomplishments] = useState(log?.summary ?? "");
   const [learnings, setLearnings] = useState(log?.learnings ?? "");
   const [challenges, setChallenges] = useState(log?.challenges ?? "");
   const [loading, setLoading] = useState(false);
@@ -1016,20 +1962,20 @@ function StudentDailyLogDialog({ log, close, onSaved }: { log: DailyLogRecord | 
     setLoading(true);
     setError("");
     try {
-      await dailyLogService.save({ id: log?.id, logDate, hours: Number(hours), activities, learnings, challenges }, status);
+      await weeklyLogService.save({ id: log?.id, weekStartDate, weekEndDate, hours: Number(hours), accomplishments, learnings, challenges }, status);
       onSaved();
     } catch (reason) {
-      setError(userError(reason, "The daily log could not be saved."));
+      setError(userError(reason, "The weekly log could not be saved."));
     } finally {
       saveLock.current = false;
       setLoading(false);
     }
   }
-  if (log && !["Draft", "Needs Revision"].includes(log.status)) return <Dialog title="View daily log" onClose={close} busy={loading}><InfoCallout icon={FileText}><p><strong>{log.date}</strong> · {log.hours} hours · <StatusBadge status={log.status} /></p></InfoCallout><div className="readonly-summary"><strong>Activities performed</strong><p>{log.summary}</p>{log.learnings && <><strong>Key learnings</strong><p>{log.learnings}</p></>}{log.challenges && <><strong>Challenges</strong><p>{log.challenges}</p></>}{log.latestFeedback && <><strong>Latest reviewer feedback</strong><p>{log.latestFeedback}</p></>}</div><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></Dialog>;
-  return <Dialog title={log ? "Edit daily log" : "Add daily log"} onClose={close} busy={loading} wide><header className="modal-heading"><span className="modal-icon"><FileText /></span><div><span className="settings-kicker">Internship activity record</span><p>Save a private draft, or submit the entry to your authorized reviewers.</p></div></header><form onSubmit={(event) => { event.preventDefault(); void save("submitted"); }}><fieldset className="daily-log-section"><legend>1. Log information</legend><p>Use the actual work date and hours completed at your assigned HTE.</p><div className="two-fields"><label className="field"><span>Work date *</span><input required type="date" value={logDate} onChange={(event) => setLogDate(event.target.value)} /></label><label className="field"><span>Rendered hours *</span><input required type="number" min="0.25" max="24" step="0.25" value={hours} onChange={(event) => setHours(event.target.value)} /></label></div></fieldset><fieldset className="daily-log-section"><legend>2. Work and learning</legend><label className="field"><span>Activities performed *</span><textarea required minLength={3} value={activities} onChange={(event) => setActivities(event.target.value)} placeholder="Describe the work you completed and your responsibilities for the day." /></label><div className="two-fields"><label className="field"><span>Key learnings</span><textarea value={learnings} onChange={(event) => setLearnings(event.target.value)} placeholder="Skills, knowledge, or insights gained" /></label><label className="field"><span>Challenges encountered</span><textarea value={challenges} onChange={(event) => setChallenges(event.target.value)} placeholder="Optional blockers or issues that need follow-up" /></label></div></fieldset>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="daily-log-actions"><p><strong>Draft</strong> stays editable. <strong>Submit</strong> sends this entry for review.</p><div className="modal-actions"><ActionButton type="button" variant="ghost" onClick={close}>Cancel</ActionButton><ActionButton type="button" variant="secondary" disabled={loading || !activities.trim()} onClick={() => void save("draft")}>Save Draft</ActionButton><ActionButton type="submit" disabled={loading || !activities.trim()}>{loading ? "Saving…" : "Submit daily log"}</ActionButton></div></div></form></Dialog>;
+  if (log && !["Draft", "Needs Revision"].includes(log.status)) return <Dialog title="View weekly log" onClose={close} busy={loading}><InfoCallout icon={FileText}><p><strong>{log.reportingPeriod}</strong> · {log.hours} hours · <StatusBadge status={log.status} /></p></InfoCallout><div className="readonly-summary"><strong>Weekly accomplishments</strong><p>{log.summary}</p>{log.learnings && <><strong>Key learnings</strong><p>{log.learnings}</p></>}{log.challenges && <><strong>Challenges</strong><p>{log.challenges}</p></>}{log.latestFeedback && <><strong>Latest reviewer feedback</strong><p>{log.latestFeedback}</p></>}</div><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></Dialog>;
+  return <Dialog title={log ? "Edit weekly log" : "Add weekly log"} onClose={close} busy={loading} wide><header className="modal-heading"><span className="modal-icon"><FileText /></span><div><span className="settings-kicker">Weekly internship activity record</span><p>Save a private draft, or submit the reporting week to your authorized reviewers.</p></div></header><form onSubmit={(event) => { event.preventDefault(); void save("submitted"); }}><fieldset className="daily-log-section"><legend>1. Reporting week</legend><p>PRAXIZ uses a Monday-to-Sunday reporting period and prevents duplicate logs for the same assignment week.</p>{log?.legacyDailyEntry && <p className="muted-note">This is a preserved legacy record. Its original entry and review history remain unchanged.</p>}<div className="two-fields"><label className="field"><span>Week starting *</span><input required type="date" value={weekStartDate} onChange={(event) => { const period = reportingWeekFor(event.target.value); setWeekStartDate(period.weekStartDate); setWeekEndDate(period.weekEndDate); }} /></label><label className="field"><span>Week ending</span><input readOnly type="date" value={weekEndDate} /></label></div><label className="field"><span>Total rendered hours for the week *</span><input required type="number" min="0.25" max="168" step="0.25" value={hours} onChange={(event) => setHours(event.target.value)} /></label></fieldset><fieldset className="daily-log-section"><legend>2. Accomplishments and learning</legend><label className="field"><span>Weekly accomplishments *</span><textarea required minLength={3} value={accomplishments} onChange={(event) => setAccomplishments(event.target.value)} placeholder="Summarize the work, tasks, and responsibilities you completed during this reporting week." /></label><div className="two-fields"><label className="field"><span>Key learnings</span><textarea value={learnings} onChange={(event) => setLearnings(event.target.value)} placeholder="Skills, knowledge, or insights gained this week" /></label><label className="field"><span>Challenges encountered</span><textarea value={challenges} onChange={(event) => setChallenges(event.target.value)} placeholder="Optional blockers or issues that need follow-up" /></label></div></fieldset>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="daily-log-actions"><p><strong>Draft</strong> stays editable. <strong>Submit</strong> sends this weekly record for review.</p><div className="modal-actions"><ActionButton type="button" variant="ghost" onClick={close}>Cancel</ActionButton><ActionButton type="button" variant="secondary" disabled={loading || !accomplishments.trim()} onClick={() => void save("draft")}>Save Draft</ActionButton><ActionButton type="submit" disabled={loading || !accomplishments.trim()}>{loading ? "Saving…" : "Submit weekly log"}</ActionButton></div></div></form></Dialog>;
 }
 
-function DailyLogDialog({ log, student, close, onSaved }: { log: DailyLogRecord | null; student: boolean; close: () => void; onSaved: () => void }) {
+function WeeklyLogDialog({ log, student, close, onSaved }: { log: WeeklyLogRecord | null; student: boolean; close: () => void; onSaved: () => void }) {
   const [feedback, setFeedback] = useState(log?.latestFeedback ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -1037,13 +1983,13 @@ function DailyLogDialog({ log, student, close, onSaved }: { log: DailyLogRecord 
   async function review(decision: "approved" | "needs_revision" | "rejected") {
     if (!log) return;
     if (decision !== "approved" && !feedback.trim()) {
-      setError("Feedback is required when returning or rejecting a daily log.");
+      setError("Feedback is required when returning or rejecting a weekly log.");
       return;
     }
     setLoading(true);
     setError("");
     try {
-      await dailyLogService.review(log.id, decision, feedback);
+      await weeklyLogService.review(log.id, decision, feedback);
       onSaved();
     } catch (reason) {
       setError(userError(reason, "The review decision could not be recorded."));
@@ -1051,29 +1997,29 @@ function DailyLogDialog({ log, student, close, onSaved }: { log: DailyLogRecord 
     }
   }
 
-  if (student) return <StudentDailyLogDialog log={log} close={close} onSaved={onSaved} />;
+  if (student) return <StudentWeeklyLogDialog log={log} close={close} onSaved={onSaved} />;
 
-  return <Dialog title="Review daily log" onClose={close} busy={loading}><span className="modal-icon"><ShieldCheck /></span>{log && <><p><strong>{log.studentName}</strong> · {log.date} · {log.hours} hours</p><div className="readonly-summary"><strong>Activities performed</strong><p>{log.summary}</p>{log.learnings && <><strong>Key learnings</strong><p>{log.learnings}</p></>}{log.challenges && <><strong>Challenges</strong><p>{log.challenges}</p></>}</div><label className="field"><span>Review feedback</span><textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Enter clear, traceable feedback…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void review("approved")}>Approve</ActionButton><ActionButton variant="secondary" disabled={loading || !feedback.trim()} onClick={() => void review("needs_revision")}>Request revision</ActionButton><ActionButton variant="danger" disabled={loading || !feedback.trim()} onClick={() => void review("rejected")}>Reject</ActionButton></div></>}</Dialog>;
+  return <Dialog title="Review weekly log" onClose={close} busy={loading}><span className="modal-icon"><ShieldCheck /></span>{log && <><p><strong>{log.studentName}</strong> · {log.reportingPeriod} · {log.hours} hours</p><div className="readonly-summary"><strong>Weekly accomplishments</strong><p>{log.summary}</p>{log.learnings && <><strong>Key learnings</strong><p>{log.learnings}</p></>}{log.challenges && <><strong>Challenges</strong><p>{log.challenges}</p></>}</div><label className="field"><span>Review feedback</span><textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Enter clear, traceable feedback…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void review("approved")}>Approve</ActionButton><ActionButton variant="secondary" disabled={loading || !feedback.trim()} onClick={() => void review("needs_revision")}>Request revision</ActionButton><ActionButton variant="danger" disabled={loading || !feedback.trim()} onClick={() => void review("rejected")}>Reject</ActionButton></div></>}</Dialog>;
 }
 
-function DailyLogsPage({ role }: { role: RoleId }) {
+function WeeklyLogsPage({ role }: { role: RoleId }) {
   const student = role === "student";
-  const [records, setRecords] = useState<DailyLogRecord[]>([]);
-  const [selected, setSelected] = useState<DailyLogRecord | null | undefined>(undefined);
+  const [records, setRecords] = useState<WeeklyLogRecord[]>([]);
+  const [selected, setSelected] = useState<WeeklyLogRecord | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   async function load() {
-    try { setRecords(await dailyLogService.listLive()); }
-    catch (reason) { setError(userError(reason, "Daily logs could not be loaded.")); }
+    try { setRecords(await weeklyLogService.listLive()); }
+    catch (reason) { setError(userError(reason, "Weekly logs could not be loaded.")); }
     finally { setLoading(false); }
   }
   useEffect(() => {
     let active = true;
-    void dailyLogService.listLive().then((result) => {
+    void weeklyLogService.listLive().then((result) => {
       if (active) setRecords(result);
     }).catch((reason) => {
-      if (active) setError(userError(reason, "Daily logs could not be loaded."));
+      if (active) setError(userError(reason, "Weekly logs could not be loaded."));
     }).finally(() => {
       if (active) setLoading(false);
     });
@@ -1081,7 +2027,7 @@ function DailyLogsPage({ role }: { role: RoleId }) {
   }, []);
   const approved = records.filter((log) => log.status === "Approved").length;
   const pending = records.filter((log) => log.status === "Submitted").length;
-  return <><PageHeader title="Daily logs" subtitle={student ? "Record and track your daily internship activities." : "Review internship activities submitted by your assigned interns."} action={student ? <ActionButton icon={Plus} onClick={() => setSelected(null)}>Add daily log</ActionButton> : undefined} />{notice && <p className="form-success" role="status">{notice}</p>}{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Total records" value={String(records.length)} detail="loaded from Supabase" icon={FileText} /><StatCard label="Approved" value={String(approved)} detail="by an authorized reviewer" icon={CheckCircle2} tone="green" /><StatCard label="Pending review" value={String(pending)} detail="awaiting feedback" icon={Clock3} tone="orange" /></div><section className="card table-card"><h2>Log history</h2><div className="table-scroll"><table className="data-table"><thead><tr>{!student && <th>Student</th>}<th>Date</th><th>Hours</th><th>Activities summary</th><th>Submitted</th><th>Status</th><th>Actions</th></tr></thead><tbody>{records.map((log) => <tr key={log.id}>{!student && <td><b>{log.studentName}</b></td>}<td><b>{log.date}</b></td><td>{log.hours}</td><td className="summary-cell">{log.summary}</td><td>{log.submitted}</td><td><StatusBadge status={log.status} /></td><td>{student && ["Draft", "Needs Revision"].includes(log.status) ? <button className="table-link" onClick={() => setSelected(log)}>Edit</button> : <button className="table-link" onClick={() => setSelected(log)}>{student ? "View" : "Review"}</button>}</td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={student ? 6 : 7}>No daily logs are available yet.</td></tr>}</tbody></table></div></section>{selected !== undefined && <DailyLogDialog log={selected} student={student} close={() => setSelected(undefined)} onSaved={() => { setNotice("Daily log changes saved."); setSelected(undefined); setLoading(true); setError(""); void load(); }} />}</>;
+  return <><PageHeader title="Weekly logs" subtitle={student ? "Record and track your internship accomplishments by reporting week." : "Review Weekly Logs submitted by your assigned interns."} action={student ? <ActionButton icon={Plus} onClick={() => setSelected(null)}>Add weekly log</ActionButton> : undefined} />{notice && <p className="form-success" role="status">{notice}</p>}{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Total records" value={String(records.length)} detail="loaded from Supabase" icon={FileText} /><StatCard label="Approved" value={String(approved)} detail="by an authorized reviewer" icon={CheckCircle2} tone="green" /><StatCard label="Pending review" value={String(pending)} detail="awaiting feedback" icon={Clock3} tone="orange" /></div><section className="card table-card"><h2>Weekly Log history</h2><div className="table-scroll"><table className="data-table"><thead><tr>{!student && <th>Student</th>}<th>Reporting week</th><th>Hours</th><th>Accomplishments summary</th><th>Submitted</th><th>Status</th><th>Actions</th></tr></thead><tbody>{records.map((log) => <tr key={log.id}>{!student && <td><b>{log.studentName}</b></td>}<td><b>{log.reportingPeriod}</b>{log.legacyDailyEntry && <small className="record-note">Historical entry</small>}</td><td>{log.hours}</td><td className="summary-cell">{log.summary}</td><td>{log.submitted}</td><td><StatusBadge status={log.status} /></td><td>{student && ["Draft", "Needs Revision"].includes(log.status) ? <button className="table-link" onClick={() => setSelected(log)}>Edit</button> : <button className="table-link" onClick={() => setSelected(log)}>{student ? "View" : "Review"}</button>}</td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={student ? 6 : 7}>No Weekly Logs are available yet.</td></tr>}</tbody></table></div></section>{selected !== undefined && <WeeklyLogDialog log={selected} student={student} close={() => setSelected(undefined)} onSaved={() => { setNotice("Weekly Log changes saved."); setSelected(undefined); setLoading(true); setError(""); void load(); }} />}</>;
 }
 
 function DocumentUploadDialog({ record, close, onSaved }: { record: DocumentRecord; close: () => void; onSaved: () => void }) {
@@ -1195,7 +2141,7 @@ function ProgressPage() {
     { title: `Complete ${data.requiredHours} required hours`, date: `${data.renderedHours} of ${data.requiredHours} verified hours`, done: hoursPercent >= 100 },
     { title: "Final evaluation and clearance", date: `Expected completion ${data.endDate}`, done: data.status === "Completed" },
   ];
-  return <><PageHeader title="Internship progress" subtitle="Follow your verified hours, requirements, and internship milestones." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="progress-hero card"><div><span className="eyebrow dark">Verified-hour completion</span><strong>{hoursPercent}%</strong><p>{data.renderedHours} verified hours · {remainingHours} hours remaining</p></div><div className="progress-ring" style={hoursPercent > 0 ? { background: `conic-gradient(#1768d5 0 ${hoursPercent}%, #dbe6f4 ${hoursPercent}% 100%)` } : undefined} role="img" aria-label={`${hoursPercent}% verified-hour completion`}><span>{hoursPercent}<small>%</small></span></div></section><div className="dashboard-grid"><section className="card"><h2>Milestone timeline</h2><div className="timeline">{milestones.map((item) => <div className={item.done ? "done" : ""} key={item.title}><span>{item.done ? <Check size={16} /> : <Clock3 size={16} />}</span><div><strong>{item.title}</strong><small>{item.date}</small></div></div>)}</div></section><aside className="card"><h2>Completion details</h2><div className="indicator-list"><div><span>Rendered hours</span><b>{hoursPercent}%</b><ProgressBar value={hoursPercent} /></div><div><span>Attendance verification</span><b>{attendancePercent}%</b><ProgressBar value={attendancePercent} tone="green" /></div><div><span>Daily logs</span><b>{logPercent}%</b><ProgressBar value={logPercent} /></div><div><span>Requirements</span><b>{hasDocumentRequirements ? `${documentPercent}%` : "Not configured"}</b><ProgressBar value={documentPercent} tone="orange" /></div></div></aside></div></>;
+  return <><PageHeader title="Internship progress" subtitle="Follow your verified hours, requirements, and internship milestones." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="progress-hero card"><div><span className="eyebrow dark">Verified-hour completion</span><strong>{hoursPercent}%</strong><p>{data.renderedHours} verified hours · {remainingHours} hours remaining</p></div><div className="progress-ring" style={hoursPercent > 0 ? { background: `conic-gradient(#1768d5 0 ${hoursPercent}%, #dbe6f4 ${hoursPercent}% 100%)` } : undefined} role="img" aria-label={`${hoursPercent}% verified-hour completion`}><span>{hoursPercent}<small>%</small></span></div></section><div className="dashboard-grid"><section className="card"><h2>Milestone timeline</h2><div className="timeline">{milestones.map((item) => <div className={item.done ? "done" : ""} key={item.title}><span>{item.done ? <Check size={16} /> : <Clock3 size={16} />}</span><div><strong>{item.title}</strong><small>{item.date}</small></div></div>)}</div></section><aside className="card"><h2>Completion details</h2><div className="indicator-list"><div><span>Rendered hours</span><b>{hoursPercent}%</b><ProgressBar value={hoursPercent} /></div><div><span>Attendance verification</span><b>{attendancePercent}%</b><ProgressBar value={attendancePercent} tone="green" /></div><div><span>Weekly logs</span><b>{logPercent}%</b><ProgressBar value={logPercent} /></div><div><span>Requirements</span><b>{hasDocumentRequirements ? `${documentPercent}%` : "Not configured"}</b><ProgressBar value={documentPercent} tone="orange" /></div></div></aside></div></>;
 }
 
 function NotificationsPage() {
@@ -1272,6 +2218,8 @@ function InternManagementPage({ role }: { role: RoleId }) {
   const [campus, setCampus] = useState("");
   const [program, setProgram] = useState("");
   const [status, setStatus] = useState("");
+  const [yearLevel, setYearLevel] = useState("");
+  const [section, setSection] = useState("");
   const [scope, setScope] = useState<Awaited<ReturnType<typeof coordinatorService.getScope>>>([]);
   const [rows, setRows] = useState<Intern[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1290,10 +2238,13 @@ function InternManagementPage({ role }: { role: RoleId }) {
   const campusOptions = [...new Set(rows.map(intern => intern.campus))];
   const programOptions = role === "coordinator" ? scope.map(item => ({ id: item.id, label: `${item.code} · ${item.name}` }))
     : [...new Map(rows.map(intern => [intern.programId ?? intern.program, { id: intern.programId ?? intern.program, label: intern.program }])).values()];
+  const yearOptions = [...new Set(rows.map(intern => intern.yearLevel).filter((value): value is number => typeof value === "number"))].sort((a, b) => a - b);
+  const sectionOptions = [...new Set(rows.map(intern => intern.section).filter((value): value is string => Boolean(value)))].sort();
   const visible = rows.filter(intern => (!search || `${intern.name} ${intern.hte}`.toLowerCase().includes(search.trim().toLowerCase()))
     && (role === "coordinator" || !campus || intern.campus === campus)
-    && (!program || (intern.programId ?? intern.program) === program) && (!status || intern.status === status));
-  const filtered = !!(search || program || status || campus);
+    && (!program || (intern.programId ?? intern.program) === program) && (!status || intern.status === status)
+    && (!yearLevel || String(intern.yearLevel ?? "") === yearLevel) && (!section || intern.section === section));
+  const filtered = !!(search || program || status || campus || yearLevel || section);
   return <><PageHeader title={role === "coordinator" ? "Intern management" : "Assigned interns"} subtitle={role === "coordinator" ? "Students are routed here by academic program; placement details appear after assignment." : "View interns assigned to your authorized supervision scope."} />
     {role === "coordinator" && scope.length > 0 && <dl className="scope-context"><div><dt>Assigned campus</dt><dd>{[...new Set(scope.map(item => item.campus))].join(" · ")}</dd></div><div><dt>{scope.length === 1 ? "Handled program" : "Handled programs"}</dt><dd>{scope.map(item => `${item.code} · ${item.name}`).join("; ")}</dd></div></dl>}
     {error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}
@@ -1302,8 +2253,10 @@ function InternManagementPage({ role }: { role: RoleId }) {
       <div className="filter-bar"><label><Search size={18} aria-hidden="true" /><input aria-label="Search interns or HTEs" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search intern or HTE…" /></label>
         {role !== "coordinator" && campusOptions.length > 1 && <select aria-label="Filter by campus" value={campus} onChange={event => setCampus(event.target.value)}><option value="">All assigned campuses</option>{campusOptions.map(item => <option key={item}>{item}</option>)}</select>}
         {programOptions.length > 1 && <select aria-label="Filter by handled program" value={program} onChange={event => setProgram(event.target.value)}><option value="">All handled programs</option>{programOptions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>}
+        {role === "coordinator" && <select aria-label="Filter by year level" value={yearLevel} onChange={event => setYearLevel(event.target.value)}><option value="">All year levels</option>{yearOptions.map(item => <option key={item} value={item}>Year {item}</option>)}</select>}
+        {role === "coordinator" && <select aria-label="Filter by section" value={section} onChange={event => setSection(event.target.value)}><option value="">All sections</option>{sectionOptions.map(item => <option key={item} value={item}>Section {item}</option>)}</select>}
         <select aria-label="Filter by status" value={status} onChange={event => setStatus(event.target.value)}><option value="">All statuses</option>{["Awaiting Assignment", "Active", "Completed", "Needs Attention"].map(item => <option key={item}>{item}</option>)}</select>
-        {filtered && <button className="table-link" onClick={() => { setSearch(""); setCampus(""); setProgram(""); setStatus(""); }}>Clear filters</button>}
+        {filtered && <button className="table-link" onClick={() => { setSearch(""); setCampus(""); setProgram(""); setStatus(""); setYearLevel(""); setSection(""); }}>Clear filters</button>}
       </div></div>
       <InternTable rows={visible} onView={intern => setHistoryStudent(intern)} emptyMessage={loading ? "Loading interns…" : error ? "Interns could not be loaded." : filtered ? "No interns match the current filters. Try adjusting your search or status filter." : "No interns are available in your assigned scope yet."} />
     </section>{historyStudent?.studentUserId && <StudentAttendanceHistory studentId={historyStudent.studentUserId} name={historyStudent.name} onClose={() => setHistoryStudent(null)} />}
@@ -1333,9 +2286,12 @@ type AnalyticsMetric = {
 
 function AnalyticsPage() {
   const { user } = useAuth();
+  const [analysisScope, setAnalysisScope] = useState<'overall' | 'hte' | 'student'>('overall');
+  const [selectedHteId, setSelectedHteId] = useState('');
+  const [selectedStudentId, setSelectedStudentId] = useState('');
   const [rows, setRows] = useState<Intern[]>([]);
   const [evaluations, setEvaluations] = useState<EvaluationRecord[]>([]);
-  const [logs, setLogs] = useState<DailyLogRecord[]>([]);
+  const [logs, setLogs] = useState<WeeklyLogRecord[]>([]);
   const [attendanceRows, setAttendanceRows] = useState<AttendanceHistoryRow[]>([]);
   const [term, setTerm] = useState<{ academicYear: string; term: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1349,7 +2305,7 @@ function AnalyticsPage() {
     void Promise.all([
       internshipService.listCoordinatorInterns(),
       evaluationService.listLive(),
-      dailyLogService.listLive(),
+      weeklyLogService.listLive(),
       attendanceService.listLiveHistory(),
       institutionalService.getCurrentAcademicTerm().catch(() => null),
     ]).then(([internRows, evaluationRows, logRows, liveAttendance, currentTerm]) => {
@@ -1363,41 +2319,45 @@ function AnalyticsPage() {
     return () => { active = false; };
   }, []);
 
+  const assignedAll = rows.filter(row => row.status !== "Awaiting Assignment" && row.assignmentId);
+  const hteOptions = [...new Map(assignedAll.filter(row => row.hteId).map(row => [row.hteId!, { id: row.hteId!, label: row.hte }])).values()];
+  const studentOptions = [...new Map(assignedAll.filter(row => row.studentUserId).map(row => [row.studentUserId!, { id: row.studentUserId!, label: row.name }])).values()];
+  const activeHteId = hteOptions.some(item => item.id === selectedHteId) ? selectedHteId : hteOptions[0]?.id ?? '';
+  const activeStudentId = studentOptions.some(item => item.id === selectedStudentId) ? selectedStudentId : studentOptions[0]?.id ?? '';
+
   const percentage = (numerator: number, denominator: number) => denominator > 0 ? Math.round(numerator / denominator * 100) : null;
-  const assignedRows = rows.filter(row => row.status !== "Awaiting Assignment");
-  const attendanceVerified = attendanceRows.filter(row => row.status === "Verified").length;
-  const approvedLogs = logs.filter(log => log.status === "Approved").length;
-  const finalizedCount = evaluations.filter(item => item.status === "Finalized").length;
+  const assignedRows = assignedAll.filter(row => analysisScope === 'overall' || (analysisScope === 'hte' ? row.hteId === activeHteId : row.studentUserId === activeStudentId));
+  const scopedAssignmentIds = new Set(assignedRows.map(row => row.assignmentId).filter((id): id is string => Boolean(id)));
+  const scopedAttendanceRows = attendanceRows.filter(row => scopedAssignmentIds.has(row.assignmentId));
+  const scopedLogs = logs.filter(log => scopedAssignmentIds.has(log.assignmentId));
+  const scopedEvaluations = evaluations.filter(item => scopedAssignmentIds.has(item.assignmentId));
+  const attendanceVerified = scopedAttendanceRows.filter(row => row.status === "Verified").length;
+  const approvedLogs = scopedLogs.filter(log => log.status === "Approved").length;
+  const finalizedCount = scopedEvaluations.filter(item => item.status === "Finalized").length;
   const required = assignedRows.reduce((sum, row) => sum + Number(row.requirements.split("/")[1] ?? 0), 0);
   const approved = assignedRows.reduce((sum, row) => sum + Number(row.requirements.split("/")[0] ?? 0), 0);
   const metrics: AnalyticsMetric[] = [
-    { label: "Attendance verification", numerator: attendanceVerified, denominator: attendanceRows.length, value: percentage(attendanceVerified, attendanceRows.length), detail: attendanceRows.length ? `${attendanceVerified} of ${attendanceRows.length} applicable sessions verified` : "No applicable sessions yet" },
-    { label: "Daily log approval", numerator: approvedLogs, denominator: logs.length, value: percentage(approvedLogs, logs.length), detail: logs.length ? `${approvedLogs} of ${logs.length} submitted logs approved` : "No submitted logs yet" },
+    { label: "Attendance verification", numerator: attendanceVerified, denominator: scopedAttendanceRows.length, value: percentage(attendanceVerified, scopedAttendanceRows.length), detail: scopedAttendanceRows.length ? `${attendanceVerified} of ${scopedAttendanceRows.length} applicable sessions verified` : "No applicable sessions yet" },
+    { label: "Weekly Log approval", numerator: approvedLogs, denominator: scopedLogs.length, value: percentage(approvedLogs, scopedLogs.length), detail: scopedLogs.length ? `${approvedLogs} of ${scopedLogs.length} submitted Weekly Logs approved` : "No submitted Weekly Logs yet" },
     { label: "Document compliance", numerator: approved, denominator: required, value: percentage(approved, required), detail: required ? `${approved} of ${required} required documents compliant` : "No required documents yet" },
-    { label: "Evaluation finalization", numerator: finalizedCount, denominator: evaluations.length, value: percentage(finalizedCount, evaluations.length), detail: evaluations.length ? `${finalizedCount} of ${evaluations.length} reports finalized · completion only, not a grade` : "No evaluation reports yet" },
+    { label: "Evaluation finalization", numerator: finalizedCount, denominator: scopedEvaluations.length, value: percentage(finalizedCount, scopedEvaluations.length), detail: scopedEvaluations.length ? `${finalizedCount} of ${scopedEvaluations.length} reports finalized · completion only, not a grade` : "No evaluation reports yet" },
   ];
   const [attendanceMetric, logMetric, documentMetric, evaluationMetric] = metrics;
   const concerns = assignedRows.filter(row => row.status === "Needs Attention" || (() => { const [complete = 0, total = 0] = row.requirements.split("/").map(Number); return total > 0 && complete < total; })());
   const ruleBasedRisks = [
     attendanceMetric.value !== null && attendanceMetric.value < 80 ? { indicator: attendanceMetric.label, message: attendanceMetric.detail, severity: attendanceMetric.value < 60 ? "high" : "medium", href: "/coordinator/attendance", action: "Review attendance" } : null,
     documentMetric.value !== null && documentMetric.value < 75 ? { indicator: documentMetric.label, message: documentMetric.detail, severity: documentMetric.value < 50 ? "high" : "medium", href: "/coordinator/documents", action: "Review documents" } : null,
-    logMetric.value !== null && logMetric.value < 75 ? { indicator: logMetric.label, message: logMetric.detail, severity: logMetric.value < 50 ? "high" : "medium", href: "/coordinator/reports", action: "Review daily logs" } : null,
+    logMetric.value !== null && logMetric.value < 75 ? { indicator: logMetric.label, message: logMetric.detail, severity: logMetric.value < 50 ? "high" : "medium", href: "/coordinator/reports", action: "Review Weekly Logs" } : null,
     evaluationMetric.value !== null && evaluationMetric.value < 100 ? { indicator: evaluationMetric.label, message: evaluationMetric.detail, severity: "medium", href: "/coordinator/evaluations", action: "Review evaluations" } : null,
   ].filter((risk): risk is { indicator: string; message: string; severity: "high" | "medium"; href: string; action: string } => Boolean(risk));
-  const hasData = assignedRows.length > 0 || attendanceRows.length > 0 || logs.length > 0 || evaluations.length > 0 || required > 0;
+  const hasData = assignedRows.length > 0 || scopedAttendanceRows.length > 0 || scopedLogs.length > 0 || scopedEvaluations.length > 0 || required > 0;
   const displayValue = (metric: AnalyticsMetric) => metric.value === null ? "No data" : `${metric.value}%`;
 
   async function generateAiInsights() {
     if (aiLoading || loading || !hasData) return;
     setAiLoading(true); setAiError("");
     try {
-      const response = await fetch("/api/ai/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-        attendance: attendanceMetric.value, attendanceVerified: attendanceMetric.numerator, attendanceApplicable: attendanceMetric.denominator,
-        dailyLogApproval: logMetric.value, dailyLogsApproved: logMetric.numerator, dailyLogsApplicable: logMetric.denominator,
-        evaluationFinalization: evaluationMetric.value, evaluationsFinalized: evaluationMetric.numerator, evaluationsApplicable: evaluationMetric.denominator,
-        documentCompliance: documentMetric.value, documentsCompliant: documentMetric.numerator, documentsRequired: documentMetric.denominator,
-        assignedInterns: assignedRows.length, concerns: concerns.length, ruleBasedAlerts: ruleBasedRisks.map(risk => `${risk.indicator}: ${risk.message}`),
-      }) });
+      const response = await fetch("/api/ai/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: analysisScope, hteId: analysisScope === 'hte' ? activeHteId : undefined, studentId: analysisScope === 'student' ? activeStudentId : undefined }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || "AI performance analysis could not be generated.");
       setAiInsights(data as AnalyticsAiResult);
@@ -1409,12 +2369,13 @@ function AnalyticsPage() {
   return <>
     <PageHeader title="Performance analytics" subtitle="Monitor internship performance, identify areas requiring attention, and review AI-assisted insights derived from verified PRAXIZ records." />
     <div className="analytics-context" role="status"><ShieldCheck size={18} /><span><strong>{term ? `${term.academicYear} · ${term.term}` : "Current academic context"}</strong>{scope ? ` · ${scope}` : " · Authorized coordinator scope"}</span></div>
+    <section className="analytics-scope-panel" aria-labelledby="analysis-scope-heading"><div><span id="analysis-scope-heading">Analysis scope</span><div className="analytics-scope-tabs" role="group" aria-label="Analysis scope">{([['overall', 'Overall'], ['hte', 'By HTE'], ['student', 'Individual Student']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={analysisScope === value} onClick={() => { setAnalysisScope(value); setAiInsights(null); setAiError(''); }}>{label}</button>)}</div></div>{analysisScope === 'hte' && <label className="field field-compact"><span>HTE organization</span><select value={activeHteId} onChange={event => { setSelectedHteId(event.target.value); setAiInsights(null); }}><option value="" disabled>Select an authorized HTE</option>{hteOptions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}{analysisScope === 'student' && <label className="field field-compact"><span>Student intern</span><select value={activeStudentId} onChange={event => { setSelectedStudentId(event.target.value); setAiInsights(null); }}><option value="" disabled>Select an authorized student</option>{studentOptions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}</section>
     {error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}
     {loading ? <div className="analytics-loading" role="status" aria-label="Loading analytics"><span /><span /><span /></div> : !hasData ? <EmptyAction icon={BarChart3} title="No analytics available yet" copy="There are currently no active internship records in the selected coordinator scope." /> : <>
       <section className="card analytics-overview"><div className="card-title"><div><h2>Performance overview</h2><p className="muted-note">Verified records in your authorized scope.</p></div><StatusBadge status={concerns.length ? "Needs Attention" : "Good Standing"} /></div><div className="analytics-metric-grid">{metrics.map(metric => <article className="analytics-metric" key={metric.label}><div className="analytics-metric-icon">{metric.label.startsWith("Attendance") ? <CheckCircle2 /> : metric.label.startsWith("Daily") ? <FileText /> : metric.label.startsWith("Evaluation") ? <Star /> : <FileCheck2 />}</div><div><span>{metric.label}</span><strong>{displayValue(metric)}</strong><small>{metric.detail}</small>{metric.value !== null && <ProgressBar value={metric.value} />}</div></article>)}<article className="analytics-metric"><div className="analytics-metric-icon"><UsersRound /></div><div><span>Interns requiring attention</span><strong>{concerns.length}</strong><small>{assignedRows.length ? `of ${assignedRows.length} active interns` : "No active interns"}</small></div></article></div></section>
       <section className="card analytics-visualizations"><div className="card-title"><div><h2>Performance visualizations</h2><p className="muted-note">A compact view of verified workflow completion.</p></div></div><div className="analytics-bars" role="img" aria-label="Verified workflow completion indicators">{metrics.map(metric => <div className="analytics-bar-row" key={metric.label}><span>{metric.label}</span><div><i style={{ width: `${metric.value ?? 0}%` }} /></div><b>{displayValue(metric)}</b></div>)}</div></section>
       <section className="card analytics-risks"><div className="card-title"><div><h2>Risks &amp; exceptions</h2><p className="muted-note">Deterministic rules identify where coordinator review may be needed.</p></div></div>{ruleBasedRisks.length ? <div className="risk-list">{ruleBasedRisks.map(risk => <article className="risk-row" key={risk.indicator}><div><strong>{risk.indicator}</strong><p>{risk.message}</p></div><StatusBadge status={risk.severity === "high" ? "Needs Attention" : "Monitor"} /><Link className="button button-secondary" href={risk.href}>{risk.action}</Link></article>)}</div> : <p className="muted-note">No configured concern threshold was triggered.</p>}</section>
-      <section className="card ai-insights-card"><div className="card-title"><div><h2>AI Performance Insights</h2><p className="muted-note">AI-assisted interpretation of verified PRAXIZ internship indicators.</p></div><ActionButton onClick={generateAiInsights} disabled={aiLoading || !hasData}>{aiLoading ? "Analyzing…" : aiInsights ? "Regenerate insights" : "Generate AI insights"}</ActionButton></div>{aiError && <div className="ai-error" role="alert"><AlertTriangle size={16} /><span>{aiError}</span><button className="table-link" onClick={() => void generateAiInsights()} disabled={aiLoading}>Try again</button></div>}{aiLoading && <div className="ai-loading-state" role="status" aria-live="polite"><span className="skeleton-line" /><span className="skeleton-line short" /><span className="skeleton-line" /><p>Analyzing verified indicators… PRAXIZ AI is interpreting the current monitoring data.</p></div>}{!aiInsights && !aiLoading && !aiError && <p className="muted-note">Generate an AI-assisted analysis of the current attendance, daily-log, evaluation, and document-compliance indicators.</p>}{aiInsights && !aiLoading && <div className="ai-results"><section><h3>Overall assessment</h3><p>{aiInsights.summary}</p></section><section><h3>Key observations</h3>{aiInsights.patterns.length ? <ul className="observation-list">{aiInsights.patterns.map((pattern, index) => <li key={`pattern-${index}`}>{pattern}</li>)}</ul> : <p className="muted-note">No additional pattern was identified from the available verified indicators.</p>}</section><section><h3>Recommended actions</h3>{aiInsights.recommendations.length ? <ol className="recommendation-list">{aiInsights.recommendations.map((recommendation, index) => <li key={`recommendation-${index}`}><span>{recommendation}</span>{index === 0 && ruleBasedRisks[0] && <Link className="text-link" href={ruleBasedRisks[0].href}>Open workflow</Link>}</li>)}</ol> : <p className="muted-note">No additional coordinator follow-up recommendation was generated.</p>}</section></div>}<div className="ai-disclaimer"><ShieldCheck size={18} /><p><strong>AI-assisted interpretation.</strong> Verified PRAXIZ records, configured indicators, rule-based alerts, and Internship Coordinator decisions remain authoritative.</p></div></section>
+      <section className="card ai-insights-card"><div className="card-title"><div><h2>AI Performance Insights</h2><p className="muted-note">AI-assisted interpretation of verified PRAXIZ internship indicators.</p></div><ActionButton onClick={generateAiInsights} disabled={aiLoading || !hasData}>{aiLoading ? "Analyzing…" : aiInsights ? "Regenerate insights" : "Generate AI insights"}</ActionButton></div>{aiError && <div className="ai-error" role="alert"><AlertTriangle size={16} /><span>{aiError}</span><button className="table-link" onClick={() => void generateAiInsights()} disabled={aiLoading}>Try again</button></div>}{aiLoading && <div className="ai-loading-state" role="status" aria-live="polite"><span className="skeleton-line" /><span className="skeleton-line short" /><span className="skeleton-line" /><p>Analyzing verified indicators… PRAXIZ AI is interpreting the current monitoring data.</p></div>}{!aiInsights && !aiLoading && !aiError && <p className="muted-note">Generate an AI-assisted analysis of the current attendance, Weekly Log, HTE evaluation, and document-compliance indicators.</p>}{aiInsights && !aiLoading && <div className="ai-results"><section><h3>Overall assessment</h3><p>{aiInsights.summary}</p></section><section><h3>Key observations</h3>{aiInsights.patterns.length ? <ul className="observation-list">{aiInsights.patterns.map((pattern, index) => <li key={`pattern-${index}`}>{pattern}</li>)}</ul> : <p className="muted-note">No additional pattern was identified from the available verified indicators.</p>}</section><section><h3>Recommended actions</h3>{aiInsights.recommendations.length ? <ol className="recommendation-list">{aiInsights.recommendations.map((recommendation, index) => <li key={`recommendation-${index}`}><span>{recommendation}</span>{index === 0 && ruleBasedRisks[0] && <Link className="text-link" href={ruleBasedRisks[0].href}>Open workflow</Link>}</li>)}</ol> : <p className="muted-note">No additional coordinator follow-up recommendation was generated.</p>}</section></div>}<div className="ai-disclaimer"><ShieldCheck size={18} /><p><strong>AI-assisted interpretation.</strong> Verified PRAXIZ records, configured indicators, rule-based alerts, and Internship Coordinator decisions remain authoritative.</p></div></section>
     </>}
   </>;
 }
@@ -1568,25 +2529,33 @@ function UserAccessDialog({ account, close }: { account: UserAccountRecord; clos
 }
 
 function ProvisionAccountDialog({ accountRole, hte, close, onCreated }: { accountRole: 'coordinator' | 'hte'; hte?: PartnerHteRecord; close: () => void; onCreated?: () => void }) {
-  const [fullName, setFullName] = useState(''); const [email, setEmail] = useState(''); const [programIds, setProgramIds] = useState<string[]>([]);
-  const [programs, setPrograms] = useState<ProgramChoice[]>([]); const [loading, setLoading] = useState(accountRole === 'coordinator'); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+  const [fullName, setFullName] = useState(''); const [email, setEmail] = useState(''); const [campusId, setCampusId] = useState(''); const [collegeId, setCollegeId] = useState(''); const [programIds, setProgramIds] = useState<string[]>([]);
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [institutionalOptions, setInstitutionalOptions] = useState<Awaited<ReturnType<typeof institutionalService.loadRegistrationInstitutionalOptions>> | null>(null); const [loading, setLoading] = useState(accountRole === 'coordinator'); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   useEffect(() => {
     if (accountRole !== 'coordinator') return;
     let active = true;
-    void institutionalService.loadRegistrationInstitutionalOptions().then(result => { if (active) setPrograms(result.programs.map(program => ({ id: program.id, code: program.code, name: program.name }))); }).catch(reason => { if (active) setError(userError(reason, 'Academic programs could not be loaded.')); }).finally(() => { if (active) setLoading(false); });
+    void institutionalService.loadRegistrationInstitutionalOptions().then(result => { if (active) setInstitutionalOptions(result); }).catch(reason => { if (active) setError(userError(reason, 'Campuses and academic programs could not be loaded.')); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [accountRole]);
+  const campuses = institutionalOptions?.campuses ?? [];
+  const colleges = institutionalOptions && campusId ? unitsForCampus(institutionalOptions.units, campusId) : [];
+  const programs: ProgramChoice[] = institutionalOptions && collegeId
+    ? programsForCollege(institutionalOptions.units, institutionalOptions.programs, collegeId).map(program => ({ id: program.id, code: program.code, name: program.name }))
+    : [];
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('');
     try {
-      const response = await fetch('/api/accounts/provision', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: accountRole, fullName, email, programIds, hteId: hte?.id }) });
+      const { data: sessionData, error: sessionError } = await createSupabaseBrowserClient().auth.getSession();
+      if (sessionError || !sessionData.session?.access_token) throw new Error('Your sign-in session has expired. Please sign in again before provisioning an account.');
+      const response = await fetch('/api/accounts/provision', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` }, body: JSON.stringify({ role: accountRole, fullName, email, campusId, collegeId, programIds, hteId: hte?.id, referenceNumber }) });
       const result = await response.json() as { error?: string; message?: string };
       if (!response.ok) throw new Error(result.error || 'The account invitation could not be created.');
       setNotice(result.message || 'Invitation sent.'); onCreated?.();
     } catch (reason) { setError(userError(reason)); } finally { setBusy(false); }
   }
   const label = accountRole === 'coordinator' ? 'Internship Coordinator' : 'HTE Representative';
-  return <Dialog title={`Create ${label} account`} onClose={close} busy={busy} wide><InfoCallout icon={ShieldCheck}><p>This secure server-side invitation creates the authorized role. The recipient sets their own password and signs in through the universal email-and-password form.</p></InfoCallout>{hte && <p><strong>Partner HTE:</strong> {hte.name}</p>}{notice ? <div className="inline-success"><CheckCircle2 /><div><strong>Invitation created</strong><p>{notice}</p></div></div> : <form onSubmit={submit}><div className="two-fields"><label className="field"><span>Full name *</span><input required minLength={3} maxLength={180} value={fullName} onChange={event => setFullName(event.target.value)} /></label><label className="field"><span>Email address *</span><input required type="email" maxLength={180} value={email} onChange={event => setEmail(event.target.value)} /></label></div>{accountRole === 'coordinator' && <div className="field"><span>Authorized programs *</span><ProgramMultiSelect options={programs} value={programIds} onChange={setProgramIds} /></div>}{error && <p className="form-error" role="alert"><AlertTriangle size={16} />{error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={busy || loading || (accountRole === 'coordinator' && !programIds.length)}>{busy ? 'Sending invitation…' : `Create ${label}`}</ActionButton></div></form>}</Dialog>;
+  return <Dialog title={`Create ${label} account`} onClose={close} busy={busy} wide><InfoCallout icon={ShieldCheck}><p>This secure server-side invitation creates the authorized role. The recipient sets their own password and signs in through the universal email-and-password form.</p></InfoCallout>{hte && <p><strong>Partner HTE:</strong> {hte.name}</p>}{notice ? <div className="inline-success"><CheckCircle2 /><div><strong>Invitation created</strong><p>{notice}</p></div></div> : <form onSubmit={submit}><div className="two-fields"><label className="field"><span>Full name *</span><input required minLength={3} maxLength={180} value={fullName} onChange={event => setFullName(event.target.value)} /></label><label className="field"><span>Email address *</span><input required type="email" maxLength={180} value={email} onChange={event => setEmail(event.target.value)} /></label></div>{accountRole === 'hte' && <label className="field"><span>Representative reference number *</span><input required minLength={3} maxLength={64} autoCapitalize="characters" spellCheck={false} value={referenceNumber} onChange={event => setReferenceNumber(event.target.value.toUpperCase())} placeholder="Official HTE or university-issued identifier" /><small>Use the real identifier issued for this representative. It will appear in administrator registration records.</small></label>}{accountRole === 'coordinator' && <><div className="two-fields"><label className="field"><span>Campus *</span><select required value={campusId} disabled={loading || !institutionalOptions} onChange={event => { setCampusId(event.target.value); setCollegeId(''); setProgramIds([]); }}><option value="" disabled>{loading ? 'Loading campuses…' : 'Select campus'}</option>{campuses.map(campus => <option key={campus.id} value={campus.id}>{campus.shortName || campus.name}</option>)}</select></label><label className="field"><span>College / academic unit *</span><select required value={collegeId} disabled={!campusId} onChange={event => { setCollegeId(event.target.value); setProgramIds([]); }}><option value="" disabled>Select college or unit</option>{colleges.map(college => <option key={college.id} value={college.id}>{college.shortName || college.name} — {college.name}</option>)}</select></label></div><div className="field"><span>Authorized programs *</span><ProgramMultiSelect options={programs} value={programIds} onChange={setProgramIds} /></div></>}{error && <p className="form-error" role="alert"><AlertTriangle size={16} />{error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={busy || loading || (accountRole === 'hte' && !referenceNumber.trim()) || (accountRole === 'coordinator' && (!campusId || !collegeId || !programIds.length))}>{busy ? 'Sending invitation…' : `Create ${label}`}</ActionButton></div></form>}</Dialog>;
 }
 
 function UserAccountsPage() {
@@ -1611,7 +2580,7 @@ function UserAccountsPage() {
   }, []);
 
   const visibleRecords = records.filter((record) => (statusFilter === "All" || record.status === statusFilter) && (!search || `${record.name} ${record.email} ${record.role} ${record.reference} ${record.status}`.toLowerCase().includes(search.toLowerCase())));
-  return <><PageHeader title="User accounts" subtitle="View live identities and help users recover access without exposing or replacing their passwords." action={<div className="inline-actions user-account-actions"><ActionButton icon={Plus} onClick={() => setProvisioning(true)}>Create Internship Coordinator</ActionButton><Link className="button button-secondary" href="/admin/registrations"><UserCheck size={18} /> Review Student Intern registrations</Link></div>} />
+  return <><PageHeader title="User accounts" subtitle="View live identities and help users recover access without exposing or replacing their passwords." action={<div className="inline-actions user-account-actions"><ActionButton icon={Plus} onClick={() => setProvisioning(true)}>Create Internship Coordinator</ActionButton><Link className="button button-secondary" href="/admin/registrations"><UserCheck size={18} /> Review registrations</Link></div>} />
     <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Safe access recovery:</strong> administrators can send a one-time reset link to the registered email address, but cannot view or set a user’s password.</p></div>
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
     <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading accounts…" : `${visibleRecords.length} account${visibleRecords.length === 1 ? "" : "s"}`}</h2><div className="filter-bar"><select aria-label="Account status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="All">All statuses</option>{[...new Set(records.map(r => r.status))].map(status => <option key={status} value={status}>{status}</option>)}</select><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, or reference…" /></label></div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Reference</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleRecords.map((record) => <tr key={record.id}><td><b>{record.name}</b></td><td className="email-cell" title={record.email}>{record.email}</td><td>{record.role}</td><td>{record.reference}</td><td><StatusBadge status={record.status} /></td><td><button className="table-link" onClick={() => setSelected(record)}>Manage access</button></td></tr>)}{!loading && visibleRecords.length === 0 && <tr><td colSpan={6}>No live user accounts match this view.</td></tr>}</tbody></table></div></section>
@@ -1642,7 +2611,7 @@ function AssignmentDialog({ close, onSaved }: { close: () => void; onSaved: () =
   useEffect(() => { let active = true; void coordinatorService.getAssignmentOptions().then((result) => { if (!active) return; setOptions(result); setStudentId(result.students[0]?.id ?? ""); setHteId(result.htes[0]?.id ?? ""); setTermId(result.terms[0]?.id ?? ""); const term = result.terms[0]; if (term) { setStartDate(term.startsOn); setEndDate(term.endsOn); } }).catch((reason) => { if (active) setError(userError(reason, "Assignment choices could not be loaded.")); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
   function chooseTerm(id: string) { setTermId(id); const term = options.terms.find((item) => item.id === id); if (term) { setStartDate(term.startsOn); setEndDate(term.endsOn); } }
   async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setLoading(true); setError(""); try { await coordinatorService.createAssignment({ studentUserId: studentId, hteId, academicTermId: termId, requiredHours: Number(hours), startDate, expectedEndDate: endDate, submitForApproval }); onSaved(); } catch (reason) { setError(userError(reason, "The assignment could not be created.")); setLoading(false); } }
-  return <Dialog title="Create internship assignment" onClose={close} busy={loading} wide><InfoCallout icon={ListChecks}><p>Students are limited to your program; only verified HTEs are eligible. Each student can have only one placement for an overlapping period.</p></InfoCallout>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<form onSubmit={submit}><label className="field"><span>Student intern *</span><select required value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="" disabled>Select student</option>{options.students.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="field"><span>Student ID</span><input readOnly value={options.students.find(item => item.id === studentId)?.studentNumber || ""} placeholder={loading ? "Loading…" : "Select a student"} /></label><label className="field"><span>Verified HTE *</span><select required value={hteId} onChange={(event) => setHteId(event.target.value)}><option value="" disabled>Select HTE</option>{options.htes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="field"><span>Academic term *</span><select required value={termId} onChange={(event) => chooseTerm(event.target.value)}><option value="" disabled>Select term</option>{options.terms.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><div className="two-fields"><label className="field"><span>Required hours *</span><input required type="number" min="1" value={hours} onChange={(event) => setHours(event.target.value)} /></label><label className="field"><span>Workflow</span><select value={submitForApproval ? "approval" : "draft"} onChange={(event) => setSubmitForApproval(event.target.value === "approval")}><option value="approval">Submit for approval</option><option value="draft">Save as draft</option></select></label></div><div className="two-fields"><label className="field"><span>Start date *</span><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label className="field"><span>Expected end date *</span><input required type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label></div><div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !studentId || !hteId || !termId}>{loading ? "Please wait…" : "Create assignment"}</ActionButton></div></form></Dialog>;
+  return <Dialog title="Create internship assignment" onClose={close} busy={loading} wide><InfoCallout icon={ListChecks}><p>Students are limited to your program; only verified HTEs with an active representative are eligible. Activating an assignment makes it available to the student immediately; drafts remain private until you activate them.</p></InfoCallout>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<form onSubmit={submit}><label className="field"><span>Student intern *</span><select required value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="" disabled>Select student</option>{options.students.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="field"><span>Student ID</span><input readOnly value={options.students.find(item => item.id === studentId)?.studentNumber || ""} placeholder={loading ? "Loading…" : "Select a student"} /></label><label className="field"><span>Verified HTE *</span><select required value={hteId} onChange={(event) => setHteId(event.target.value)}><option value="" disabled>Select HTE</option>{options.htes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="field"><span>Academic term *</span><select required value={termId} onChange={(event) => chooseTerm(event.target.value)}><option value="" disabled>Select term</option>{options.terms.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><div className="two-fields"><label className="field"><span>Required hours *</span><input required type="number" min="1" value={hours} onChange={(event) => setHours(event.target.value)} /></label><label className="field"><span>Workflow</span><select value={submitForApproval ? "approval" : "draft"} onChange={(event) => setSubmitForApproval(event.target.value === "approval")}><option value="approval">Activate assignment</option><option value="draft">Save as draft</option></select></label></div><div className="two-fields"><label className="field"><span>Start date *</span><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label className="field"><span>Expected end date *</span><input required type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label></div><div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !studentId || !hteId || !termId}>{loading ? "Please wait…" : "Create assignment"}</ActionButton></div></form></Dialog>;
 }
 
 function AssignmentsPage() {
@@ -1664,6 +2633,45 @@ function AuditLogsPage() {
   const shown = records.filter((item) => !search || `${item.action} ${item.actor} ${item.entity}`.toLowerCase().includes(search.toLowerCase()));
   function exportAudit() { downloadCsv(`praxiz-audit-${new Date().toISOString().slice(0, 10)}.csv`, ["Action", "Actor", "Entity", "Occurred At", "Metadata"], shown.map((item) => [item.action, item.actor, item.entity, item.occurredAt, JSON.stringify(item.metadata)])); }
   return <><PageHeader title="Audit logs" subtitle="Immutable production events from the existing PRAXIZ audit mechanism." action={<ActionButton icon={Download} disabled={loading || shown.length === 0} onClick={exportAudit}>Export audit</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading audit events…" : `${shown.length} event${shown.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search action, actor, or entity…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Actions</th><th>Actor</th><th>Entity</th><th>Timestamp</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.action}</b></td><td>{item.actor}</td><td>{item.entity}</td><td>{formatTimestamp(item.occurredAt)}</td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={4}>No recorded audit event matches this view.</td></tr>}</tbody></table></div></section></>;
+}
+
+function SupportInboxPage() {
+  const [records, setRecords] = useState<ContactMessageRecord[]>([]);
+  const [selected, setSelected] = useState<ContactMessageRecord | null>(null);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    setError("");
+    try { setRecords(await adminService.listContactMessages()); }
+    catch (reason) { setError(userError(reason, "Support messages could not be loaded.")); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  const shown = records.filter((item) => `${item.senderName} ${item.senderEmail} ${item.subject} ${item.message}`.toLowerCase().includes(search.trim().toLowerCase()));
+  async function open(item: ContactMessageRecord) {
+    setSelected(item);
+    if (item.status !== "New") return;
+    try {
+      await adminService.updateContactMessageStatus(item.id, "read");
+      setRecords((items) => items.map((record) => record.id === item.id ? { ...record, status: "Read" } : record));
+      setSelected({ ...item, status: "Read" });
+    } catch (reason) { setError(userError(reason, "The message read status could not be updated.")); }
+  }
+  async function resolve() {
+    if (!selected) return;
+    try {
+      await adminService.updateContactMessageStatus(selected.id, "resolved");
+      setRecords((items) => items.map((record) => record.id === selected.id ? { ...record, status: "Resolved" } : record));
+      setSelected({ ...selected, status: "Resolved" });
+    } catch (reason) { setError(userError(reason, "The message could not be marked resolved.")); }
+  }
+  return <><PageHeader title="Support inbox" subtitle="Messages submitted through the public PRAXIZ contact form." />
+    {error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}
+    <div className="stats-grid three"><StatCard label="New messages" value={String(records.filter((item) => item.status === "New").length)} icon={MessageSquareText} tone="orange" /><StatCard label="Read" value={String(records.filter((item) => item.status === "Read").length)} icon={Eye} /><StatCard label="Resolved" value={String(records.filter((item) => item.status === "Resolved").length)} icon={CheckCircle2} tone="green" /></div>
+    <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading support messages…" : `${shown.length} message${shown.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search sender, email, or subject…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Sender</th><th>Email</th><th>Subject</th><th>Received</th><th>Status</th><th>Actions</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.senderName}</b></td><td>{item.senderEmail}</td><td className="summary-cell">{item.subject}</td><td>{formatTimestamp(item.receivedAt)}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" onClick={() => void open(item)}><Eye size={16} />View</button></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={6}>No support messages match this view.</td></tr>}</tbody></table></div></section>
+    {selected && <Dialog title={selected.subject} onClose={() => setSelected(null)}><div className="feedback-detail"><header className="feedback-detail-heading"><span className="feedback-detail-icon"><MessageSquareText size={22} /></span><div><span className="feedback-detail-kicker">Contact message</span><h3>{selected.senderName}</h3><p>{selected.senderEmail}</p></div><StatusBadge status={selected.status} /></header><section className="feedback-detail-message"><h4>Message</h4><p className="preserve-text">{selected.message}</p></section><small>Received {formatTimestamp(selected.receivedAt)}</small><div className="modal-actions"><ActionButton variant="secondary" onClick={() => setSelected(null)}>Close</ActionButton>{selected.status !== "Resolved" && <ActionButton icon={CheckCircle2} onClick={() => void resolve()}>Mark resolved</ActionButton>}</div></div></Dialog>}
+  </>;
 }
 
 type MasterDataKind = "campus" | "college" | "program" | "term";
@@ -1850,8 +2858,8 @@ const evaluationStageLabels: Record<EvaluationTemplateStage, string> = {
 
 const evaluatorTypeLabels: Record<EvaluationTemplateRecord["evaluatorType"], string> = {
   hte: "HTE representative",
-  coordinator: "Internship coordinator",
-  faculty: "Faculty evaluator",
+  coordinator: "Retired historical form",
+  faculty: "Retired historical form",
 };
 
 function newEvaluationCriterion(index: number): EvaluationTemplateCriterionInput {
@@ -1862,7 +2870,6 @@ function EvaluationTemplateDialog({ close, onCreated }: { close: () => void; onC
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [stage, setStage] = useState<EvaluationTemplateStage>("final");
-  const [evaluatorType, setEvaluatorType] = useState<EvaluationTemplateEvaluator>("hte");
   const [isActive, setIsActive] = useState(true);
   const [criteria, setCriteria] = useState<EvaluationTemplateCriterionInput[]>([
     { ...newEvaluationCriterion(0), weight: 100 },
@@ -1881,7 +2888,7 @@ function EvaluationTemplateDialog({ close, onCreated }: { close: () => void; onC
     setLoading(true);
     setError("");
     try {
-      const result = await workflowTemplateService.createEvaluationTemplate({ code: "generated", name, description, stage, evaluatorType, isActive, criteria });
+      const result = await workflowTemplateService.createEvaluationTemplate({ code: "generated", name, description, stage, evaluatorType: "hte", isActive, criteria });
       await onCreated({ version: result.version, criteriaCount: result.criteriaCount });
       close();
     } catch (reason) {
@@ -1893,7 +2900,7 @@ function EvaluationTemplateDialog({ close, onCreated }: { close: () => void; onC
   return <Dialog title="Create evaluation form" onClose={close} busy={loading} wide><InfoCallout icon={Star}><p>Create a custom scorecard only when its criteria and weighting have been institutionally approved. Use the official PSU form for standard internship evaluation. Publishing replaces the active form for the same evaluator role and stage; other roles and stages are unchanged.</p></InfoCallout><form onSubmit={submit}>
     <div className="two-fields"><label className="field"><span>Form name</span><input required value={name} onChange={(event) => { setName(event.target.value); }} placeholder="Final HTE Evaluation" /></label></div>
     <label className="field"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Explain when and how this form should be used…" /></label>
-    <div className="two-fields"><label className="field"><span>Evaluation stage</span><select value={stage} onChange={(event) => setStage(event.target.value as EvaluationTemplateStage)}><option value="midterm">Midterm</option><option value="final">Final</option><option value="other">Other</option></select></label><label className="field"><span>Evaluator</span><select value={evaluatorType} onChange={(event) => setEvaluatorType(event.target.value as EvaluationTemplateEvaluator)}><option value="hte">HTE representative</option><option value="coordinator">Internship coordinator</option></select></label></div>
+    <div className="two-fields"><label className="field"><span>Evaluation stage</span><select value={stage} onChange={(event) => setStage(event.target.value as EvaluationTemplateStage)}><option value="midterm">Midterm</option><option value="final">Final</option><option value="other">Other</option></select></label><label className="field"><span>Evaluator</span><input value="Authorized HTE Representative" readOnly /></label></div>
     <div className="criteria-builder"><div className="criteria-builder-heading"><div><strong>Scoring criteria</strong><small>Weights must total exactly 100%. Each criterion uses a 1–5 scale.</small></div><StatusBadge status={`${totalWeight}% total`} /></div>{criteria.map((criterion, index) => <fieldset className="criterion-builder-row" key={index}><legend>Criterion {index + 1}</legend><div className="criterion-builder-primary"><label className="field"><span>Name</span><input required value={criterion.label} onChange={(event) => updateCriterion(index, { label: event.target.value, code: normalizeEvaluationCode(event.target.value) })} placeholder="Communication" /></label><label className="field criterion-weight"><span>Weight (%)</span><input required type="number" min="1" max="100" step="1" value={criterion.weight || ""} onChange={(event) => updateCriterion(index, { weight: Number(event.target.value) })} /></label></div><label className="field"><span>Description</span><input value={criterion.description} onChange={(event) => updateCriterion(index, { description: event.target.value })} placeholder="What the evaluator should assess…" /></label><button type="button" className="table-link criterion-remove" disabled={criteria.length === 1} onClick={() => setCriteria((current) => current.filter((_, criterionIndex) => criterionIndex !== index))}>Remove criterion</button></fieldset>)}<button type="button" className="button button-secondary criterion-add" disabled={criteria.length >= 20} onClick={() => setCriteria((current) => [...current, newEvaluationCriterion(current.length)])}><Plus size={17} /> Add criterion</button></div>
     <label className="master-current-option"><input aria-label="Publish this evaluation form immediately" type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span><strong>Publish immediately</strong><small>This replaces the active form for the same evaluator and stage. Previous forms remain available for historical records.</small></span></label>
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
@@ -1912,7 +2919,7 @@ function WorkflowTemplatesPage() {
   async function publishOfficial() {
     if (publishLock.current) return;
     publishLock.current = true; setPublishing(true); setError("");
-    try { await evaluationService.publishOfficial(); await loadTemplates(); setNotice("Official PSU-F-PLU-02 templates are published for HTE and coordinator evaluators. Historical records were preserved."); setConfirmOfficial(false); }
+    try { await evaluationService.publishOfficial(); await loadTemplates(); setNotice("The official PSU-F-PLU-02 HTE evaluation template is published. Historical records were preserved."); setConfirmOfficial(false); }
     catch (reason) { setError(userError(reason)); setConfirmOfficial(false); }
     finally { publishLock.current = false; setPublishing(false); }
   }
@@ -1963,8 +2970,8 @@ function WorkflowTemplatesPage() {
     {notice && <p className="form-success"><CheckCircle2 size={16} /> {notice}</p>}
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
     {section === "documents" && <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading document requirements…" : "Document requirement templates"}</h2><StatusBadge status={`${templates.filter((template) => template.isActive).length} published`} /></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Form name / description</th><th>Workflow phase</th><th>Requirement</th><th>Accepted files</th><th>Limit</th><th>Status</th><th>Actions</th></tr></thead><tbody>{templates.map((template) => <tr key={template.id}><td className="record-description"><b>{template.name}</b><small>{template.description || "No description provided."}</small></td><td>{documentTemplatePhaseLabels[template.phase]}</td><td>{template.isRequired ? "Required" : "Optional"}</td><td>{formatTemplateFileTypes(template.allowedMimeTypes)}</td><td>{Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB</td><td><StatusBadge status={template.isActive ? "Published" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelected(template)}>View</button></td></tr>)}{!loading && templates.length === 0 && <tr><td colSpan={7}>No document requirement templates have been configured.</td></tr>}</tbody></table></div></section>}
-    {section === "evaluations" && <div className="card"><h2>Official university evaluation</h2><p>PSU-F-PLU-02 · Rev. No. 00 · January 2, 2026. 18 criteria; individual ratings only.</p><ActionButton disabled={publishing} onClick={() => setConfirmOfficial(true)}>Publish official PSU form</ActionButton></div>}
-    {confirmOfficial && <ConfirmDialog title="Publish the official PSU evaluation?" message="The official form will be activated for HTE and coordinator evaluators. Previous forms remain available for existing evaluations and history." confirmLabel={publishing ? "Publishing…" : "Publish official form"} busy={publishing} onConfirm={() => void publishOfficial()} onCancel={() => setConfirmOfficial(false)} />}
+    {section === "evaluations" && <div className="card"><h2>Official HTE evaluation</h2><p>PSU-F-PLU-02 · Rev. No. 00 · January 2, 2026. Completed by an authorized HTE Representative; reviewed and finalized by the Internship Coordinator.</p><ActionButton disabled={publishing} onClick={() => setConfirmOfficial(true)}>Publish official HTE form</ActionButton></div>}
+    {confirmOfficial && <ConfirmDialog title="Publish the official PSU evaluation?" message="The official form will be activated for authorized HTE Representatives. Retired coordinator forms remain available only for existing evaluation history." confirmLabel={publishing ? "Publishing…" : "Publish official form"} busy={publishing} onConfirm={() => void publishOfficial()} onCancel={() => setConfirmOfficial(false)} />}
     {section === "evaluations" && <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading evaluation forms…" : "Evaluation form templates"}</h2><StatusBadge status={`${evaluationTemplates.filter((template) => template.isActive).length} published`} /></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Form</th><th>Stage</th><th>Evaluator</th><th>Criteria</th><th>Version</th><th>Status</th><th>Actions</th></tr></thead><tbody>{evaluationTemplates.map((template) => <tr key={template.id}><td className="record-description"><b>{template.name}</b><small>{template.description || "No description provided."}</small></td><td>{evaluationStageLabels[template.stage]}</td><td>{evaluatorTypeLabels[template.evaluatorType]}</td><td>{template.criteria.length}</td><td>v{template.version}</td><td><StatusBadge status={template.isActive ? "Published" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelectedEvaluation(template)}>View</button></td></tr>)}{!loading && evaluationTemplates.length === 0 && <tr><td colSpan={7}>No evaluation forms have been configured. Create one to enable evaluation scoring.</td></tr>}</tbody></table></div></section>}
     {adding && <DocumentTemplateDialog nextDisplayOrder={nextDisplayOrder} close={() => setAdding(false)} onCreated={async (count) => { await loadTemplates(); setNotice(count > 0 ? `Requirement created and added to ${count} current internship${count === 1 ? "" : "s"}.` : "Requirement created. No current internship needed provisioning."); }} />}
     {addingEvaluation && <EvaluationTemplateDialog close={() => setAddingEvaluation(false)} onCreated={async ({ version, criteriaCount }) => { await loadTemplates(); setSection("evaluations"); setNotice(`Evaluation form version ${version} created with ${criteriaCount} scoring ${criteriaCount === 1 ? "criterion" : "criteria"}.`); }} />}
@@ -1992,11 +2999,16 @@ function RegistrationReviewDialog({ application, close, onReviewed }: { applicat
       setLoading(false);
     }
   }
-  const visibleDetails = Object.entries(application.details).filter(([key]) => !["requested_role", "first_name", "middle_name", "last_name", "program_ids"].includes(key));
-  return <Dialog title={`Review ${application.name}`} onClose={close} busy={loading}><InfoCallout icon={UserCheck}><p><strong>{application.name}</strong><br />{application.email} · {application.role}</p></InfoCallout><dl className="info-list">{visibleDetails.map(([key, value]) => { let displayValue = value; if (key === "program_names") { try { displayValue = (JSON.parse(value) as string[]).join(", "); } catch { displayValue = value; } } return <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{displayValue}</dd></div>; })}</dl><label className="field"><span>Administrator notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add verification notes or a rejection reason…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("approved")}>Approve and activate</ActionButton><ActionButton variant="danger" disabled={loading || !notes.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></Dialog>;
+  const visibleDetails = Object.entries(application.details).filter(([key]) => !["requested_role", "first_name", "middle_name", "last_name", "preferred_name", "program_ids"].includes(key));
+  const detailLabels: Record<string, string> = { campus_id: "Campus reference", college_id: "College reference", program_id: "Primary program reference", employee_number: "Employee number", provisioned_by_user_id: "Provisioned by administrator", program_names: "Authorized programs", organization_name: "Organization" };
+  return <Dialog title={`Review ${application.name}`} onClose={close} busy={loading}><div className="registration-review-content"><InfoCallout icon={UserCheck}><p><strong>{application.name}</strong><br />{application.email} · {application.role}</p></InfoCallout><dl className="info-list">{visibleDetails.map(([key, value]) => { let displayValue = value; if (key === "program_names") { try { displayValue = (JSON.parse(value) as string[]).join(", "); } catch { displayValue = value; } } return <div key={key}><dt>{detailLabels[key] ?? key.replaceAll("_", " ")}</dt><dd>{displayValue}</dd></div>; })}</dl><label className="field"><span>Administrator notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add verification notes or a rejection reason…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("approved")}>Approve and activate</ActionButton><ActionButton variant="danger" disabled={loading || !notes.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></div></Dialog>;
 }
 
-function RegistrationTable({ includeReviewed = false }: { includeReviewed?: boolean }) {
+function RegistrationTable({
+  includeReviewed = false,
+}: {
+  includeReviewed?: boolean;
+}) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("All");
   const [records, setRecords] = useState<RegistrationRecord[]>([]);
@@ -2004,23 +3016,137 @@ function RegistrationTable({ includeReviewed = false }: { includeReviewed?: bool
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   async function load() {
-    try { setRecords(await registrationService.listLive(includeReviewed)); }
-    catch (reason) { setError(userError(reason, "Pending registrations could not be loaded.")); }
-    finally { setLoading(false); }
+    try {
+      setRecords(await registrationService.listLive(includeReviewed));
+    } catch (reason) {
+      setError(userError(reason, "Pending registrations could not be loaded."));
+    } finally {
+      setLoading(false);
+    }
   }
   useEffect(() => {
     let active = true;
-    void registrationService.listLive(includeReviewed).then((result) => {
-      if (active) setRecords(result);
-    }).catch((reason) => {
-      if (active) setError(userError(reason, "Pending registrations could not be loaded."));
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => { active = false; };
+    void registrationService
+      .listLive(includeReviewed)
+      .then((result) => {
+        if (active) setRecords(result);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(
+            userError(reason, "Pending registrations could not be loaded."),
+          );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [includeReviewed]);
-  const shown = records.filter(r => (status === "All" || r.status === status) && [r.name,r.email,r.reference,r.role].join(" ").toLowerCase().includes(search.trim().toLowerCase()));
-  return <>{includeReviewed && <div className="card-title"><label className="field field-compact"><span>Search applicants</span><input aria-label="Search name or email" placeholder="Search name or email…" value={search} onChange={e => setSearch(e.target.value)} /></label><label className="field field-compact"><span>Status</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="All">All</option>{[...new Set(records.map(r => r.status))].map(s => <option key={s} value={s}>{s}</option>)}</select></label></div>}{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="table-scroll"><table className="data-table"><thead><tr><th>Name</th><th>Email</th><th>Requested role</th><th>Reference</th><th>Submitted</th><th>Status</th><th>Actions</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td className="email-cell" title={item.email}>{item.email}</td><td>{item.role}</td><td>{item.reference}</td><td>{item.submitted}</td><td><StatusBadge status={item.status} /></td><td>{["Pending","Under Review"].includes(item.status) ? <button className="table-link" onClick={() => setSelected(item)}>Review</button> : "Reviewed"}</td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={7}>No registration applications match this view.</td></tr>}</tbody></table></div>{selected && <RegistrationReviewDialog application={selected} close={() => setSelected(null)} onReviewed={() => { setSelected(null); void load(); }} />}</>;
+  const shown = records.filter(
+    (r) =>
+      (status === "All" || r.status === status) &&
+      [r.name, r.email, r.reference, r.role]
+        .join(" ")
+        .toLowerCase()
+        .includes(search.trim().toLowerCase()),
+  );
+  return (
+    <>
+      {includeReviewed && (
+        <div className="card-title">
+          <label className="field field-compact">
+            <span>Search applicants</span>
+            <input
+              aria-label="Search name or email"
+              placeholder="Search name or email…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+          <label className="field field-compact">
+            <span>Status</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="All">All</option>
+              {[...new Set(records.map((r) => r.status))].map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Requested role</th>
+              <th>Reference</th>
+              <th>Submitted</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((item) => (
+              <tr key={item.id}>
+                <td className="identity-cell">
+                  <b className="table-primary-text" title={item.name}>{item.name}</b>
+                </td>
+                <td className="email-cell" title={item.email}>
+                  {item.email}
+                </td>
+                <td>{item.role}</td>
+                <td>{item.reference}</td>
+                <td className="date-cell">{item.submitted}</td>
+                <td className="action-cell">
+                  <StatusBadge status={item.status} />
+                </td>
+                <td>
+                  {["Pending", "Under Review"].includes(item.status) ? (
+                    <button
+                      className="table-link"
+                      onClick={() => setSelected(item)}
+                    >
+                      Review
+                    </button>
+                  ) : (
+                    "Reviewed"
+                  )}
+                </td>
+              </tr>
+            ))}
+            {!loading && shown.length === 0 && (
+              <tr>
+                <td colSpan={7}>
+                  No registration applications match this view.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {selected && (
+        <RegistrationReviewDialog
+          application={selected}
+          close={() => setSelected(null)}
+          onReviewed={() => {
+            setSelected(null);
+            void load();
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 function RegistrationsPage() {
@@ -2032,12 +3158,14 @@ function DashboardRouter({ role, page }: { role: RoleId; page: string }) {
     ...roles[role].nav.filter((item) => !item.permission || hasPermission(role, item.permission)).map((item) => item.href.split("/").filter(Boolean).at(-1)),
     "profile",
     "settings",
+    ...(role === "student" ? ["daily-logs"] : []),
+    ...(role === "hte" ? ["logs"] : []),
   ]);
   if (!allowedPages.has(page)) return <AppShell role={role} page={page}><EmptyAction icon={ShieldCheck} title="Access restricted" copy="This workspace is not included in your active role permissions." action={<Link className="button button-primary" href={`/${role}/dashboard`}>Return to dashboard</Link>} /></AppShell>;
   let content: ReactNode;
   if (page === "dashboard") content = role === "student" ? <StudentDashboard /> : role === "hte" ? <HteDashboard /> : role === "coordinator" ? <CoordinatorDashboard /> : <AdminDashboard />;
   else if (page === "attendance") content = <AttendancePage role={role} />;
-  else if (page === "daily-logs" || page === "logs") content = <DailyLogsPage role={role} />;
+  else if (page === "weekly-logs" || page === "daily-logs" || page === "logs") content = <WeeklyLogsPage role={role} />;
   else if (page === "documents") content = <DocumentsPage role={role} />;
   else if (page === "evaluations") content = <EvaluationsPage role={role} />;
   else if (page === "progress") content = <ProgressPage />;
@@ -2056,6 +3184,7 @@ function DashboardRouter({ role, page }: { role: RoleId; page: string }) {
   else if (page === "templates") content = <WorkflowTemplatesPage />;
   else if (page === "roles") content = <RolesPage />;
   else if (page === "audit-logs") content = <AuditLogsPage />;
+  else if (page === "support") content = <SupportInboxPage />;
   else if (page === "registrations") content = <RegistrationsPage />;
   else content = <EmptyAction icon={FileText} title="This workspace is ready" copy="Choose a section from the navigation to continue." />;
   return <AppShell role={role} page={page}>{content}</AppShell>;

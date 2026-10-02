@@ -45,3 +45,4 @@ tsconfig.tsbuildinfo
 /tmp/
 /.tmp-pglast/
 /.tmp-remote-schema.sql
+/supabase/.temp/

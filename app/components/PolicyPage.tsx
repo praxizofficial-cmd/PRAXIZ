@@ -9,7 +9,7 @@ const policyCopy = {
     title: 'How PRAXIZ handles internship information',
     intro: 'This informational notice describes the categories of information used by PRAXIZ for internship monitoring and account administration. It is not a substitute for formally approved Partido State University policy.',
     sections: [
-      ['Information used by PRAXIZ', ['Account and verified institutional profile information', 'Campus, college, department, and academic program information', 'Internship assignments, attendance, Daily Logs, documents, feedback, and evaluation records', 'System activity needed to operate authorized workflows']],
+      ['Information used by PRAXIZ', ['Account and verified institutional profile information', 'Campus, college, department, and academic program information', 'Internship assignments, attendance, Weekly Logs, documents, feedback, and evaluation records', 'System activity needed to operate authorized workflows']],
       ['How information is used', ['Identity and account administration', 'Internship placement, attendance, document, and evaluation workflows', 'Program-scoped monitoring, reporting, and analytics', 'AI-assisted interpretation of verified PRAXIZ indicators']],
       ['Who can access information', ['Student Interns, Internship Coordinators, authorized HTE Representatives, and System Administrators receive access according to their legitimate role and scope.', 'Access to records is controlled by authenticated sessions, role assignments, and database access controls.']],
       ['AI-assisted features', ['AI-assisted interpretation is advisory. Verified PRAXIZ records, configured monitoring rules, and authorized institutional decisions remain authoritative.', 'PRAXIZ does not describe AI output as an independent decision or as a replacement for authorized review.']],
@@ -22,7 +22,7 @@ const policyCopy = {
     title: 'Using the PRAXIZ platform responsibly',
     intro: 'These informational terms describe appropriate use of PRAXIZ for internship monitoring and management. They are not a substitute for formally approved Partido State University policy.',
     sections: [
-      ['Purpose of PRAXIZ', ['PRAXIZ supports legitimate internship placement, attendance, Daily Logs, document tracking, evaluation, reporting, and analytics for Partido State University.']],
+      ['Purpose of PRAXIZ', ['PRAXIZ supports legitimate internship placement, attendance, Weekly Logs, document tracking, evaluation, reporting, and analytics for Partido State University.']],
       ['Authorized users', ['Student Interns, Internship Coordinators, authorized HTE Representatives, and System Administrators use the workspaces assigned to their role.']],
       ['Account responsibilities', ['Keep credentials secure and use your own account.', 'Provide accurate information that you are authorized to provide.', 'Report suspected account or record problems through the PRAXIZ support channel.']],
       ['Appropriate use', ['Do not attempt unauthorized access, manipulate another user\'s records, misuse institutional data, or interfere with platform operation.', 'Use official PRAXIZ workflows for internship records and review decisions.']],

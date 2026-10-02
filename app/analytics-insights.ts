@@ -37,7 +37,7 @@ export function detectAnalyticsConcerns(evidence: AnalyticsEvidence): AnalyticsC
     add(evidence.attendance < 60 ? "high" : "medium", "Attendance verification", evidence.attendance, evidence.attendanceVerified, evidence.attendanceApplicable, "applicable sessions");
   }
   if (evidence.dailyLogsApplicable > 0 && evidence.dailyLogApproval !== null && evidence.dailyLogApproval < 75) {
-    add(evidence.dailyLogApproval < 50 ? "high" : "medium", "Daily log approval", evidence.dailyLogApproval, evidence.dailyLogsApproved, evidence.dailyLogsApplicable, "submitted logs");
+    add(evidence.dailyLogApproval < 50 ? "high" : "medium", "Weekly Log approval", evidence.dailyLogApproval, evidence.dailyLogsApproved, evidence.dailyLogsApplicable, "submitted Weekly Logs");
   }
   if (evidence.documentsRequired > 0 && evidence.documentCompliance !== null && evidence.documentCompliance < 75) {
     add(evidence.documentCompliance < 50 ? "high" : "medium", "Document compliance", evidence.documentCompliance, evidence.documentsCompliant, evidence.documentsRequired, "required documents");

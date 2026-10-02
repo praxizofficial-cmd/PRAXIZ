@@ -6,14 +6,22 @@ export type CoordinatorProgramStudent = {
   campus: string;
   program: string;
   programId?: string;
+  yearLevel: number;
+  section?: string;
+  academicTerm?: string;
 };
 
 export function mergeCoordinatorProgramStudents(
   assignedInterns: Intern[],
   programStudents: CoordinatorProgramStudent[],
 ): Intern[] {
+  const profileByStudentId = new Map(programStudents.map((student) => [student.studentUserId, student]));
+  const assignedWithAcademicProfile = assignedInterns.map((intern) => {
+    const profile = intern.studentUserId ? profileByStudentId.get(intern.studentUserId) : undefined;
+    return profile ? { ...intern, yearLevel: profile.yearLevel, section: profile.section, academicTerm: profile.academicTerm } : intern;
+  });
   const assignedStudentIds = new Set(
-    assignedInterns
+    assignedWithAcademicProfile
       .map((intern) => intern.studentUserId)
       .filter((studentUserId): studentUserId is string => Boolean(studentUserId)),
   );
@@ -33,6 +41,9 @@ export function mergeCoordinatorProgramStudents(
       campus: student.campus,
       program: student.program,
       programId: student.programId,
+      yearLevel: student.yearLevel,
+      section: student.section,
+      academicTerm: student.academicTerm,
       hte: "Not assigned",
       hteRepresentative: "Not assigned",
       hours: 0,
@@ -42,5 +53,5 @@ export function mergeCoordinatorProgramStudents(
       status: "Awaiting Assignment",
     }));
 
-  return [...assignedInterns, ...awaitingAssignment].sort((left, right) => left.name.localeCompare(right.name));
+  return [...assignedWithAcademicProfile, ...awaitingAssignment].sort((left, right) => left.name.localeCompare(right.name));
 }

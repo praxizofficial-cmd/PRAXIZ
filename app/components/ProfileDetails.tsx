@@ -80,7 +80,7 @@ export function ProfileDetails({ role }: { role: RoleId }) {
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''),6000); return () => clearTimeout(timer); },[notice]);
   if (!user) return <p role="status">Loading account…</p>;
   const identity = [['Official email',user.email],['Contact number',user.phone],['Account status',user.accountStatus === 'active' ? 'Active' : 'Pending verification'],['Campus',user.campus],['College / department',user.college]];
-  if (role === 'student') identity.push(['Student number',user.studentNumber],['Year level',user.yearLevel?.toString()],['Academic program',user.academicProgram]);
+  if (role === 'student') identity.push(['Student number',user.studentNumber],['Year level',user.yearLevel?.toString()],['Section',user.section],['Academic term',user.academicTerm],['Academic program',user.academicProgram]);
   if (role === 'coordinator') identity.push(['Coordinated programs',user.scopeProgramNames?.join(', ') || user.scopeProgramName]);
   return <><section className="card profile-identity"><div className="profile-photo-control"><ProfileAvatar name={user.fullName} path={user.avatarPath} /><button className="icon-button" aria-label="Change profile photo" onClick={() => setEditing(true)}><Camera size={20} /></button></div><div><h2>{user.fullName}</h2><p>{roles[role].label}</p><span className={`badge ${user.accountStatus === 'active' ? 'badge-success' : 'badge-warning'}`}>{user.accountStatus === 'active' ? 'Active account' : 'Pending verification'}</span></div><button className="button button-secondary" onClick={() => setEditing(true)}><Pencil size={17} />Edit profile</button></section>
     {notice && <p role="status" className="form-success">{notice}</p>}

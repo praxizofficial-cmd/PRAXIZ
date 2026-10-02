@@ -67,6 +67,8 @@ export type StudentIdentityInput = {
   yearLevel: number | null;
   section: string | null;
   expectedGraduationYear: number | null;
+  academicTermId: string | null;
+  academicTermName: string | null;
   academicProgramCode: string | null;
   academicProgramName: string | null;
   college: string | null;
@@ -79,6 +81,8 @@ export function mapStudentIdentity(input: StudentIdentityInput) {
     yearLevel: input.yearLevel ?? undefined,
     section: input.section ?? undefined,
     expectedGraduationYear: input.expectedGraduationYear ?? undefined,
+    academicTermId: input.academicTermId ?? undefined,
+    academicTerm: input.academicTermName ?? undefined,
     academicProgram: input.academicProgramCode && input.academicProgramName
       ? `${input.academicProgramCode} — ${input.academicProgramName}`
       : undefined,

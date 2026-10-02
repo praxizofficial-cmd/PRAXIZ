@@ -25,7 +25,7 @@ test('identity cells do not embed intern view or attendance history actions', ()
   assert.match(interns, /onView && <th>Actions<\/th>/);
   assert.doesNotMatch(interns.match(/<span className="person-cell">.*?<\/span>/)?.[0] ?? '', /<button/);
   assert.match(interns, /className="table-actions"/);
-  assert.match(source, /<td><b>\{record.studentName\}<\/b><\/td>/);
+  assert.match(source, /<td[^>]*>\s*<b[^>]*>\{record.studentName\}<\/b>\s*<\/td>/);
   assert.doesNotMatch(source, /\{record.studentName\} · View history/);
 });
 
@@ -34,6 +34,14 @@ test('notifications contain one purposeful eye icon and separated title/time', (
   assert.equal((shell.match(/<Eye /g) ?? []).length, 1);
   assert.match(shell, /View all notifications/);
   assert.match(css, /\.notification-popover a > span \{ display: grid; gap: 5px/);
+});
+
+test('contact form sends through the PRAXIZ server without launching an external email app', () => {
+  const contact = section('function ContactMessageForm()', 'function ContactSection()');
+  assert.match(contact, /fetch\('\/api\/contact'/);
+  assert.match(contact, /Message sent to PRAXIZ support\./);
+  assert.doesNotMatch(contact, /window\.location\.assign/);
+  assert.doesNotMatch(contact, /emailFallbackHref|Open email app/);
 });
 
 test('compact fields remain an explicit variant, with semantic option surfaces', () => {

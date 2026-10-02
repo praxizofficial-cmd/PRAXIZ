@@ -67,6 +67,8 @@ test("student identity maps authoritative profile and organization fields", () =
     yearLevel: 4,
     section: "A",
     expectedGraduationYear: 2027,
+    academicTermId: "term-2026-first",
+    academicTermName: "2026–2027 · 1st Semester",
     academicProgramCode: "BSIT",
     academicProgramName: "Bachelor of Science in Information Technology",
     college: "CECS",
@@ -76,6 +78,8 @@ test("student identity maps authoritative profile and organization fields", () =
     yearLevel: 4,
     section: "A",
     expectedGraduationYear: 2027,
+    academicTermId: "term-2026-first",
+    academicTerm: "2026–2027 · 1st Semester",
     academicProgram: "BSIT — Bachelor of Science in Information Technology",
     college: "CECS",
     campus: "Main Campus",
@@ -88,12 +92,14 @@ test("student identity leaves unsupported values unavailable", () => {
     yearLevel: null,
     section: null,
     expectedGraduationYear: null,
+    academicTermId: null,
+    academicTermName: null,
     academicProgramCode: null,
     academicProgramName: null,
     college: null,
     campus: null,
   });
-  assert.deepEqual(Object.values(identity), Array(7).fill(undefined));
+  assert.deepEqual(Object.values(identity), Array(9).fill(undefined));
 });
 
 test("student sidebar subtitle uses the authenticated program and year level", () => {

@@ -22,10 +22,8 @@ declare
   assignment_id uuid;
   notification_id uuid;
 begin
-  if coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role' then
-    raise exception 'Privileged account completion is server-only';
-  end if;
-
+  -- The function ACL below is the authoritative server-only boundary. Supabase's
+  -- newer secret keys do not populate the retired request.jwt.claim.role setting.
   select item.* into application
   from public.registration_applications item
   where item.id = p_application_id and item.deleted_at is null

@@ -2,7 +2,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 
-export function Dialog({ title, children, onClose, busy = false, wide = false, protectChanges = true }: { title: string; children: ReactNode; onClose: () => void; busy?: boolean; wide?: boolean; protectChanges?: boolean }) {
+export function Dialog({ title, children, onClose, busy = false, wide = false, protectChanges = true, className = "" }: { title: string; children: ReactNode; onClose: () => void; busy?: boolean; wide?: boolean; protectChanges?: boolean; className?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const baseline = useRef<string | null>(null);
@@ -35,7 +35,7 @@ export function Dialog({ title, children, onClose, busy = false, wide = false, p
     window.addEventListener('beforeunload', unload);
     return () => { window.removeEventListener('beforeunload', unload); dialog?.close(); document.body.style.overflow = overflow; previous?.focus(); };
   }, [protectChanges]);
-  return <dialog ref={ref} className={`native-dialog ${wide ? 'native-dialog-wide' : ''}`} aria-labelledby={titleId}
+  return <dialog ref={ref} className={`native-dialog ${wide ? 'native-dialog-wide' : ''} ${className}`.trim()} aria-labelledby={titleId}
     onSubmitCapture={event => { if (busy) { event.preventDefault(); event.stopPropagation(); } }}
     onFocusCapture={event => { if (baseline.current === null && (event.target as HTMLElement).matches('input,select,textarea')) baseline.current = snapshot(); }}
     onClickCapture={event => {

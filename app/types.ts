@@ -51,7 +51,7 @@ export type Program = {
 export type AcademicTerm = {
   id: string;
   academicYear: string;
-  term: "First Semester" | "Second Semester" | "Midyear";
+  term: "1st Semester" | "2nd Semester" | "Midyear";
   startsOn: string;
   endsOn: string;
   isCurrent: boolean;
@@ -68,6 +68,8 @@ export type AuthUser = {
   yearLevel?: number;
   section?: string;
   expectedGraduationYear?: number;
+  academicTermId?: string;
+  academicTerm?: string;
   academicProgram?: string;
   campus?: string;
   college?: string;
@@ -129,12 +131,17 @@ export type AttendanceSession = {
 };
 
 export type Intern = {
+  assignmentId?: string;
+  hteId?: string;
   programId?: string;
   studentUserId?: string;
   initials: string;
   name: string;
   campus: string;
   program: string;
+  yearLevel?: number;
+  section?: string;
+  academicTerm?: string;
   hte: string;
   hteRepresentative: string;
   hours: number;

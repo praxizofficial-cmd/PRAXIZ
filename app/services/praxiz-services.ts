@@ -3,10 +3,11 @@ import { createClient } from "../../lib/supabase/client";
 import { getSiteOrigin } from "../../lib/site-url";
 import { resolveActiveAssignmentId } from "../auth/student-stabilization";
 import { supportedRoleCodes, supportedRoleNames, isSupportedRoleCode } from "../auth/supported-roles";
-import { buildSaveDailyLogRpcArgs, type DailyLogAssignment } from "./daily-log-stabilization";
+import { buildSaveWeeklyLogRpcArgs, type WeeklyLogAssignment, type WeeklyLogInput } from "./weekly-log-stabilization";
 import { programsForCollege } from "./institutional-stabilization";
 import { normalizeDocumentTemplateCode, validateDocumentTemplate, type DocumentTemplatePhase } from "./workflow-template-stabilization";
 import { mergeCoordinatorProgramStudents, type CoordinatorProgramStudent } from "./coordinator-routing";
+import { attendanceDecisionBlock, resolveAttendancePair } from "./attendance-stabilization";
 import {
   normalizeEvaluationCode,
   validateEvaluationTemplate,
@@ -23,12 +24,22 @@ type AttendanceEventRow = {
   source: "web" | "mobile" | "kiosk";
 };
 
+type AttendanceCorrectionRow = {
+  requested_time_in: string | null;
+  requested_time_out: string | null;
+  status: "pending" | "approved" | "rejected";
+  approved_minutes: number | null;
+  reviewed_at: string | null;
+  created_at: string;
+};
+
 type AttendanceSessionRow = {
   id: string;
   internship_assignment_id: string;
   work_date: string;
   status: "open" | "pending_verification" | "verified" | "flagged" | "rejected" | "voided";
   attendance_events?: AttendanceEventRow[] | null;
+  attendance_corrections?: AttendanceCorrectionRow[] | null;
   attendance_verifications?: Array<{
     reviewer_user_id: string;
     decision: "verified" | "flagged" | "rejected";
@@ -41,6 +52,7 @@ type AttendanceSessionRow = {
 
 export type AttendanceHistoryRow = {
   id: string;
+  assignmentId: string;
   workDate: string;
   studentUserId?: string;
   studentName: string;
@@ -51,6 +63,7 @@ export type AttendanceHistoryRow = {
   timeInAt: string | null;
   timeOutAt: string | null;
   pairIssue: string | null;
+  pairSource: "original" | "approved_corrected" | "none";
   hours: string;
   status: AttendanceStatus;
   verifiedBy: string;
@@ -118,18 +131,19 @@ export type CreateEvaluationTemplateInput = {
   name: string;
   description: string;
   stage: EvaluationTemplateStage;
-  evaluatorType: EvaluationTemplateEvaluator;
+  evaluatorType: "hte";
   isActive: boolean;
   criteria: EvaluationTemplateCriterionInput[];
 };
 
-export type DailyLogRecord = {
+export type WeeklyLogRecord = {
   id: string;
   assignmentId: string;
   studentName: string;
-  logDate: string;
-  date: string;
-  week: string;
+  weekStartDate: string;
+  weekEndDate: string;
+  reportingPeriod: string;
+  legacyDailyEntry: boolean;
   hours: number;
   summary: string;
   learnings: string;
@@ -137,15 +151,6 @@ export type DailyLogRecord = {
   submitted: string;
   status: string;
   latestFeedback: string;
-};
-
-export type DailyLogInput = {
-  id?: string;
-  logDate: string;
-  hours: number;
-  activities: string;
-  learnings?: string;
-  challenges?: string;
 };
 
 export type RegistrationRecord = {
@@ -260,6 +265,16 @@ export type AuditLogRecord = {
   entity: string;
   occurredAt: string;
   metadata: Record<string, unknown>;
+};
+
+export type ContactMessageRecord = {
+  id: string;
+  senderName: string;
+  senderEmail: string;
+  subject: string;
+  message: string;
+  status: "New" | "Read" | "Resolved";
+  receivedAt: string;
 };
 
 export type FeedbackRecord = {
@@ -410,15 +425,17 @@ export const institutionalService = {
     return programsForCollege(units.map((row) => ({ id: row.id, parentId: row.parent_id, unitType: row.unit_type, code: row.code, name: row.name, shortName: row.short_name })), programs.map((program) => ({ ...program, owningOrgUnitId: program.collegeId, isActive: true })), unitId).map((program) => ({ id: program.id, collegeId: program.owningOrgUnitId, code: program.code, name: program.name }));
   },
   async loadRegistrationInstitutionalOptions() {
-    const [{ units, programs }, campusResult] = await Promise.all([
+    const [{ units, programs }, campusResult, termResult] = await Promise.all([
       Promise.all([registrationInstitutionalUnits(), registrationPrograms()]).then(([unitRows, programRows]) => ({ units: unitRows, programs: programRows })),
       createClient().from("campuses").select("org_unit_id,municipality"),
+      createClient().rpc("get_registration_academic_terms"),
     ]);
     if (campusResult.error) {
       const error = campusResult.error;
       console.error("Registration campuses lookup failed", { code: error.code, message: error.message, details: error.details, hint: error.hint });
       throw new Error(error.message);
     }
+    if (termResult.error) throw new Error(termResult.error.message);
     const unitModels = units.map((row) => ({ id: row.id, parentId: row.parent_id, unitType: row.unit_type, code: row.code, name: row.name, shortName: row.short_name }));
     const programModels = programs.map((row) => ({ id: row.id, owningOrgUnitId: row.owning_org_unit_id, code: row.code, name: row.name, isActive: row.is_active }));
     const campusIds = new Set(units.filter((row) => row.unit_type === "campus").map((row) => row.id));
@@ -431,6 +448,11 @@ export const institutionalService = {
         }),
       units: unitModels,
       programs: programModels,
+      terms: ((termResult.data ?? []) as Array<{ id: string; academic_year: string; term: string }>).map((row) => ({
+        id: row.id,
+        academicYear: row.academic_year,
+        term: row.term === "first_semester" ? "1st Semester" : row.term === "second_semester" ? "2nd Semester" : "Midyear",
+      })),
     };
   },
   async listAcademicTerms(): Promise<AcademicTerm[]> {
@@ -438,7 +460,7 @@ export const institutionalService = {
     if (error) throw new Error(error.message);
     return ((data ?? []) as Array<{ id: string; term: string; starts_on: string; ends_on: string; is_current: boolean; academic_years?: { label: string } | Array<{ label: string }> | null }>).map((row) => {
       const year = Array.isArray(row.academic_years) ? row.academic_years[0] : row.academic_years;
-      const term = row.term === "first_semester" ? "First Semester" : row.term === "second_semester" ? "Second Semester" : "Midyear";
+      const term = row.term === "first_semester" ? "1st Semester" : row.term === "second_semester" ? "2nd Semester" : "Midyear";
       return { id: row.id, academicYear: year?.label ?? "", term, startsOn: row.starts_on, endsOn: row.ends_on, isCurrent: row.is_current };
     });
   },
@@ -594,7 +616,7 @@ async function activeStudentAssignmentId() {
   return assignment.id;
 }
 
-async function activeStudentAssignment(): Promise<DailyLogAssignment | null> {
+async function activeStudentAssignment(): Promise<WeeklyLogAssignment | null> {
   const userId = await currentUserId();
   const { data: currentTerm, error: termError } = await createClient()
     .from("academic_terms")
@@ -632,7 +654,30 @@ async function activeStudentAssignment(): Promise<DailyLogAssignment | null> {
   return assignment ? { id: assignment.id, startDate: assignment.startDate, endDate: assignment.expectedEndDate } : null;
 }
 
-const sessionSelection = "id,internship_assignment_id,work_date,status,internship_assignments(student_user_id),attendance_events(id,event_type,occurred_at,source),attendance_verifications(reviewer_user_id,decision,verified_minutes,remarks,created_at)";
+const sessionSelection = "id,internship_assignment_id,work_date,status,internship_assignments(student_user_id),attendance_events(id,event_type,occurred_at,source),attendance_corrections(requested_time_in,requested_time_out,status,approved_minutes,reviewed_at,created_at),attendance_verifications(reviewer_user_id,decision,verified_minutes,remarks,created_at)";
+
+function latestAttendanceCorrection(row: AttendanceSessionRow): AttendanceCorrectionRow | null {
+  return [...(row.attendance_corrections ?? [])]
+    .sort((a, b) => (b.reviewed_at ?? b.created_at).localeCompare(a.reviewed_at ?? a.created_at))[0] ?? null;
+}
+
+function resolveAttendanceRowPair(row: AttendanceSessionRow) {
+  const events = row.attendance_events ?? [];
+  const correction = latestAttendanceCorrection(row);
+  return resolveAttendancePair({
+    original: {
+      timeInAt: events.find((event) => event.event_type === "time_in")?.occurred_at ?? null,
+      timeOutAt: events.find((event) => event.event_type === "time_out")?.occurred_at ?? null,
+    },
+    correction: correction
+      ? {
+          status: correction.status,
+          timeInAt: correction.requested_time_in,
+          timeOutAt: correction.requested_time_out,
+        }
+      : null,
+  });
+}
 
 async function readSession(sessionId: string) {
   const { data, error } = await createClient()
@@ -644,7 +689,7 @@ async function readSession(sessionId: string) {
   return mapSession(data as unknown as AttendanceSessionRow);
 }
 
-const assignmentSelection = "id,student_user_id,required_hours,status,start_date,expected_end_date,academic_programs(id,code,name),hte_organizations(name,trade_name),org_units(name,short_name),internship_supervisors(supervisor_user_id,supervisor_type,is_primary,ended_at,deleted_at)";
+const assignmentSelection = "id,student_user_id,hte_id,required_hours,status,start_date,expected_end_date,academic_programs(id,code,name),hte_organizations(name,trade_name),org_units(name,short_name),internship_supervisors(supervisor_user_id,supervisor_type,is_primary,ended_at,deleted_at)";
 
 function joinedOne<T>(value: T | T[] | null | undefined): T | undefined {
   return Array.isArray(value) ? value[0] : value ?? undefined;
@@ -672,6 +717,7 @@ export const internshipService = {
     type AssignmentRow = {
       id: string;
       student_user_id: string;
+      hte_id: string;
       required_hours: number;
       status: string;
       academic_programs?: { id: string; code: string; name: string } | Array<{ id: string; code: string; name: string }> | null;
@@ -703,6 +749,8 @@ export const internshipService = {
       const name = names.get(row.student_user_id) ?? "Assigned intern";
       const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "SI";
       return {
+        assignmentId: row.id,
+        hteId: row.hte_id,
         studentUserId: row.student_user_id,
         initials,
         name,
@@ -723,7 +771,7 @@ export const internshipService = {
     const supabase = createClient();
     const [assignedInterns, { data, error }] = await Promise.all([
       internshipService.listLiveInterns(),
-      supabase.rpc("list_coordinator_program_students"),
+      supabase.rpc("list_coordinator_program_students_v2"),
     ]);
     if (error) throw new Error(error.message);
 
@@ -733,6 +781,9 @@ export const internshipService = {
       campus_name: string;
       program_code: string;
       academic_program_id: string;
+      year_level: number;
+      section: string | null;
+      academic_term_label: string | null;
     };
     const programStudents = ((data ?? []) as ProgramStudentRow[]).map((row): CoordinatorProgramStudent => ({
       studentUserId: row.student_user_id,
@@ -740,6 +791,9 @@ export const internshipService = {
       campus: row.campus_name,
       program: row.program_code,
       programId: row.academic_program_id,
+      yearLevel: row.year_level,
+      section: row.section ?? undefined,
+      academicTerm: row.academic_term_label ?? undefined,
     }));
 
     return mergeCoordinatorProgramStudents(assignedInterns, programStudents);
@@ -774,7 +828,7 @@ export const internshipService = {
     const [{ data: progress, error: progressError }, { data: requirements, error: requirementError }, { count: finalizedEvaluationCount, error: evaluationError }] = await Promise.all([
       supabase.from("assignment_progress").select("rendered_hours,total_sessions,verified_sessions,attendance_verification_percent,total_log_days,submitted_logs,approved_logs,required_documents,satisfied_documents,average_score").eq("internship_assignment_id", row.id).maybeSingle(),
       supabase.from("document_requirements").select("status,document_requirement_templates(name,display_order)").eq("internship_assignment_id", row.id).order("created_at", { ascending: true }),
-      supabase.from("evaluations").select("id", { count: "exact", head: true }).eq("internship_assignment_id", row.id).eq("status", "finalized").is("deleted_at", null),
+      supabase.from("evaluations").select("id,evaluation_templates!inner(evaluator_type)", { count: "exact", head: true }).eq("internship_assignment_id", row.id).eq("status", "finalized").eq("evaluation_templates.evaluator_type", "hte").is("deleted_at", null),
     ]);
     if (progressError) throw new Error(progressError.message);
     if (requirementError) throw new Error(requirementError.message);
@@ -818,7 +872,8 @@ export const internshipService = {
       logsExpected: Number(progressRow?.total_log_days ?? 0),
       documentsApproved: Number(progressRow?.satisfied_documents ?? 0),
       documentsRequired: Number(progressRow?.required_documents ?? 0),
-      evaluationAverage: progressRow?.average_score == null ? null : Number(progressRow.average_score),
+      // The approved PSU HTE form uses individual ratings; no aggregate grade is invented here.
+      evaluationAverage: null,
       finalizedEvaluationCount: finalizedEvaluationCount ?? 0,
       campus: campus?.short_name ?? campus?.name ?? "Assigned campus",
       program: program ? `${program.code} — ${program.name}` : "Assigned program",
@@ -864,28 +919,23 @@ export const attendanceService = {
       const verification = [...(row.attendance_verifications ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
       const minutes = verification?.decision === "verified" ? verification.verified_minutes : null;
       const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
-      const timeInAt = timeIn?.occurred_at ?? null;
-      const timeOutAt = timeOut?.occurred_at ?? null;
-      let pairIssue: string | null = null;
-      if (!timeInAt) pairIssue = 'Missing Time In';
-      else if (!timeOutAt) pairIssue = 'Missing Time Out';
-      else {
-        const duration = new Date(timeOutAt).getTime() - new Date(timeInAt).getTime();
-        if (!Number.isFinite(duration) || duration <= 0) pairIssue = 'Invalid chronology';
-        else if (duration > 24 * 60 * 60 * 1000) pairIssue = 'Invalid duration';
-      }
+      const pair = resolveAttendanceRowPair(row);
+      const timeInAt = pair.complete ? pair.timeInAt : timeIn?.occurred_at ?? null;
+      const timeOutAt = pair.complete ? pair.timeOutAt : timeOut?.occurred_at ?? null;
       return {
         id: row.id,
+        assignmentId: row.internship_assignment_id,
         workDate: row.work_date,
         studentUserId: assignment?.student_user_id,
         studentName: assignment?.student_user_id ? nameById.get(assignment.student_user_id) ?? "Assigned intern" : "Assigned intern",
         date: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(new Date(`${row.work_date}T00:00:00+08:00`)),
         day: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", weekday: "long" }).format(new Date(`${row.work_date}T00:00:00+08:00`)),
-        timeIn: formatClock(timeIn?.occurred_at),
-        timeOut: formatClock(timeOut?.occurred_at),
+        timeIn: formatClock(timeInAt ?? undefined),
+        timeOut: formatClock(timeOutAt ?? undefined),
         timeInAt,
         timeOutAt,
-        pairIssue,
+        pairIssue: pair.blockingReason,
+        pairSource: pair.authoritativePair,
         hours: minutes == null ? "—" : `${Math.floor(minutes / 60)}h ${minutes % 60}m`,
         status: attendanceStatus(row.status),
         verifiedBy: verification ? nameById.get(verification.reviewer_user_id) ?? "Authorized reviewer" : "—",
@@ -894,7 +944,9 @@ export const attendanceService = {
     });
   },
   async getTodaySession(): Promise<AttendanceSession | null> {
-    const assignmentId = await activeStudentAssignmentId();
+    const assignment = await activeStudentAssignment();
+    if (!assignment) return null;
+    const assignmentId = assignment.id;
     const { data, error } = await createClient()
       .from("attendance_sessions")
       .select(sessionSelection)
@@ -944,16 +996,40 @@ export const attendanceService = {
     return readSession(session.id);
   },
   async review(sessionId: string, decision: "verified" | "flagged" | "rejected", notes: string): Promise<void> {
-    const { error } = await createClient().rpc("review_attendance_session", {
+    const supabase = createClient();
+    const { data: current, error: readError } = await supabase
+      .from("attendance_sessions")
+      .select(sessionSelection)
+      .eq("id", sessionId)
+      .maybeSingle();
+    if (readError) throw new Error(readError.message);
+    if (!current) throw new Error("This attendance session is outside your authorized review scope or no longer exists.");
+
+    const row = current as unknown as AttendanceSessionRow;
+    const pair = resolveAttendanceRowPair(row);
+    const blocked = attendanceDecisionBlock(attendanceStatus(row.status), decision, pair, Boolean(notes.trim()));
+    if (blocked) throw new Error(blocked);
+
+    const { error } = await supabase.rpc("review_attendance_session", {
       p_session_id: sessionId,
       p_decision: decision,
       p_remarks: notes.trim() || null,
     });
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (/complete original or approved corrected time pair/i.test(error.message)) {
+        throw new Error("The attendance pair changed while this review was open. Refresh the session and review it again.");
+      }
+      if (/already verified/i.test(error.message)) throw new Error("This attendance session has already been verified.");
+      if (/already rejected/i.test(error.message)) throw new Error("This attendance session has already been rejected.");
+      if (/permission|policy|authorized|scope/i.test(error.message)) {
+        throw new Error("You are not authorized to review this attendance session.");
+      }
+      throw new Error(error.message);
+    }
   },
 };
 
-const dailyLogStatus: Record<string, string> = {
+const weeklyLogStatus: Record<string, string> = {
   draft: "Draft",
   submitted: "Submitted",
   approved: "Approved",
@@ -961,13 +1037,13 @@ const dailyLogStatus: Record<string, string> = {
   rejected: "Rejected",
 };
 
-export const dailyLogService = {
-  async listLive(): Promise<DailyLogRecord[]> {
+export const weeklyLogService = {
+  async listLive(): Promise<WeeklyLogRecord[]> {
     const { data, error } = await createClient()
       .from("daily_logs")
-      .select("id,internship_assignment_id,log_date,status,submitted_at,internship_assignments(student_user_id),current_version:daily_log_versions!daily_logs_current_version_fk(hours,activities,learnings,challenges,submitted_at),daily_log_reviews(feedback,reviewed_at)")
+      .select("id,internship_assignment_id,log_date,week_start_date,week_end_date,reporting_period_kind,status,submitted_at,internship_assignments(student_user_id),current_version:daily_log_versions!daily_logs_current_version_fk(hours,activities,learnings,challenges,submitted_at),daily_log_reviews(feedback,reviewed_at)")
       .is("deleted_at", null)
-      .order("log_date", { ascending: false })
+      .order("week_start_date", { ascending: false })
       .limit(100);
     if (error) throw new Error(error.message);
 
@@ -975,6 +1051,9 @@ export const dailyLogService = {
       id: string;
       internship_assignment_id: string;
       log_date: string;
+      week_start_date: string;
+      week_end_date: string;
+      reporting_period_kind: "weekly" | "daily_legacy";
       status: string;
       submitted_at: string | null;
       current_version?: { hours: number | string; activities: string; learnings: string | null; challenges: string | null; submitted_at: string | null } | Array<{ hours: number | string; activities: string; learnings: string | null; challenges: string | null; submitted_at: string | null }> | null;
@@ -997,33 +1076,36 @@ export const dailyLogService = {
       const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
       const currentVersion = joinedOne(row.current_version);
       const reviews = [...(row.daily_log_reviews ?? [])].sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at));
-      const dateValue = new Date(`${row.log_date}T00:00:00+08:00`);
+      const startValue = new Date(`${row.week_start_date}T00:00:00+08:00`);
+      const endValue = new Date(`${row.week_end_date}T00:00:00+08:00`);
+      const dateFormatter = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" });
       return {
         id: row.id,
         assignmentId: row.internship_assignment_id,
         studentName: assignment?.student_user_id ? nameById.get(assignment.student_user_id) ?? "Assigned intern" : "Assigned intern",
-        logDate: row.log_date,
-        date: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(dateValue),
-        week: `Week ${Math.ceil(dateValue.getDate() / 7)}`,
+        weekStartDate: row.week_start_date,
+        weekEndDate: row.week_end_date,
+        reportingPeriod: `${dateFormatter.format(startValue)} – ${dateFormatter.format(endValue)}`,
+        legacyDailyEntry: row.reporting_period_kind === "daily_legacy",
         hours: Number(currentVersion?.hours ?? 0),
         summary: currentVersion?.activities ?? "",
         learnings: currentVersion?.learnings ?? "",
         challenges: currentVersion?.challenges ?? "",
         submitted: row.submitted_at ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(row.submitted_at)) : "Draft",
-        status: dailyLogStatus[row.status] ?? row.status,
+        status: weeklyLogStatus[row.status] ?? row.status,
         latestFeedback: reviews[0]?.feedback ?? "",
       };
     });
   },
-  async save(input: DailyLogInput, status: "draft" | "submitted" = "submitted"): Promise<void> {
+  async save(input: WeeklyLogInput, status: "draft" | "submitted" = "submitted"): Promise<void> {
     const assignment = await activeStudentAssignment();
     if (!assignment) throw new Error("No active internship assignment is available for your account.");
-    const { error } = await createClient().rpc("save_daily_log", buildSaveDailyLogRpcArgs(input, assignment, status));
+    const { error } = await createClient().rpc("save_weekly_log", buildSaveWeeklyLogRpcArgs(input, assignment, status));
     if (error) throw new Error(error.message);
   },
   async review(logId: string, decision: "approved" | "needs_revision" | "rejected", feedback: string): Promise<void> {
-    const { error } = await createClient().rpc("review_daily_log", {
-      p_daily_log_id: logId,
+    const { error } = await createClient().rpc("review_weekly_log", {
+      p_weekly_log_id: logId,
       p_decision: decision,
       p_feedback: feedback.trim() || null,
     });
@@ -1312,7 +1394,8 @@ const evaluationStatus: Record<string, EvaluationRecord["status"]> = {
 async function namesForUsers(userIds: string[]) {
   const nameById = new Map<string, string>();
   if (!userIds.length) return nameById;
-  const { data } = await createClient().from("profiles").select("id,first_name,middle_name,last_name,email").in("id", [...new Set(userIds)]);
+  const { data, error } = await createClient().from("profiles").select("id,first_name,middle_name,last_name,email").in("id", [...new Set(userIds)]);
+  if (error) throw new Error(error.message);
   for (const profile of (data ?? []) as Array<{ id: string; first_name: string; middle_name: string | null; last_name: string; email: string }>) {
     nameById.set(profile.id, [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ").trim() || profile.email);
   }
@@ -1322,7 +1405,8 @@ async function namesForUsers(userIds: string[]) {
 export const evaluationService = {
   async listLive(): Promise<EvaluationRecord[]> {
     const { data, error } = await createClient().from("evaluations")
-      .select("id,internship_assignment_id,evaluation_template_id,evaluator_user_id,status,weighted_score,submitted_at,internship_assignments(student_user_id),evaluation_templates(name,form_metadata,evaluation_criteria(id,label,description,section_label,group_label,minimum_score,maximum_score,weight,display_order)),current_version:evaluation_versions!evaluations_current_version_fk(form_context,strengths,areas_for_improvement,overall_remarks,submitted_at,evaluation_scores(criterion_id,score)),evaluation_reviews(decision,feedback,reviewed_at)")
+      .select("id,internship_assignment_id,evaluation_template_id,evaluator_user_id,status,weighted_score,submitted_at,internship_assignments(student_user_id),evaluation_templates!inner(name,evaluator_type,form_metadata,evaluation_criteria(id,label,description,section_label,group_label,minimum_score,maximum_score,weight,display_order)),current_version:evaluation_versions!evaluations_current_version_fk(form_context,strengths,areas_for_improvement,overall_remarks,submitted_at,evaluation_scores(criterion_id,score)),evaluation_reviews(decision,feedback,reviewed_at)")
+      .eq("evaluation_templates.evaluator_type", "hte")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
@@ -1337,7 +1421,7 @@ export const evaluationService = {
       current_version?: { form_context?: { ratingPeriod?: string; designation?: string; office?: string }; strengths: string | null; areas_for_improvement: string | null; overall_remarks: string | null; submitted_at: string | null; evaluation_scores?: Array<{ criterion_id: string; score: number | string }> | null } | Array<{ form_context?: { ratingPeriod?: string; designation?: string; office?: string }; strengths: string | null; areas_for_improvement: string | null; overall_remarks: string | null; submitted_at: string | null; evaluation_scores?: Array<{ criterion_id: string; score: number | string }> | null }> | null;
       evaluation_reviews?: Array<{ decision: string; feedback: string | null; reviewed_at: string }> | null;
       internship_assignments?: { student_user_id?: string } | Array<{ student_user_id?: string }> | null;
-      evaluation_templates?: { name: string; form_metadata?: EvaluationFormMetadata | null; evaluation_criteria?: Array<{ id: string; label: string; description: string | null; section_label?: string; group_label?: string; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number }> } | Array<{ name: string; form_metadata?: EvaluationFormMetadata | null; evaluation_criteria?: Array<{ id: string; label: string; description: string | null; section_label?: string; group_label?: string; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number }> }> | null;
+      evaluation_templates?: { name: string; evaluator_type: "hte"; form_metadata?: EvaluationFormMetadata | null; evaluation_criteria?: Array<{ id: string; label: string; description: string | null; section_label?: string; group_label?: string; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number }> } | Array<{ name: string; evaluator_type: "hte"; form_metadata?: EvaluationFormMetadata | null; evaluation_criteria?: Array<{ id: string; label: string; description: string | null; section_label?: string; group_label?: string; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number }> }> | null;
     };
     const rows = (data ?? []) as unknown as Row[];
     const userIds = rows.flatMap((row) => {
@@ -1391,11 +1475,11 @@ export const evaluationService = {
     const names = await namesForUsers(rows.map((row) => row.student_user_id));
     return rows.map((row) => ({ id: row.id, studentName: names.get(row.student_user_id) ?? "Assigned intern" }));
   },
-  async listActiveTemplates(evaluatorType: "hte" | "coordinator" = "hte"): Promise<{ id: string; name: string; metadata: EvaluationFormMetadata | null; criteria: EvaluationCriterionRecord[] }[]> {
+  async listActiveTemplates(): Promise<{ id: string; name: string; metadata: EvaluationFormMetadata | null; criteria: EvaluationCriterionRecord[] }[]> {
     const { data, error } = await createClient().from("evaluation_templates")
       .select("id,name,form_metadata,evaluation_criteria(id,label,description,section_label,group_label,minimum_score,maximum_score,weight,display_order)")
       .eq("is_active", true)
-      .eq("evaluator_type", evaluatorType)
+      .eq("evaluator_type", "hte")
       .order("version", { ascending: false })
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
@@ -1454,13 +1538,13 @@ export const notificationService = {
   async listLive(): Promise<NotificationRecord[]> {
     const userId = await currentUserId();
     const { data, error } = await createClient().from("notification_recipients")
-      .select("notification_id,read_at,created_at,notifications(id,title,message,severity,related_entity_type,related_entity_id,created_at)")
+      .select("notification_id,read_at,created_at,notifications(id,title,message,severity,related_entity_type,related_entity_id,metadata,created_at)")
       .eq("user_id", userId)
       .is("archived_at", null)
       .order("created_at", { ascending: false })
       .limit(100);
     if (error) throw new Error(error.message);
-    type NotificationRow = { id: string; title: string; message: string; severity: NotificationRecord["tone"]; related_entity_type: string; related_entity_id: string; created_at: string };
+    type NotificationRow = { id: string; title: string; message: string; severity: NotificationRecord["tone"]; related_entity_type: string; related_entity_id: string; metadata?: { targetPath?: string } | null; created_at: string };
     type Row = { notification_id: string; read_at: string | null; notifications?: NotificationRow | NotificationRow[] | null };
     return ((data ?? []) as unknown as Row[]).flatMap((row) => {
       const notification = Array.isArray(row.notifications) ? row.notifications[0] : row.notifications;
@@ -1472,7 +1556,9 @@ export const notificationService = {
         tone: notification.severity,
         time: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(notification.created_at)),
         unread: !row.read_at,
-        targetPath: notification.related_entity_type === "internship_feedback" && /^[0-9a-f-]{36}$/i.test(notification.related_entity_id) ? `/student/feedback?feedback=${notification.related_entity_id}` : null,
+        targetPath: typeof notification.metadata?.targetPath === "string" && notification.metadata.targetPath.startsWith("/")
+          ? notification.metadata.targetPath
+          : notification.related_entity_type === "internship_feedback" && /^[0-9a-f-]{36}$/i.test(notification.related_entity_id) ? `/student/feedback?feedback=${notification.related_entity_id}` : null,
       }];
     });
   },
@@ -1621,6 +1707,26 @@ export const adminService = {
       occurredAt: row.occurred_at,
       metadata: row.metadata ?? {},
     }));
+  },
+  async listContactMessages(): Promise<ContactMessageRecord[]> {
+    const { data, error } = await createClient().from("contact_messages")
+      .select("id,sender_name,sender_email,subject,message,status,received_at")
+      .order("received_at", { ascending: false }).limit(500);
+    if (error) throw new Error(error.message);
+    type ContactRow = { id: string; sender_name: string; sender_email: string; subject: string; message: string; status: "new" | "read" | "resolved"; received_at: string };
+    return ((data ?? []) as ContactRow[]).map((row) => ({
+      id: row.id,
+      senderName: row.sender_name,
+      senderEmail: row.sender_email,
+      subject: row.subject,
+      message: row.message,
+      status: row.status === "resolved" ? "Resolved" : row.status === "read" ? "Read" : "New",
+      receivedAt: row.received_at,
+    }));
+  },
+  async updateContactMessageStatus(messageId: string, status: "read" | "resolved"): Promise<void> {
+    const { error } = await createClient().from("contact_messages").update({ status }).eq("id", messageId);
+    if (error) throw new Error(error.message);
   },
   async reviewHteOrganization(hteId: string, decision: "verified" | "rejected", notes: string): Promise<void> {
     const { error } = await createClient().rpc("review_hte_organization", {
@@ -1782,7 +1888,7 @@ export const registrationService = {
   async listLive(includeReviewed = true): Promise<RegistrationRecord[]> {
     let query = createClient()
       .from("registration_applications")
-      .select("id,email,reference_no,academic_program_id,submitted_data,status,created_at,roles(code)")
+      .select("id,email,reference_no,academic_program_id,submitted_data,status,created_at,requester_user_id,roles(code)")
       .is("deleted_at", null)
       .order("created_at", { ascending: true });
     if (!includeReviewed) query = query.in("status", ["pending", "under_review"]);
@@ -1793,7 +1899,7 @@ export const registrationService = {
       internship_coordinator: "Internship Coordinator",
       hte_supervisor: "HTE Representative",
     };
-    const rows = (data ?? []) as unknown as Array<{ id: string; email: string; reference_no: string | null; academic_program_id: string | null; submitted_data: Record<string, unknown>; status: string; created_at: string; roles?: { code: string } | Array<{ code: string }> | null }>;
+    const rows = (data ?? []) as unknown as Array<{ id: string; email: string; reference_no: string | null; academic_program_id: string | null; requester_user_id: string | null; submitted_data: Record<string, unknown>; status: string; created_at: string; roles?: { code: string } | Array<{ code: string }> | null }>;
     const programIdsFor = (row: typeof rows[number]): string[] => {
       let requested: unknown = row.submitted_data?.program_ids;
       if (typeof requested === "string") { try { requested = JSON.parse(requested); } catch { requested = []; } }
@@ -1806,20 +1912,31 @@ export const registrationService = {
       : { data: [], error: null };
     if (programError) throw new Error("Requested program names could not be verified. Please reload before reviewing.");
     const programNames = new Map((programs ?? []).map((program: { id: string; code: string; name: string }) => [program.id, `${program.code} — ${program.name}`]));
+    const requesterIds = [...new Set(rows.map((row) => row.requester_user_id).filter((id): id is string => Boolean(id)))];
+    const { data: requesterProfiles, error: requesterProfilesError } = requesterIds.length
+      ? await createClient().from("profiles").select("id,first_name,middle_name,last_name,preferred_name").in("id", requesterIds)
+      : { data: [], error: null };
+    if (requesterProfilesError) throw new Error("Applicant names could not be verified. Please reload before reviewing.");
+    const requesterNames = new Map<string, string>((requesterProfiles ?? []).map((profile: { id: string; first_name: string | null; middle_name: string | null; last_name: string | null; preferred_name: string | null }) => {
+      const name = [profile.preferred_name?.trim(), [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ").trim()]
+        .find((value) => value && !value.includes("@")) ?? "";
+      return [profile.id, name] as const;
+    }));
     return rows.map((row) => {
       const details = Object.fromEntries(Object.entries(row.submitted_data ?? {}).filter(([, value]) => typeof value === "string").map(([key, value]) => [key, String(value)]));
       // Never use client-supplied program display names in the approval screen.
       if (joinedOne(row.roles)?.code === "internship_coordinator") {
         details.program_names = JSON.stringify(programIdsFor(row).map((id) => programNames.get(id) || `Unavailable program (${id})`));
       }
-      const personName = [details.first_name, details.middle_name, details.last_name].filter(Boolean).join(" ").trim();
+      const personName = requesterNames.get(row.requester_user_id ?? "")
+        || [details.preferred_name, details.first_name, details.middle_name, details.last_name].filter(Boolean).join(" ").trim();
       const requestedRole = joinedOne(row.roles)?.code ?? "unknown";
       return {
         id: row.id,
         name: personName || details.organization_name || "Name not recorded",
         email: row.email,
         role: roleNames[requestedRole] ?? requestedRole,
-        reference: row.reference_no ?? "—",
+        reference: row.reference_no ?? "Reference not assigned",
         submitted: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(new Date(row.created_at)),
         status: ({ pending: "Pending", under_review: "Under Review", approved: "Approved", rejected: "Rejected", withdrawn: "Withdrawn" } as Record<string, string>)[row.status] ?? row.status,
         details,

@@ -246,13 +246,15 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
     year_level: number;
     section: string | null;
     expected_graduation_year: number | null;
+    academic_term_id: string | null;
+    academic_terms?: { term: string; academic_years?: { label: string } | Array<{ label: string }> | null } | Array<{ term: string; academic_years?: { label: string } | Array<{ label: string }> | null }> | null;
     academic_programs?: AcademicProgramReference | AcademicProgramReference[] | null;
   };
   let studentProfile: StudentProfile | null = null;
   if (requiresStudentProfile(selectedCode)) {
     const { data: studentProfileData, error: studentProfileError } = await supabase
       .from("student_profiles")
-      .select("student_number,year_level,section,expected_graduation_year,academic_programs(code,name,owning_org_unit_id)")
+      .select("student_number,year_level,section,expected_graduation_year,academic_term_id,academic_terms(term,academic_years(label)),academic_programs(code,name,owning_org_unit_id)")
       .eq("user_id", authUser.id)
       .maybeSingle();
     if (studentProfileError) {
@@ -312,6 +314,16 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
     yearLevel: studentProfile?.year_level ?? null,
     section: studentProfile?.section ?? null,
     expectedGraduationYear: studentProfile?.expected_graduation_year ?? null,
+    academicTermId: studentProfile?.academic_term_id ?? null,
+    academicTermName: (() => {
+      const termValue = studentProfile?.academic_terms;
+      const term = Array.isArray(termValue) ? termValue[0] : termValue;
+      if (!term) return null;
+      const yearValue = term.academic_years;
+      const year = Array.isArray(yearValue) ? yearValue[0] : yearValue;
+      const label = term.term === "first_semester" ? "1st Semester" : term.term === "second_semester" ? "2nd Semester" : "Midyear";
+      return [year?.label, label].filter(Boolean).join(" · ");
+    })(),
     academicProgramCode: program?.code ?? null,
     academicProgramName: program?.name ?? null,
     college,
@@ -473,7 +485,7 @@ export function ProtectedRoute({ role, children }: { role: RoleId; children: Rea
   }, [ready, role, user]);
 
   if (!ready || !user || !user.roles.includes(role)) {
-    return <main className="route-loading" role="status" aria-live="polite" aria-busy="true"><div className="workspace-loading-content"><div className="workspace-loading-brand"><span className="loading-wordmark"><Image unoptimized src="/branding/praxiz-symbol.png" alt="" width={112} height={112} priority /></span><span><strong>PRAXIZ</strong><small>Partido State University</small></span></div><h1>Preparing your workspace</h1><p>Loading your authorized internship tools and verified PRAXIZ data.</p><span className="route-loading-bar" aria-hidden="true"><span /></span></div></main>;
+    return <main className="route-loading" role="status" aria-live="polite" aria-busy="true"><div className="workspace-loading-content"><div className="workspace-loading-brand"><span className="loading-wordmark"><Image unoptimized src="/branding/praxiz-symbol.png" alt="" width={112} height={112} priority /></span><span><strong>PRAXIZ</strong><small>Partido State University</small></span></div><h1>Preparing workspace</h1><span className="route-loading-bar" aria-hidden="true"><span /></span></div></main>;
   }
   return children;
 }

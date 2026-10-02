@@ -78,8 +78,8 @@ test('draft deletion is row-locked, server-authorized, and hidden from every non
   assert.match(lifecycleMigration, /status <> 'draft'/);
   assert.match(workspace, /r\.status === 'Draft' && <button className="table-link" title="Delete your draft"/);
   assert.doesNotMatch(workspace, /disabled=\{r\.status !== 'Draft'\}/);
-  assert.match(workspace, /Delete draft evaluation\?/);
-  assert.match(workspace, /action\.kind === 'delete' \? 'Delete draft' : 'Confirm'/);
+  assert.match(workspace, /Delete draft HTE evaluation\?/);
+  assert.match(workspace, /action\.kind === 'delete' \? 'Delete draft'/);
 });
 
 test('migration guards ownership, submitted/final states and released-version access', () => {
