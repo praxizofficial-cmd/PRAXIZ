@@ -57,7 +57,8 @@ function EvaluationEditor({ record, template, assignments, onClose, onSaved }: {
       onSaved(submit ? 'Evaluation submitted for coordinator review.' : 'Evaluation draft saved.');
     } catch (reason) { setError(userError(reason)); } finally { lock.current = false; setBusy(false); setConfirmSubmit(false); }
   }
-  return <Dialog title={record ? 'Edit evaluation' : 'Evaluate intern'} onClose={onClose} busy={busy} wide>
+  return <Dialog title={record ? 'Edit evaluation' : 'Evaluate intern'} onClose={onClose} busy={busy} wide className="evaluation-dialog">
+    <div className="evaluation-editor-content">
     <header className="official-form-heading"><h3>{record?.templateName ?? template.name}</h3>{metadata && <p>{metadata.formCode} · Rev. No. {metadata.revision} · Effective {metadata.effectivityDate}</p>}</header>
     {record?.status === 'Returned' && <div className="evaluation-feedback"><strong>Returned for revision</strong><p>{record.reviewFeedback}</p></div>}
     <div className="two-fields"><label className="field"><span>Student intern</span><select value={assignmentId} disabled={!!record || busy} onChange={e => setAssignmentId(e.target.value)}><option value="">Select your assigned intern</option>{record && !assignments.some(a => a.id === record.assignmentId) && <option value={record.assignmentId}>{record.studentName}</option>}{assignments.map(a => <option value={a.id} key={a.id}>{a.studentName}</option>)}</select></label>
@@ -69,7 +70,8 @@ function EvaluationEditor({ record, template, assignments, onClose, onSaved }: {
     <div className="two-fields"><label className="field"><span>Rater designation (optional)</span><input maxLength={160} value={context.designation ?? ''} onChange={e => setContext({ ...context, designation: e.target.value })} /></label><label className="field"><span>Office (optional)</span><input maxLength={250} value={context.office ?? ''} onChange={e => setContext({ ...context, office: e.target.value })} /></label></div>
     <p className="muted-note">{criteria.filter(c => Number.isFinite(c.score)).length} of {criteria.length} criteria rated. Drafts remain private to authorized reviewers.</p>
     {error && <p className="form-error" role="alert">{error}</p>}
-    <div className="modal-actions"><button className="button button-secondary" disabled={busy || !assignmentId} onClick={() => void save(false)}>Save draft</button><button className="button button-primary" disabled={busy || !complete} onClick={() => setConfirmSubmit(true)}>{busy ? 'Saving…' : 'Submit evaluation'}</button></div>
+    </div>
+    <div className="modal-actions evaluation-actions"><button className="button button-secondary" disabled={busy || !assignmentId} onClick={() => void save(false)}>Save draft</button><button className="button button-primary" disabled={busy || !complete} onClick={() => setConfirmSubmit(true)}>{busy ? 'Saving…' : 'Submit evaluation'}</button></div>
     {confirmSubmit && <Dialog title="Submit evaluation?" busy={busy} onClose={() => setConfirmSubmit(false)}><p>Your answers will be locked while the coordinator reviews this version.</p><div className="modal-actions"><button className="button button-secondary" disabled={busy} onClick={() => setConfirmSubmit(false)}>Cancel</button><button className="button button-primary" disabled={busy} onClick={() => void save(true)}>Confirm submission</button></div></Dialog>}
   </Dialog>;
 }

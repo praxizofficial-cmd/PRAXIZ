@@ -1,7 +1,7 @@
 "use client";
 
 import type { AnchorHTMLAttributes, ChangeEvent, CSSProperties, FormEvent, ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import {
@@ -32,7 +32,6 @@ import {
   LoaderCircle,
   LockKeyhole,
   LogOut,
-  MailCheck,
   Menu,
   Ellipsis,
   MessageSquareText,
@@ -178,25 +177,26 @@ function Logo({ compact = false }: { compact?: boolean }) {
   </div>;
 }
 
-function ActionButton({ children, variant = "primary", icon: Icon, onClick, type = "button", disabled = false, loading = false }: {
+function ActionButton({ children, variant = "primary", size = "default", icon: Icon, onClick, type = "button", disabled = false, loading = false }: {
   children: ReactNode;
   variant?: "primary" | "secondary" | "ghost" | "danger";
+  size?: "small" | "default" | "large";
   icon?: LucideIcon;
   onClick?: () => void;
   type?: "button" | "submit";
   disabled?: boolean;
   loading?: boolean;
 }) {
-  return <button type={type} disabled={disabled || loading} aria-busy={loading || undefined} className={`button button-${variant}`} onClick={onClick}>{loading ? <LoaderCircle className="button-spinner" size={18} aria-hidden="true" /> : Icon && <Icon size={18} />}{children}</button>;
+  return <button type={type} disabled={disabled || loading} aria-busy={loading || undefined} className={`button button-${variant} button-${size}`} onClick={onClick}>{loading ? <LoaderCircle className="button-spinner" size={18} aria-hidden="true" /> : Icon && <Icon size={18} />}{children}</button>;
 }
 
 function StatusBadge({ status }: { status: string }) {
   const key = status.toLowerCase();
   const tone = /^(approved|verified|active|complete|completed|resolved|finalized|available|good)(\s|$)/.test(key)
     ? "success"
-    : key.includes("revision") || key.includes("missing") || key.includes("rejected") || key.includes("flagged")
+    : key.includes("rejected") || key.includes("failed") || key.includes("flagged")
       ? "danger"
-      : key.includes("attention") || key.includes("pending") || key.includes("progress") || key.includes("review") || key.includes("returned") || key.includes("awaiting")
+      : key.includes("attention") || key.includes("revision") || key.includes("missing") || key.includes("returned") || key.includes("pending review")
         ? "warning"
         : "info";
   return <span className={`badge badge-${tone}`}>{status}</span>;
@@ -1008,7 +1008,7 @@ function RegisterPage() {
 function RegistrationSuccessPage() {
   const [registeredEmail] = useState(() => typeof window === "undefined" ? "" : sessionStorage.getItem("praxiz-registration-email") ?? "");
   const inbox = inboxLinkForEmail(registeredEmail);
-  return <div className="success-page registration-success-page"><PublicHeader /><main><span className="success-icon"><Check size={42} /></span><span className="eyebrow dark">Application received</span><h1>Registration submitted</h1><p>Your registration is awaiting administrator review. After approval and account activation, PRAXIZ will send a confirmation message to your registered email address.</p><section className="success-next-step" aria-labelledby="registration-next-step"><MailCheck size={24} aria-hidden="true" /><div><strong id="registration-next-step">Check your registered inbox after approval</strong><p>{inbox ? "You can open your email provider now and return to the inbox when your administrator completes activation." : "Open your email inbox and check for the PRAXIZ confirmation message after your administrator completes activation."}</p></div></section>{inbox && <a className="button button-secondary button-large inbox-link" href={inbox.href} target="_blank" rel="noopener noreferrer">{inbox.label}<ExternalLink size={18} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>}<Link className="button button-primary button-large" href="/signin">Back to sign in</Link><Link className="text-link" href="/">Return to welcome page</Link></main></div>;
+  return <div className="success-page registration-success-page"><PublicHeader /><main><span className="success-icon"><Check size={38} /></span><span className="eyebrow dark">Application received</span><h1>Registration submitted</h1><p>Your administrator will review your registration. Open your email inbox after approval for the PRAXIZ account activation confirmation.</p><div className="registration-success-actions">{inbox && <a className="button button-secondary" href={inbox.href} target="_blank" rel="noopener noreferrer">{inbox.label}<ExternalLink size={18} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>}<Link className="button button-primary" href="/signin">Back to sign in</Link></div><Link className="text-link" href="/">Return to welcome page</Link></main></div>;
 }
 
 function PageHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
@@ -1138,7 +1138,7 @@ function StudentDashboard() {
     });
     return () => { activeRequest = false; };
   }, []);
-  if (loading) return <><PageHeader title={`Good day, ${user?.fullName ?? "Student Intern"}`} subtitle="Loading your verified internship progress…" /><EmptyAction icon={Clock3} title="Loading live progress" copy="PRAXIZ is reading your authorized assignment, attendance, logs, and requirements from Supabase." /></>;
+  if (loading) return <><PageHeader title={`Good day, ${user?.fullName ?? "Student Intern"}`} subtitle="Loading your verified internship progress…" /><div className="dashboard-skeleton" role="status" aria-label="Loading dashboard"><span /><span /><span /><span /><i /></div></>;
   if (!data) return <><PageHeader title={`Good day, ${user?.fullName ?? "Student Intern"}`} subtitle="Your secure student workspace is ready." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<EmptyAction icon={BriefcaseBusiness} title="No active internship assignment" copy="Your coordinator must create or approve an internship assignment before progress can be tracked." /></>;
   const hoursPercent = data.requiredHours ? Math.min(100, Math.round((data.renderedHours / data.requiredHours) * 100)) : 0;
   const logsPercent = data.logsExpected ? Math.min(100, Math.round((data.logsSubmitted / data.logsExpected) * 100)) : 0;
@@ -1181,7 +1181,7 @@ function HteDashboard() {
   return <><PageHeader title={`Good day, ${user?.fullName ?? "HTE Representative"}`} subtitle="Authorized host training establishment representative portal." />
     {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
     <div className="stats-grid four"><StatCard label="Assigned interns" value={String(rows.length)} icon={UsersRound} /><StatCard label="Attendance awaiting" value={String(attendanceAwaiting)} icon={Clock3} tone="orange" /><StatCard label="Open evaluations" value={String(pendingEvaluations)} icon={Star} tone="violet" /><StatCard label="Verified hours" value={String(totalHours)} icon={Gauge} tone="green" /></div>
-    <div className="dashboard-grid"><section className="card table-card"><div className="card-title"><h2>Assigned interns</h2><Link className="text-link" href="/hte/interns">View all</Link></div><InternTable rows={rows.slice(0, 5)} compact />{rows.length === 0 && <p className="muted-note table-empty-note">No interns are currently assigned within your authorized scope.</p>}</section><aside className="card"><div className="card-title"><h2>Pending Weekly Log reviews</h2><Link className="text-link" href="/hte/weekly-logs">Open queue</Link></div><div className="review-list">{pendingLogs.slice(0, 4).map((log) => <article key={log.id}><div><strong>Weekly Log</strong><small>{log.studentName}</small><small>{log.reportingPeriod}</small></div><StatusBadge status={log.status} /><div className="mini-actions"><Link href="/hte/weekly-logs">Review</Link></div></article>)}{pendingLogs.length === 0 && <p className="muted-note">No submitted Weekly Logs are waiting for review.</p>}</div></aside></div></>;
+    <div className="dashboard-grid"><section className="card table-card"><div className="card-title"><h2>Assigned interns</h2><Link className="text-link" href="/hte/interns">View all</Link></div><InternTable rows={rows.slice(0, 5)} compact />{rows.length === 0 && <p className="muted-note table-empty-note">No interns are currently assigned within your authorized scope.</p>}</section><aside className="card weekly-review-card"><div className="weekly-review-heading"><span><FileText size={20} /></span><div><h2>Pending Weekly Log reviews</h2><p>{pendingLogs.length ? `${pendingLogs.length} submitted log${pendingLogs.length === 1 ? " is" : "s are"} ready for review.` : "No submitted Weekly Logs are waiting for review."}</p></div></div><div className="review-list">{pendingLogs.slice(0, 4).map((log) => <article key={log.id}><div><strong>Weekly Log</strong><small>{log.studentName}</small><small>{log.reportingPeriod}</small></div><StatusBadge status={log.status} /><div className="mini-actions"><Link href="/hte/weekly-logs">Review</Link></div></article>)}</div>{pendingLogs.length > 0 && <Link className="button button-secondary button-small weekly-review-action" href="/hte/weekly-logs">Open review queue <ChevronRight size={16} /></Link>}</aside></div></>;
 }
 
 function CoordinatorDashboard() {
@@ -1231,7 +1231,9 @@ function AdminDashboard() {
     });
     return () => { active = false; };
   }, []);
-  return <><PageHeader title="System administration" subtitle="Manage access, registrations, institutional master data, and system activity." action={<Link className="button button-primary" href="/admin/registrations"><UserCheck size={18} /> Review registrations</Link>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid four"><StatCard label="Active accounts" value={String(data.activeAccounts)} detail="live Supabase profiles" icon={UsersRound} /><StatCard label="Pending registrations" value={String(data.pendingRegistrations)} icon={Clock3} tone="orange" /><StatCard label="Role assignments" value={String(data.roleAssignments)} detail="active scopes" icon={ShieldCheck} tone="green" /><StatCard label="Audit events" value={String(data.securityEvents)} detail="last 24 hours" icon={LockKeyhole} tone="violet" /></div><div className="dashboard-grid"><section className="card table-card"><h2>Pending registrations</h2><RegistrationTable /></section><aside className="card admin-controls"><h2>Administration controls</h2><p className="muted-note">Review role policies, permissions, and recent system activity.</p><div className="admin-control-links"><Link href="/admin/roles"><ShieldCheck size={20} aria-hidden="true" /><span><strong>Roles & permissions</strong><small>Review current access policies</small></span><ChevronRight size={18} aria-hidden="true" /></Link><Link href="/admin/audit-logs"><FileText size={20} aria-hidden="true" /><span><strong>Audit history</strong><small>Inspect recent system activity</small></span><ChevronRight size={18} aria-hidden="true" /></Link></div></aside></div></>;
+  const operational = [{ label: "Active accounts", value: data.activeAccounts }, { label: "Role assignments", value: data.roleAssignments }, { label: "Pending registrations", value: data.pendingRegistrations }, { label: "Audit events (24h)", value: data.securityEvents }];
+  const operationalMax = Math.max(1, ...operational.map(item => item.value));
+  return <><PageHeader title="System administration" subtitle="Manage access, registrations, institutional master data, and system activity." action={<Link className="button button-primary button-default" href="/admin/registrations"><UserCheck size={18} /> Review registrations</Link>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid four"><StatCard label="Active accounts" value={String(data.activeAccounts)} detail="live Supabase profiles" icon={UsersRound} /><StatCard label="Pending registrations" value={String(data.pendingRegistrations)} icon={Clock3} tone="orange" /><StatCard label="Role assignments" value={String(data.roleAssignments)} detail="active scopes" icon={ShieldCheck} tone="green" /><StatCard label="Audit events" value={String(data.securityEvents)} detail="last 24 hours" icon={LockKeyhole} tone="violet" /></div><section className="card admin-operations-chart"><div className="card-title"><div><h2>Operational overview</h2><p className="muted-note">Live administrative totals from the current authorized summary.</p></div></div><div className="horizontal-bars">{operational.map(item => <div key={item.label}><span>{item.label}</span><b style={{ width: `${item.value / operationalMax * 100}%` }} /><em>{item.value}</em></div>)}</div></section><div className="dashboard-grid"><section className="card table-card"><h2>Pending registrations</h2><RegistrationTable /></section><aside className="card admin-controls"><h2>Administration controls</h2><p className="muted-note">Review role policies, permissions, and recent system activity.</p><div className="admin-control-links"><Link href="/admin/roles"><ShieldCheck size={20} aria-hidden="true" /><span><strong>Roles & permissions</strong><small>Review current access policies</small></span><ChevronRight size={18} aria-hidden="true" /></Link><Link href="/admin/audit-logs"><FileText size={20} aria-hidden="true" /><span><strong>Audit history</strong><small>Inspect recent system activity</small></span><ChevronRight size={18} aria-hidden="true" /></Link></div></aside></div></>;
 }
 
 function InternTable({
@@ -1239,11 +1241,13 @@ function InternTable({
   compact = false,
   onView,
   emptyMessage,
+  groupBy = "all",
 }: {
   rows: Intern[];
   compact?: boolean;
   onView?: (intern: Intern) => void;
   emptyMessage?: string;
+  groupBy?: "all" | "section" | "hte";
 }) {
   return (
     <div className="table-scroll">
@@ -1265,11 +1269,16 @@ function InternTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((intern) => {
+          {rows.map((intern, index) => {
             const requiredHours = intern.requiredHours ?? 0;
             const awaitingAssignment = intern.status === "Awaiting Assignment";
+            const groupLabel = groupBy === "section" ? `Section ${intern.section ?? "Not recorded"}` : groupBy === "hte" ? intern.hte : "";
+            const previous = rows[index - 1];
+            const previousGroup = !previous ? "" : groupBy === "section" ? `Section ${previous.section ?? "Not recorded"}` : previous.hte;
             return (
-              <tr key={intern.studentUserId ?? intern.name}>
+              <Fragment key={intern.studentUserId ?? intern.name}>
+              {groupBy !== "all" && groupLabel !== previousGroup && <tr className="table-group-row"><th colSpan={(compact ? 5 : 11) + (onView ? 1 : 0)} scope="rowgroup">{groupLabel}</th></tr>}
+              <tr>
                 <td className="identity-cell">
                   <span className="person-cell">
                     <i>{intern.initials}</i>
@@ -1321,7 +1330,7 @@ function InternTable({
                     </button>
                   </td>
                 )}
-              </tr>
+              </tr></Fragment>
             );
           })}
           {rows.length === 0 && emptyMessage && (
@@ -2242,6 +2251,9 @@ function InternManagementPage({ role }: { role: RoleId }) {
   const [status, setStatus] = useState("");
   const [yearLevel, setYearLevel] = useState("");
   const [section, setSection] = useState("");
+  const [hte, setHte] = useState("");
+  const [academicTerm, setAcademicTerm] = useState("");
+  const [viewBy, setViewBy] = useState<"all" | "section" | "hte">("all");
   const [scope, setScope] = useState<Awaited<ReturnType<typeof coordinatorService.getScope>>>([]);
   const [rows, setRows] = useState<Intern[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2262,25 +2274,32 @@ function InternManagementPage({ role }: { role: RoleId }) {
     : [...new Map(rows.map(intern => [intern.programId ?? intern.program, { id: intern.programId ?? intern.program, label: intern.program }])).values()];
   const yearOptions = mergeAcademicOptionValues(STUDENT_YEAR_LEVEL_OPTIONS, rows.map(intern => intern.yearLevel).filter((value): value is number => typeof value === "number")).sort((a, b) => a - b);
   const sectionOptions = mergeAcademicOptionValues(STUDENT_SECTION_OPTIONS, rows.map(intern => intern.section).filter((value): value is string => Boolean(value))).sort();
-  const visible = rows.filter(intern => (!search || `${intern.name} ${intern.hte}`.toLowerCase().includes(search.trim().toLowerCase()))
+  const hteOptions = [...new Set(rows.map(intern => intern.hte).filter(value => value && value !== "Not assigned"))].sort();
+  const termOptions = [...new Set(rows.map(intern => intern.academicTerm).filter((value): value is string => Boolean(value)))].sort();
+  const visible = rows.filter(intern => (!search || `${intern.name} ${intern.hte} ${intern.section ?? ""}`.toLowerCase().includes(search.trim().toLowerCase()))
     && (role === "coordinator" || !campus || intern.campus === campus)
     && (!program || (intern.programId ?? intern.program) === program) && (!status || intern.status === status)
-    && (!yearLevel || String(intern.yearLevel ?? "") === yearLevel) && (!section || intern.section === section));
-  const filtered = !!(search || program || status || campus || yearLevel || section);
+    && (!yearLevel || String(intern.yearLevel ?? "") === yearLevel) && (!section || intern.section === section)
+    && (!hte || intern.hte === hte) && (!academicTerm || intern.academicTerm === academicTerm))
+    .sort((left, right) => viewBy === "section" ? (left.section ?? "ZZZ").localeCompare(right.section ?? "ZZZ") || left.name.localeCompare(right.name) : viewBy === "hte" ? left.hte.localeCompare(right.hte) || left.name.localeCompare(right.name) : left.name.localeCompare(right.name));
+  const filtered = !!(search || program || status || campus || yearLevel || section || hte || academicTerm);
   return <><PageHeader title={role === "coordinator" ? "Intern management" : "Assigned interns"} subtitle={role === "coordinator" ? "Students are routed here by academic program; placement details appear after assignment." : "View interns assigned to your authorized supervision scope."} />
     {role === "coordinator" && scope.length > 0 && <dl className="scope-context"><div><dt>Assigned campus</dt><dd>{[...new Set(scope.map(item => item.campus))].join(" · ")}</dd></div><div><dt>{scope.length === 1 ? "Handled program" : "Handled programs"}</dt><dd>{scope.map(item => `${item.code} · ${item.name}`).join("; ")}</dd></div></dl>}
     {error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}
     <section className="card table-card"><div className="intern-toolbar">
       <h2 aria-live="polite">{loading ? "Loading interns…" : `${visible.length} intern${visible.length === 1 ? "" : "s"}`}</h2>
       <div className="filter-bar"><label><Search size={18} aria-hidden="true" /><input aria-label="Search interns or HTEs" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search intern or HTE…" /></label>
+        {role === "coordinator" && <select className="view-by-select" aria-label="View interns by" value={viewBy} onChange={event => setViewBy(event.target.value as "all" | "section" | "hte")}><option value="all">View: All interns</option><option value="section">View by Section</option><option value="hte">View by HTE</option></select>}
         {role !== "coordinator" && campusOptions.length > 1 && <select aria-label="Filter by campus" value={campus} onChange={event => setCampus(event.target.value)}><option value="">All assigned campuses</option>{campusOptions.map(item => <option key={item}>{item}</option>)}</select>}
         {programOptions.length > 1 && <select aria-label="Filter by handled program" value={program} onChange={event => setProgram(event.target.value)}><option value="">All handled programs</option>{programOptions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>}
         {role === "coordinator" && <select aria-label="Filter by year level" value={yearLevel} onChange={event => setYearLevel(event.target.value)}><option value="">All year levels</option>{yearOptions.map(item => <option key={item} value={item}>Year {item}</option>)}</select>}
         {role === "coordinator" && <select aria-label="Filter by section" value={section} onChange={event => setSection(event.target.value)}><option value="">All sections</option>{sectionOptions.map(item => <option key={item} value={item}>Section {item}</option>)}</select>}
+        {role === "coordinator" && <select aria-label="Filter by HTE" value={hte} onChange={event => setHte(event.target.value)}><option value="">All HTEs</option>{hteOptions.map(item => <option key={item}>{item}</option>)}</select>}
+        {role === "coordinator" && termOptions.length > 0 && <select aria-label="Filter by academic term" value={academicTerm} onChange={event => setAcademicTerm(event.target.value)}><option value="">All academic terms</option>{termOptions.map(item => <option key={item}>{item}</option>)}</select>}
         <select aria-label="Filter by status" value={status} onChange={event => setStatus(event.target.value)}><option value="">All statuses</option>{["Awaiting Assignment", "Active", "Completed", "Needs Attention"].map(item => <option key={item}>{item}</option>)}</select>
-        {filtered && <button className="table-link" onClick={() => { setSearch(""); setCampus(""); setProgram(""); setStatus(""); setYearLevel(""); setSection(""); }}>Clear filters</button>}
+        {filtered && <button className="table-link" onClick={() => { setSearch(""); setCampus(""); setProgram(""); setStatus(""); setYearLevel(""); setSection(""); setHte(""); setAcademicTerm(""); }}>Clear filters</button>}
       </div></div>
-      <InternTable rows={visible} onView={intern => setHistoryStudent(intern)} emptyMessage={loading ? "Loading interns…" : error ? "Interns could not be loaded." : filtered ? "No interns match the current filters. Try adjusting your search or status filter." : "No interns are available in your assigned scope yet."} />
+      <InternTable rows={visible} groupBy={role === "coordinator" ? viewBy : "all"} onView={intern => setHistoryStudent(intern)} emptyMessage={loading ? "Loading interns…" : error ? "Interns could not be loaded." : filtered ? "No interns match the current filters. Try adjusting your search or status filter." : "No interns are available in your assigned scope yet."} />
     </section>{historyStudent?.studentUserId && <StudentAttendanceHistory studentId={historyStudent.studentUserId} name={historyStudent.name} onClose={() => setHistoryStudent(null)} />}
   </>;
 }
@@ -2358,6 +2377,9 @@ function AnalyticsPage() {
   const finalizedCount = scopedEvaluations.filter(item => item.status === "Finalized").length;
   const required = assignedRows.reduce((sum, row) => sum + Number(row.requirements.split("/")[1] ?? 0), 0);
   const approved = assignedRows.reduce((sum, row) => sum + Number(row.requirements.split("/")[0] ?? 0), 0);
+  const sectionDistribution = [...assignedRows.reduce((counts, row) => counts.set(row.section ?? "Not recorded", (counts.get(row.section ?? "Not recorded") ?? 0) + 1), new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1]);
+  const hteDistribution = [...assignedRows.reduce((counts, row) => counts.set(row.hte, (counts.get(row.hte) ?? 0) + 1), new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1]);
+  const distributionMax = Math.max(1, ...sectionDistribution.map(([, count]) => count), ...hteDistribution.map(([, count]) => count));
   const metrics: AnalyticsMetric[] = [
     { label: "Attendance verification", numerator: attendanceVerified, denominator: scopedAttendanceRows.length, value: percentage(attendanceVerified, scopedAttendanceRows.length), detail: scopedAttendanceRows.length ? `${attendanceVerified} of ${scopedAttendanceRows.length} applicable sessions verified` : "No applicable sessions yet" },
     { label: "Weekly Log approval", numerator: approvedLogs, denominator: scopedLogs.length, value: percentage(approvedLogs, scopedLogs.length), detail: scopedLogs.length ? `${approvedLogs} of ${scopedLogs.length} submitted Weekly Logs approved` : "No submitted Weekly Logs yet" },
@@ -2396,6 +2418,7 @@ function AnalyticsPage() {
     {loading ? <div className="analytics-loading" role="status" aria-label="Loading analytics"><span /><span /><span /></div> : !hasData ? <EmptyAction icon={BarChart3} title="No analytics available yet" copy="There are currently no active internship records in the selected coordinator scope." /> : <>
       <section className="card analytics-overview"><div className="card-title"><div><h2>Performance overview</h2><p className="muted-note">Verified records in your authorized scope.</p></div><StatusBadge status={concerns.length ? "Needs Attention" : "Good Standing"} /></div><div className="analytics-metric-grid">{metrics.map(metric => <article className="analytics-metric" key={metric.label}><div className="analytics-metric-icon">{metric.label.startsWith("Attendance") ? <CheckCircle2 /> : metric.label.startsWith("Daily") ? <FileText /> : metric.label.startsWith("Evaluation") ? <Star /> : <FileCheck2 />}</div><div><span>{metric.label}</span><strong>{displayValue(metric)}</strong><small>{metric.detail}</small>{metric.value !== null && <ProgressBar value={metric.value} />}</div></article>)}<article className="analytics-metric"><div className="analytics-metric-icon"><UsersRound /></div><div><span>Interns requiring attention</span><strong>{concerns.length}</strong><small>{assignedRows.length ? `of ${assignedRows.length} active interns` : "No active interns"}</small></div></article></div></section>
       <section className="card analytics-visualizations"><div className="card-title"><div><h2>Performance visualizations</h2><p className="muted-note">A compact view of verified workflow completion.</p></div></div><div className="analytics-bars" role="img" aria-label="Verified workflow completion indicators">{metrics.map(metric => <div className="analytics-bar-row" key={metric.label}><span>{metric.label}</span><div><i style={{ width: `${metric.value ?? 0}%` }} /></div><b>{displayValue(metric)}</b></div>)}</div></section>
+      <section className="analytics-distribution-grid"><article className="card"><div className="card-title"><div><h2>Interns by section</h2><p className="muted-note">Academic grouping for monitoring and grade preparation.</p></div></div><div className="horizontal-bars">{sectionDistribution.map(([label, value]) => <div key={label}><span>Section {label}</span><b style={{ width: `${value / distributionMax * 100}%` }} /><em>{value}</em></div>)}</div></article><article className="card"><div className="card-title"><div><h2>Interns by HTE</h2><p className="muted-note">Placement distribution within the selected scope.</p></div></div><div className="horizontal-bars">{hteDistribution.map(([label, value]) => <div key={label}><span>{label}</span><b style={{ width: `${value / distributionMax * 100}%` }} /><em>{value}</em></div>)}</div></article></section>
       <section className="card analytics-risks"><div className="card-title"><div><h2>Risks &amp; exceptions</h2><p className="muted-note">Deterministic rules identify where coordinator review may be needed.</p></div></div>{ruleBasedRisks.length ? <div className="risk-list">{ruleBasedRisks.map(risk => <article className="risk-row" key={risk.indicator}><div><strong>{risk.indicator}</strong><p>{risk.message}</p></div><StatusBadge status={risk.severity === "high" ? "Needs Attention" : "Monitor"} /><Link className="button button-secondary" href={risk.href}>{risk.action}</Link></article>)}</div> : <p className="muted-note">No configured concern threshold was triggered.</p>}</section>
       <section className="card ai-insights-card"><div className="card-title"><div><h2>AI Performance Insights</h2><p className="muted-note">AI-assisted interpretation of verified PRAXIZ internship indicators.</p></div><ActionButton onClick={generateAiInsights} disabled={aiLoading || !hasData}>{aiLoading ? "Analyzing…" : aiInsights ? "Regenerate insights" : "Generate AI insights"}</ActionButton></div>{aiError && <div className="ai-error" role="alert"><AlertTriangle size={16} /><span>{aiError}</span><button className="table-link" onClick={() => void generateAiInsights()} disabled={aiLoading}>Try again</button></div>}{aiLoading && <div className="ai-loading-state" role="status" aria-live="polite"><span className="skeleton-line" /><span className="skeleton-line short" /><span className="skeleton-line" /><p>Analyzing verified indicators… PRAXIZ AI is interpreting the current monitoring data.</p></div>}{!aiInsights && !aiLoading && !aiError && <p className="muted-note">Generate an AI-assisted analysis of the current attendance, Weekly Log, HTE evaluation, and document-compliance indicators.</p>}{aiInsights && !aiLoading && <div className="ai-results"><section><h3>Overall assessment</h3><p>{aiInsights.summary}</p></section><section><h3>Key observations</h3>{aiInsights.patterns.length ? <ul className="observation-list">{aiInsights.patterns.map((pattern, index) => <li key={`pattern-${index}`}>{pattern}</li>)}</ul> : <p className="muted-note">No additional pattern was identified from the available verified indicators.</p>}</section><section><h3>Recommended actions</h3>{aiInsights.recommendations.length ? <ol className="recommendation-list">{aiInsights.recommendations.map((recommendation, index) => <li key={`recommendation-${index}`}><span>{recommendation}</span>{index === 0 && ruleBasedRisks[0] && <Link className="text-link" href={ruleBasedRisks[0].href}>Open workflow</Link>}</li>)}</ol> : <p className="muted-note">No additional coordinator follow-up recommendation was generated.</p>}</section></div>}<div className="ai-disclaimer"><ShieldCheck size={18} /><p><strong>AI-assisted interpretation.</strong> Verified PRAXIZ records, configured indicators, rule-based alerts, and Internship Coordinator decisions remain authoritative.</p></div></section>
     </>}
@@ -2625,7 +2648,7 @@ function PartnerHtesPage() {
   const load = useCallback(async () => { try { setRecords(await coordinatorService.listPartnerHtes()); } catch (reason) { setError(userError(reason, "Partner HTEs could not be loaded.")); } finally { setLoading(false); } }, []);
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
   const shown = records.filter((item) => (status === "All" || item.status === status) && (!search || `${item.name} ${item.representative} ${item.industry} ${item.location} ${item.status}`.toLowerCase().includes(search.toLowerCase())));
-  return <><PageHeader title="Partner HTEs" subtitle="Verified and pending organizations available within the authorized internship workflow." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Add partner HTE</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading organizations…" : `${shown.length} organization${shown.length === 1 ? "" : "s"}`}</h2><label className="field field-compact"><span>Verification status</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="All">All</option>{[...new Set(["Verified", "Pending", "Rejected", ...records.map(r => r.status)])].map(s => <option key={s} value={s}>{s}</option>)}</select></label><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search organizations…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Representative</th><th>Assigned interns</th><th>Verification</th><th>Actions</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.representative}</td><td>{item.assignedInterns}</td><td><StatusBadge status={item.status} /></td><td><div className="inline-actions"><button className="table-link" onClick={() => setSelected(item)}><Eye size={16} />View details</button>{item.status === 'Verified' && <button className="table-link" onClick={() => setProvisioning(item)}><Plus size={16} />Create HTE Representative</button>}</div></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={5}>No real HTE organization matches this view.</td></tr>}</tbody></table></div></section>{selected && <Dialog title={selected.name} onClose={() => setSelected(null)}><dl className="info-list"><div><dt>Representative</dt><dd>{selected.representative}</dd></div><div><dt>Industry</dt><dd>{selected.industry}</dd></div><div><dt>Location</dt><dd>{selected.location}</dd></div><div><dt>Assigned interns</dt><dd>{selected.assignedInterns}</dd></div><div><dt>Verification</dt><dd>{selected.status}</dd></div></dl></Dialog>}{adding && <PartnerHteDialog close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}{provisioning && <ProvisionAccountDialog accountRole="hte" hte={provisioning} close={() => setProvisioning(null)} onCreated={() => void load()} />}</>;
+  return <><PageHeader title="Partner HTEs" subtitle="Verified and pending organizations available within the authorized internship workflow." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Add partner HTE</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card partner-hte-card"><div className="card-title"><h2>{loading ? "Loading organizations…" : `${shown.length} organization${shown.length === 1 ? "" : "s"}`}</h2><label className="field field-compact"><span>Verification status</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="All">All</option>{[...new Set(["Verified", "Pending", "Rejected", ...records.map(r => r.status)])].map(s => <option key={s} value={s}>{s}</option>)}</select></label><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search organizations…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Representative</th><th>Assigned interns</th><th>Verification</th><th>Actions</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.representative}</td><td>{item.assignedInterns}</td><td><StatusBadge status={item.status} /></td><td><div className="inline-actions"><button className="table-link" onClick={() => setSelected(item)}><Eye size={16} />View details</button>{item.status === 'Verified' && <button className="button button-primary button-small table-primary-action" onClick={() => setProvisioning(item)}><Plus size={16} />Create HTE Representative</button>}</div></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={5}>No real HTE organization matches this view.</td></tr>}</tbody></table></div></section>{selected && <Dialog title={selected.name} onClose={() => setSelected(null)}><dl className="info-list"><div><dt>Representative</dt><dd>{selected.representative}</dd></div><div><dt>Industry</dt><dd>{selected.industry}</dd></div><div><dt>Location</dt><dd>{selected.location}</dd></div><div><dt>Assigned interns</dt><dd>{selected.assignedInterns}</dd></div><div><dt>Verification</dt><dd>{selected.status}</dd></div></dl></Dialog>}{adding && <PartnerHteDialog close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}{provisioning && <ProvisionAccountDialog accountRole="hte" hte={provisioning} close={() => setProvisioning(null)} onCreated={() => void load()} />}</>;
 }
 
 function AssignmentDialog({ close, onSaved }: { close: () => void; onSaved: () => void }) {

@@ -2,6 +2,7 @@
 
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { Send, Sparkles } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { useAuth } from '../auth/supabase-auth';
 import type { RoleId } from '../types';
 import { Dialog } from './Dialog';
@@ -78,7 +79,7 @@ export default function PraxizAiAssistant() {
           <h3>How can I help with PRAXIZ?</h3>
           <p>Ask about the workflows available in your {role === 'hte' ? 'HTE Representative' : role === 'coordinator' ? 'Internship Coordinator' : role === 'admin' ? 'System Administrator' : 'Student Intern'} workspace.</p>
           <div className="ai-chat-suggestions" aria-label="Suggested questions">{suggestions.map(suggestion => <button type="button" key={suggestion} onClick={() => void sendPrompt(suggestion)}>{suggestion}</button>)}</div>
-        </div> : messages.map(item => <article key={item.id} className={`ai-chat-message ai-chat-message-${item.role}`}><span>{item.role === 'user' ? 'You' : 'PRAXIZ AI'}</span><p>{item.content}</p></article>)}
+        </div> : messages.map(item => <article key={item.id} className={`ai-chat-message ai-chat-message-${item.role}`}><span>{item.role === 'user' ? 'You' : 'PRAXIZ AI'}</span>{item.role === 'assistant' ? <div className="ai-chat-markdown"><ReactMarkdown>{item.content}</ReactMarkdown></div> : <p>{item.content}</p>}</article>)}
         {loading && <article className="ai-chat-message ai-chat-message-assistant ai-chat-typing" role="status"><span>PRAXIZ AI</span><p>Thinking…</p></article>}
       </div>
       {error && <div className="ai-error" role="alert"><span>{error}</span><button type="button" className="table-link" onClick={() => void sendPrompt(messages.filter(item => item.role === 'user').at(-1)?.content ?? '')}>Retry</button></div>}

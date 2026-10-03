@@ -9,12 +9,12 @@ import {
   type ReactNode,
 } from "react";
 import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
-import Image from "next/image";
 import { createClient } from "../../lib/supabase/client";
 import { getSiteOrigin } from "../../lib/site-url";
 import type { AuthUser, RoleId } from "../types";
 import { academicTermLabel } from "../academic-options";
 import { mapStudentIdentity, requiresStudentProfile, resolveRoleCode } from "./student-stabilization";
+import { PraxizLoaderMark } from "../components/PraxizLoaderMark";
 
 const databaseRoleToUiRole: Record<string, RoleId> = {
   student_intern: "student",
@@ -486,7 +486,7 @@ export function ProtectedRoute({ role, children }: { role: RoleId; children: Rea
   }, [ready, role, user]);
 
   if (!ready || !user || !user.roles.includes(role)) {
-    return <main className="route-loading" role="status" aria-live="polite" aria-busy="true"><div className="workspace-loading-content"><div className="workspace-loading-brand"><span className="loading-wordmark"><Image unoptimized src="/branding/praxiz-symbol.png" alt="" width={112} height={112} priority /></span><span><strong>PRAXIZ</strong><small>Partido State University</small></span></div><h1>Preparing workspace</h1><span className="route-loading-bar" aria-hidden="true"><span /></span></div></main>;
+    return <main className="route-loading" role="status" aria-live="polite" aria-busy="true"><div className="workspace-loading-content"><PraxizLoaderMark /><p>Preparing workspace…</p></div></main>;
   }
   return children;
 }
