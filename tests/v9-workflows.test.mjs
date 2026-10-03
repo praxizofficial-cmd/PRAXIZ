@@ -18,6 +18,7 @@ const provisioningRoute = read('../app/api/accounts/provision/route.ts');
 const contactRoute = read('../app/api/contact/route.ts');
 const contactMigration = read('../database/20260912_contact_support_inbox.sql');
 const layout = read('../app/layout.tsx');
+const academicOptions = read('../app/academic-options.ts');
 
 test('v9 branding and landing journey use the approved identity and exact slogan', () => {
   assert.match(app, /src="\/branding\/praxiz-symbol\.png"/);
@@ -133,9 +134,9 @@ test('v10 contact delivery remains server-side and registration year choices are
   assert.match(contactMigration, /private\.is_system_administrator\(auth\.uid\(\)\)/);
   assert.match(contactMigration, /revoke all on public\.contact_messages from public, anon, authenticated/);
   const registration = app.slice(app.indexOf('function RegistrationFields'), app.indexOf('function RegistrationSuccessPage'));
-  assert.match(registration, /Third Year/);
-  assert.match(registration, /Fourth Year/);
-  assert.doesNotMatch(registration, /First Year|Second Year|Fifth Year/);
+  assert.match(registration, /STUDENT_YEAR_LEVEL_OPTIONS/);
+  assert.match(academicOptions, /STUDENT_YEAR_LEVEL_OPTIONS = \[1, 2, 3, 4\]/);
+  assert.doesNotMatch(academicOptions, /STUDENT_YEAR_LEVEL_OPTIONS = \[[^\]]*5/);
 });
 
 test('settings retain four compact cards and semantic controls', () => {

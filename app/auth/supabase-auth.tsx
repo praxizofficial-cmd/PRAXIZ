@@ -13,6 +13,7 @@ import Image from "next/image";
 import { createClient } from "../../lib/supabase/client";
 import { getSiteOrigin } from "../../lib/site-url";
 import type { AuthUser, RoleId } from "../types";
+import { academicTermLabel } from "../academic-options";
 import { mapStudentIdentity, requiresStudentProfile, resolveRoleCode } from "./student-stabilization";
 
 const databaseRoleToUiRole: Record<string, RoleId> = {
@@ -321,7 +322,7 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
       if (!term) return null;
       const yearValue = term.academic_years;
       const year = Array.isArray(yearValue) ? yearValue[0] : yearValue;
-      const label = term.term === "first_semester" ? "1st Semester" : term.term === "second_semester" ? "2nd Semester" : "Midyear";
+      const label = academicTermLabel(term.term);
       return [year?.label, label].filter(Boolean).join(" · ");
     })(),
     academicProgramCode: program?.code ?? null,

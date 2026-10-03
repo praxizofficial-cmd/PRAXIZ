@@ -7,11 +7,13 @@ const migration = read("database/20261002_weekly_logs_student_academics_hte_eval
 const app = read("app/PraxizApp.tsx");
 const data = read("app/data.ts");
 const services = read("app/services/praxiz-services.ts");
+const academicOptions = read("app/academic-options.ts");
 const evaluationWorkspace = read("app/components/EvaluationWorkspace.tsx");
 const permissions = read("app/permissions.ts");
 
 test("Student Intern registration uses controlled section and normalized academic terms", () => {
-  assert.match(app, /name="section"[\s\S]*\["A", "B", "C", "D", "E"\]/);
+  assert.match(app, /name="section"[\s\S]*STUDENT_SECTION_OPTIONS/);
+  assert.match(academicOptions, /STUDENT_SECTION_OPTIONS = \["A", "B", "C", "D", "E"\]/);
   assert.match(app, /name="academicTermId"/);
   assert.match(migration, /foreign key \(academic_term_id\)[\s\S]*references public\.academic_terms\(id\)/);
   assert.match(migration, /section in \('A', 'B', 'C', 'D', 'E'\)/);

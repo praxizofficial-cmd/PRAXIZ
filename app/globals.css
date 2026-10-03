@@ -1731,3 +1731,112 @@ html[data-theme="dark"] .attendance-action-panel dl > div, html[data-theme="dark
   background: #e8f7ef;
   border-color: #83c9a7;
 }
+
+/* v16 - consistent authentication and restrained application feedback. */
+.button:active:not(:disabled) { transform: translateY(0) scale(.985); }
+.button[aria-busy="true"] { cursor: progress; }
+.button-spinner { flex: 0 0 auto; animation: spin .75s linear infinite; }
+
+.auth-card-recovery .secure-form-note {
+  margin: 20px auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+.auth-card-recovery .secure-form-note svg { flex: 0 0 auto; color: var(--blue); }
+
+.success-next-step {
+  width: min(100%, 650px);
+  margin: 12px 0 4px;
+  padding: 18px 20px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 13px;
+  text-align: left;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  animation: success-feedback-enter .32s cubic-bezier(.22,1,.36,1) both;
+}
+.success-next-step > svg { color: var(--success); }
+.success-next-step strong { display: block; color: var(--ink); }
+.success-next-step p { margin: 5px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.registration-success-page .inbox-link { margin-top: 18px; }
+.registration-success-page .button-primary { margin-top: 10px; }
+
+.app-main > .page-heading,
+.app-main > .scope-context,
+.app-main > .stats-grid,
+.app-main > .card,
+.app-main > .form-success,
+.app-main > .form-error {
+  animation: workspace-content-enter .28s cubic-bezier(.22,1,.36,1) both;
+}
+.app-main > .stats-grid, .app-main > .scope-context { animation-delay: .035s; }
+.app-main > .card { animation-delay: .065s; }
+
+.card, .stat-card, .quick-actions a, .quick-actions button,
+.side-nav a, .icon-button, .table-link,
+.field input, .field select, .field textarea, .password-input {
+  transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+  transition-duration: .18s;
+  transition-timing-function: ease;
+}
+a.card:hover, a.card:focus-visible, button.card:hover, button.card:focus-visible,
+.quick-actions a:hover, .quick-actions a:focus-visible,
+.quick-actions button:hover, .quick-actions button:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+.field input:user-invalid, .field select:user-invalid, .field textarea:user-invalid { border-color: var(--danger); }
+.form-success, .inline-success { animation: success-feedback-enter .24s ease-out both; }
+.form-error { animation: validation-feedback-enter .2s ease-out both; }
+
+.native-dialog[open] { animation: dialog-enter .2s cubic-bezier(.22,1,.36,1) both; }
+.native-dialog[open]::backdrop { animation: backdrop-enter .16s ease-out both; }
+.header-popover, .theme-popover, .sidebar-account-menu, .program-picker {
+  transform-origin: top right;
+  animation: popover-enter .16s cubic-bezier(.22,1,.36,1) both;
+}
+
+@keyframes workspace-content-enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+@keyframes success-feedback-enter { from { opacity: 0; transform: translateY(6px) scale(.99); } to { opacity: 1; transform: none; } }
+@keyframes validation-feedback-enter { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@keyframes dialog-enter { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes backdrop-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes popover-enter { from { opacity: 0; transform: translateY(-4px) scale(.985); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 520px) {
+  .success-next-step { padding: 16px; }
+  .registration-success-page main { justify-content: flex-start; padding-top: 38px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button-spinner,
+  .success-next-step,
+  .app-main > .page-heading,
+  .app-main > .scope-context,
+  .app-main > .stats-grid,
+  .app-main > .card,
+  .app-main > .form-success,
+  .app-main > .form-error,
+  .form-success,
+  .inline-success,
+  .form-error,
+  .native-dialog[open],
+  .native-dialog[open]::backdrop,
+  .header-popover,
+  .theme-popover,
+  .sidebar-account-menu,
+  .program-picker { animation: none !important; }
+  a.card:hover, a.card:focus-visible, button.card:hover, button.card:focus-visible,
+  .quick-actions a:hover, .quick-actions a:focus-visible,
+  .quick-actions button:hover, .quick-actions button:focus-visible,
+  .button:active:not(:disabled) { transform: none; }
+}

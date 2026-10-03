@@ -20,6 +20,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  ExternalLink,
   FileCheck2,
   FileText,
   Flag,
@@ -28,8 +29,10 @@ import {
   LayoutDashboard,
   LineChart,
   ListChecks,
+  LoaderCircle,
   LockKeyhole,
   LogOut,
+  MailCheck,
   Menu,
   Ellipsis,
   MessageSquareText,
@@ -97,8 +100,10 @@ import {
 } from "./services/praxiz-services";
 import { programsForCollege, unitsForCampus } from "./services/institutional-stabilization";
 import { attendanceDecisionBlock, resolveAttendancePair } from "./services/attendance-stabilization";
+import { inboxLinkForEmail } from "./services/registration-success";
 import { normalizeEvaluationCode, type EvaluationTemplateCriterionInput, type EvaluationTemplateStage } from "./services/evaluation-template-stabilization";
 import { mimeTypesForPreset, type DocumentTemplateMimePreset, type DocumentTemplatePhase } from "./services/workflow-template-stabilization";
+import { STUDENT_SECTION_OPTIONS, STUDENT_YEAR_LEVEL_OPTIONS, mergeAcademicOptionValues } from "./academic-options";
 import { roleIds, type AttendanceSession, type Campus, type College, type Intern, type RoleId } from "./types";
 
 function Link({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
@@ -173,15 +178,16 @@ function Logo({ compact = false }: { compact?: boolean }) {
   </div>;
 }
 
-function ActionButton({ children, variant = "primary", icon: Icon, onClick, type = "button", disabled = false }: {
+function ActionButton({ children, variant = "primary", icon: Icon, onClick, type = "button", disabled = false, loading = false }: {
   children: ReactNode;
   variant?: "primary" | "secondary" | "ghost" | "danger";
   icon?: LucideIcon;
   onClick?: () => void;
   type?: "button" | "submit";
   disabled?: boolean;
+  loading?: boolean;
 }) {
-  return <button type={type} disabled={disabled} className={`button button-${variant}`} onClick={onClick}>{Icon && <Icon size={18} />}{children}</button>;
+  return <button type={type} disabled={disabled || loading} aria-busy={loading || undefined} className={`button button-${variant}`} onClick={onClick}>{loading ? <LoaderCircle className="button-spinner" size={18} aria-hidden="true" /> : Icon && <Icon size={18} />}{children}</button>;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -731,6 +737,15 @@ function AuthAside({ title, copy, children }: { title: string; copy: string; chi
   );
 }
 
+function CompactAuthPage({ children, cardClassName = "" }: { children: ReactNode; cardClassName?: string }) {
+  return <div className="auth-page auth-page-compact">
+    <div className="auth-compact-header"><Link href="/" aria-label="PRAXIZ home"><Logo /></Link><ThemeControls compact /></div>
+    <main className="auth-main auth-compact-main">
+      <div className={`auth-form-wrap auth-card ${cardClassName}`.trim()}>{children}</div>
+    </main>
+  </div>;
+}
+
 function SignInPage() {
   const { signIn } = useAuth();
   const [email, setEmail] = useState(() => typeof window === "undefined" ? "" : localStorage.getItem("praxiz-remembered-email") ?? "");
@@ -760,10 +775,7 @@ function SignInPage() {
   }
 
   return (
-    <div className="auth-page auth-page-compact">
-      <div className="auth-compact-header"><Link href="/" aria-label="PRAXIZ home"><Logo /></Link><ThemeControls compact /></div>
-      <main className="auth-main auth-compact-main">
-        <div className="auth-form-wrap auth-card">
+    <CompactAuthPage>
           <Link href="/" className="auth-card-back"><ArrowLeft size={17} /> Back to PRAXIZ</Link>
           <span className="eyebrow dark">Secure access</span>
           <div className="auth-title-row"><h2>Sign in</h2></div><p className="form-intro">Enter your credentials. PRAXIZ will identify your active role and open the correct workspace automatically.</p>
@@ -772,13 +784,11 @@ function SignInPage() {
             <label className="field"><span>Password <Link href="/forgot-password">Forgot password?</Link></span><span className="password-input"><input name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" /><button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={19} /> : <Eye size={19} />}</button></span></label>
             <label className="remember-row"><input type="checkbox" checked={rememberEmail} onChange={(event) => setRememberEmail(event.target.checked)} /> <span>Remember my email on this device</span></label>
             {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-            <ActionButton type="submit" disabled={loading}>{loading ? "Recognizing account…" : "Sign in to PRAXIZ"}</ActionButton>
+            <ActionButton type="submit" loading={loading}>{loading ? "Recognizing account…" : "Sign in to PRAXIZ"}</ActionButton>
           </form>
           <div className="auth-help-group"><p className="auth-switch">Eligible Student Intern? <Link href="/register">Create account</Link></p>
           <p className="secure-form-note"><ShieldCheck size={16} aria-hidden="true" /><span>Authentication and role access are verified by Supabase.</span></p></div>
-        </div>
-      </main>
-    </div>
+    </CompactAuthPage>
   );
 }
 
@@ -801,7 +811,15 @@ function ForgotPasswordPage() {
       setLoading(false);
     }
   }
-  return <div className="auth-page"><AuthAside title="Recover access." copy="Request a password reset link for your verified PRAXIZ account." /><main className="auth-main"><div className="auth-form-wrap"><span className="eyebrow dark">Account recovery</span><h2>Forgot password</h2><p className="form-intro">Enter your registered email. Supabase will send a secure reset link if the account exists.</p>{submitted ? <div className="inline-success"><CheckCircle2 /><div><strong>Check your email</strong><p>If the address is registered, its secure password-reset link is on the way.</p></div></div> : <form onSubmit={submit}><label className="field"><span>Email address</span><input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Enter your registered email" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<ActionButton type="submit" disabled={loading}>{loading ? "Sending…" : "Request reset link"}</ActionButton></form>}<p className="auth-switch"><Link href="/signin">Return to sign in</Link></p></div></main></div>;
+  return <CompactAuthPage cardClassName="auth-card-recovery">
+    <Link href="/" className="auth-card-back"><ArrowLeft size={17} /> Back to PRAXIZ</Link>
+    <span className="eyebrow dark">Account recovery</span>
+    <h2>Forgot password</h2>
+    <p className="form-intro">Enter your registered email address and we&apos;ll send you a secure password reset link if the account exists.</p>
+    {submitted ? <div className="inline-success" role="status"><CheckCircle2 /><div><strong>Check your email</strong><p>If the address is registered, its secure password-reset link is on the way.</p></div></div> : <form onSubmit={submit}><label className="field"><span>Email address</span><input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Enter your registered email" /></label>{error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}<ActionButton type="submit" loading={loading}>{loading ? "Sending…" : "Request reset link"}</ActionButton></form>}
+    <p className="auth-switch"><Link href="/signin">Return to sign in</Link></p>
+    <p className="secure-form-note"><ShieldCheck size={16} aria-hidden="true" /><span>Reset requests use secure Supabase authentication.</span></p>
+  </CompactAuthPage>;
 }
 
 function ResetPasswordPage() {
@@ -927,7 +945,7 @@ function RegistrationFields({ accountRole }: { accountRole: RoleId }) {
     <div className="two-fields"><label className="field"><span>{isHte ? "Organization / company name" : "Full name"} *</span><input required name={isHte ? "organizationName" : "fullName"} placeholder={isHte ? "e.g. TechSouth Philippines, Inc." : "e.g. Maria B. Santos"} /></label><label className="field"><span>{isStudent ? "Student number" : isHte ? "Representative full name" : "Employee number"} *</span><input required name={isStudent ? "studentNumber" : isHte ? "representativeName" : "employeeNumber"} placeholder={isStudent ? "e.g. 2023-00123" : isHte ? "e.g. Allan D. Maraña" : "Enter official identifier"} /></label></div>
     {isHte && <div className="two-fields"><label className="field"><span>Position / title *</span><input required name="position" placeholder="e.g. OJT Supervisor" /></label><label className="field"><span>Contact number *</span><input required name="contactNumber" inputMode="tel" placeholder="e.g. +63 9XX XXX XXXX" /></label></div>}
     <label className="field"><span>{isStudent ? "Institutional email" : "Official email address"} *</span><input required name="email" type="email" autoComplete="email" placeholder={isStudent ? "studentid.pbox@parsu.edu.ph" : "name@organization.edu.ph"} /></label>
-    {!isHte && <><div className="two-fields"><label className="field"><span>Campus *</span><select required name="campusId" value={campusId} disabled={!registrationOptions} onChange={(event) => { setCampusId(event.target.value); setCollegeId(""); setProgramId(""); setProgramIds([]); }}><option value="" disabled>{registrationOptions ? "Select campus" : "Loading institutional options..."}</option>{campusOptions.map((campus) => <option key={campus.id} value={campus.id}>{campus.shortName}</option>)}</select></label><label className="field"><span>College / academic unit *</span><select required name="collegeId" value={collegeId} disabled={!campusId} onChange={(event) => { setCollegeId(event.target.value); setProgramId(""); setProgramIds([]); }}><option value="" disabled>Select college or unit</option>{collegeOptions.map((college) => <option key={college.id} value={college.id}>{college.name}</option>)}</select></label></div>{hasProgramScope && <><div className={isStudent ? "two-fields" : "coordinator-program-field"}><div className="field"><span id="registration-program-label">{isStudent ? "Program / course" : "Programs handled"} *</span>{isStudent ? <select aria-labelledby="registration-program-label" required name="programId" value={programId} disabled={!collegeId} onChange={(event) => setProgramId(event.target.value)}><option value="" disabled>Select program</option>{programOptions.map((program) => <option key={program.id} value={program.id}>{program.code} — {program.name}</option>)}</select> : <ProgramMultiSelect options={programOptions} value={programIds} onChange={setProgramIds} />}</div></div>{isStudent && <><div className="two-fields"><label className="field"><span>Year level *</span><select required name="yearLevel" defaultValue=""><option value="" disabled>Select year level</option><option value="3">Third Year</option><option value="4">Fourth Year</option></select></label><label className="field"><span>Section *</span><select required name="section" defaultValue=""><option value="" disabled>Select section</option>{["A", "B", "C", "D", "E"].map((section) => <option key={section} value={section}>{section}</option>)}</select></label></div><label className="field"><span>Academic term *</span><select required name="academicTermId" defaultValue="" disabled={!registrationOptions?.terms.length}><option value="" disabled>{registrationOptions?.terms.length ? "Select academic term" : "No academic term is available"}</option>{registrationOptions?.terms.map((term) => <option key={term.id} value={term.id}>{term.academicYear} · {term.term}</option>)}</select></label></>}</>}{institutionalError && <p className="form-error"><AlertTriangle size={16} /> {institutionalError}</p>}</>}
+    {!isHte && <><div className="two-fields"><label className="field"><span>Campus *</span><select required name="campusId" value={campusId} disabled={!registrationOptions} onChange={(event) => { setCampusId(event.target.value); setCollegeId(""); setProgramId(""); setProgramIds([]); }}><option value="" disabled>{registrationOptions ? "Select campus" : "Loading institutional options..."}</option>{campusOptions.map((campus) => <option key={campus.id} value={campus.id}>{campus.shortName}</option>)}</select></label><label className="field"><span>College / academic unit *</span><select required name="collegeId" value={collegeId} disabled={!campusId} onChange={(event) => { setCollegeId(event.target.value); setProgramId(""); setProgramIds([]); }}><option value="" disabled>Select college or unit</option>{collegeOptions.map((college) => <option key={college.id} value={college.id}>{college.name}</option>)}</select></label></div>{hasProgramScope && <><div className={isStudent ? "two-fields" : "coordinator-program-field"}><div className="field"><span id="registration-program-label">{isStudent ? "Program / course" : "Programs handled"} *</span>{isStudent ? <select aria-labelledby="registration-program-label" required name="programId" value={programId} disabled={!collegeId} onChange={(event) => setProgramId(event.target.value)}><option value="" disabled>Select program</option>{programOptions.map((program) => <option key={program.id} value={program.id}>{program.code} — {program.name}</option>)}</select> : <ProgramMultiSelect options={programOptions} value={programIds} onChange={setProgramIds} />}</div></div>{isStudent && <><div className="two-fields"><label className="field"><span>Year level *</span><select required name="yearLevel" defaultValue=""><option value="" disabled>Select year level</option>{STUDENT_YEAR_LEVEL_OPTIONS.map((year) => <option key={year} value={year}>Year {year}</option>)}</select></label><label className="field"><span>Section *</span><select required name="section" defaultValue=""><option value="" disabled>Select section</option>{STUDENT_SECTION_OPTIONS.map((section) => <option key={section} value={section}>Section {section}</option>)}</select></label></div><label className="field"><span>Academic term *</span><select required name="academicTermId" defaultValue="" disabled={!registrationOptions?.terms.length}><option value="" disabled>{registrationOptions?.terms.length ? "Select academic term" : "No academic term is available"}</option>{registrationOptions?.terms.map((term) => <option key={term.id} value={term.id}>{term.academicYear} · {term.term}</option>)}</select></label></>}</>}{institutionalError && <p className="form-error"><AlertTriangle size={16} /> {institutionalError}</p>}</>}
     {isHte && <><label className="field"><span>Office address *</span><textarea required name="officeAddress" placeholder="Enter the official business address" /></label><label className="field"><span>Available internship slots *</span><input required name="availableSlots" type="number" min="1" placeholder="e.g. 5" /></label></>}
     <div className="two-fields"><label className="field"><span>Password *</span><input required name="password" type="password" minLength={8} autoComplete="new-password" placeholder="Create a password" /></label><label className="field"><span>Confirm password *</span><input required name="confirmPassword" type="password" minLength={8} autoComplete="new-password" placeholder="Re-enter password" /></label></div>
   </>;
@@ -957,13 +975,15 @@ function RegisterPage() {
     setLoading(true);
     setError("");
     try {
+      const registrationEmail = String(formData.get("email") ?? "").trim().toLowerCase();
       await register({
         role: 'student',
-        email: String(formData.get("email") ?? ""),
+        email: registrationEmail,
         password,
         fullName,
         fields: rawFields,
       });
+      sessionStorage.setItem("praxiz-registration-email", registrationEmail);
       window.location.href = "/register/success";
     } catch (reason) {
       setError(userError(reason, "Registration could not be submitted."));
@@ -977,7 +997,7 @@ function RegisterPage() {
         <div className="registration-wrap auth-card registration-card">
           <Link href="/" className="auth-card-back"><ArrowLeft size={17} /> Back to PRAXIZ</Link>
           <span className="eyebrow dark">Account verification</span><h2>Create Student Intern account</h2><p className="form-intro">Enter your verified institutional identity and internship program information.</p>
-          <form className="registration-form" onSubmit={submit}><div className="form-card-heading"><span className="role-dot role-student">SI</span><span><strong>Student Intern registration</strong><small>Fields marked * are required for verification</small></span></div><RegistrationFields accountRole="student" /><div className="consent"><input id="registration-consent" type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /><label htmlFor="registration-consent">I confirm the information is accurate and agree to PRAXIZ’s <Link href="/terms" target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>Terms of Service<span className="sr-only"> (opens in a new tab)</span></Link> and <Link href="/privacy" target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>Privacy Policy<span className="sr-only"> (opens in a new tab)</span></Link>.</label></div>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<ActionButton type="submit" disabled={!agree || loading}>{loading ? "Creating secure account…" : "Submit Student Intern registration"}</ActionButton></form>
+          <form className="registration-form" onSubmit={submit}><div className="form-card-heading"><span className="role-dot role-student">SI</span><span><strong>Student Intern registration</strong><small>Fields marked * are required for verification</small></span></div><RegistrationFields accountRole="student" /><div className="consent"><input id="registration-consent" type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /><label htmlFor="registration-consent">I confirm the information is accurate and agree to PRAXIZ’s <Link href="/terms" target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>Terms of Service<span className="sr-only"> (opens in a new tab)</span></Link> and <Link href="/privacy" target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>Privacy Policy<span className="sr-only"> (opens in a new tab)</span></Link>.</label></div>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<ActionButton type="submit" disabled={!agree} loading={loading}>{loading ? "Creating secure account…" : "Submit Student Intern registration"}</ActionButton></form>
           <p className="auth-switch">Already have an account? <Link href="/signin">Sign in here</Link></p>
         </div>
       </main>
@@ -986,7 +1006,9 @@ function RegisterPage() {
 }
 
 function RegistrationSuccessPage() {
-  return <div className="success-page"><PublicHeader /><main><span className="success-icon"><Check size={42} /></span><span className="eyebrow dark">Application received</span><h1>Registration submitted</h1><p>Your PRAXIZ account registration is ready for administrator review. You’ll receive a confirmation through your registered email after activation.</p><Link className="button button-primary button-large" href="/signin">Back to sign in</Link><Link className="text-link" href="/">Return to welcome page</Link></main></div>;
+  const [registeredEmail] = useState(() => typeof window === "undefined" ? "" : sessionStorage.getItem("praxiz-registration-email") ?? "");
+  const inbox = inboxLinkForEmail(registeredEmail);
+  return <div className="success-page registration-success-page"><PublicHeader /><main><span className="success-icon"><Check size={42} /></span><span className="eyebrow dark">Application received</span><h1>Registration submitted</h1><p>Your registration is awaiting administrator review. After approval and account activation, PRAXIZ will send a confirmation message to your registered email address.</p><section className="success-next-step" aria-labelledby="registration-next-step"><MailCheck size={24} aria-hidden="true" /><div><strong id="registration-next-step">Check your registered inbox after approval</strong><p>{inbox ? "You can open your email provider now and return to the inbox when your administrator completes activation." : "Open your email inbox and check for the PRAXIZ confirmation message after your administrator completes activation."}</p></div></section>{inbox && <a className="button button-secondary button-large inbox-link" href={inbox.href} target="_blank" rel="noopener noreferrer">{inbox.label}<ExternalLink size={18} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>}<Link className="button button-primary button-large" href="/signin">Back to sign in</Link><Link className="text-link" href="/">Return to welcome page</Link></main></div>;
 }
 
 function PageHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
@@ -2238,8 +2260,8 @@ function InternManagementPage({ role }: { role: RoleId }) {
   const campusOptions = [...new Set(rows.map(intern => intern.campus))];
   const programOptions = role === "coordinator" ? scope.map(item => ({ id: item.id, label: `${item.code} · ${item.name}` }))
     : [...new Map(rows.map(intern => [intern.programId ?? intern.program, { id: intern.programId ?? intern.program, label: intern.program }])).values()];
-  const yearOptions = [...new Set(rows.map(intern => intern.yearLevel).filter((value): value is number => typeof value === "number"))].sort((a, b) => a - b);
-  const sectionOptions = [...new Set(rows.map(intern => intern.section).filter((value): value is string => Boolean(value)))].sort();
+  const yearOptions = mergeAcademicOptionValues(STUDENT_YEAR_LEVEL_OPTIONS, rows.map(intern => intern.yearLevel).filter((value): value is number => typeof value === "number")).sort((a, b) => a - b);
+  const sectionOptions = mergeAcademicOptionValues(STUDENT_SECTION_OPTIONS, rows.map(intern => intern.section).filter((value): value is string => Boolean(value))).sort();
   const visible = rows.filter(intern => (!search || `${intern.name} ${intern.hte}`.toLowerCase().includes(search.trim().toLowerCase()))
     && (role === "coordinator" || !campus || intern.campus === campus)
     && (!program || (intern.programId ?? intern.program) === program) && (!status || intern.status === status)

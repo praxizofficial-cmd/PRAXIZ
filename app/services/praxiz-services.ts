@@ -8,6 +8,7 @@ import { programsForCollege } from "./institutional-stabilization";
 import { normalizeDocumentTemplateCode, validateDocumentTemplate, type DocumentTemplatePhase } from "./workflow-template-stabilization";
 import { mergeCoordinatorProgramStudents, type CoordinatorProgramStudent } from "./coordinator-routing";
 import { attendanceDecisionBlock, resolveAttendancePair } from "./attendance-stabilization";
+import { academicTermLabel, type AcademicTermCode } from "../academic-options";
 import {
   normalizeEvaluationCode,
   validateEvaluationTemplate,
@@ -448,19 +449,19 @@ export const institutionalService = {
         }),
       units: unitModels,
       programs: programModels,
-      terms: ((termResult.data ?? []) as Array<{ id: string; academic_year: string; term: string }>).map((row) => ({
+      terms: ((termResult.data ?? []) as Array<{ id: string; academic_year: string; term: AcademicTermCode }>).map((row) => ({
         id: row.id,
         academicYear: row.academic_year,
-        term: row.term === "first_semester" ? "1st Semester" : row.term === "second_semester" ? "2nd Semester" : "Midyear",
+        term: academicTermLabel(row.term),
       })),
     };
   },
   async listAcademicTerms(): Promise<AcademicTerm[]> {
     const { data, error } = await createClient().from("academic_terms").select("id,academic_year_id,term,starts_on,ends_on,is_current,academic_years(label)").is("deleted_at", null).order("starts_on", { ascending: false });
     if (error) throw new Error(error.message);
-    return ((data ?? []) as Array<{ id: string; term: string; starts_on: string; ends_on: string; is_current: boolean; academic_years?: { label: string } | Array<{ label: string }> | null }>).map((row) => {
+    return ((data ?? []) as Array<{ id: string; term: AcademicTermCode; starts_on: string; ends_on: string; is_current: boolean; academic_years?: { label: string } | Array<{ label: string }> | null }>).map((row) => {
       const year = Array.isArray(row.academic_years) ? row.academic_years[0] : row.academic_years;
-      const term = row.term === "first_semester" ? "1st Semester" : row.term === "second_semester" ? "2nd Semester" : "Midyear";
+      const term = academicTermLabel(row.term);
       return { id: row.id, academicYear: year?.label ?? "", term, startsOn: row.starts_on, endsOn: row.ends_on, isCurrent: row.is_current };
     });
   },
