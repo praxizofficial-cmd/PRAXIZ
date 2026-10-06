@@ -43,7 +43,7 @@ test('status and attendance actions preserve distinct semantics', () => {
 });
 
 test('assigned intern profiles refresh year level and Section from authoritative profiles', () => {
-  assert.match(service, /select\("id,year_level,section"\)/);
+  assert.match(service, /from\("student_profiles"\)\.select\("user_id,year_level,section"\)/);
   assert.match(service, /yearLevel: academicProfile\?\.year_level/);
   assert.match(service, /section: academicProfile\?\.section/);
 });

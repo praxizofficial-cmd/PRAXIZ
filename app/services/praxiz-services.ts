@@ -751,10 +751,10 @@ export const internshipService = {
     const activeSupervisors = (row: AssignmentRow) => (row.internship_supervisors ?? []).filter((supervisor) => !supervisor.ended_at && !supervisor.deleted_at);
     const supervisorIds = rows.flatMap(activeSupervisors).map((supervisor) => supervisor.supervisor_user_id);
     const profileResult = rows.length
-      ? await supabase.from("profiles").select("id,year_level,section").in("id", rows.map((row) => row.student_user_id))
+      ? await supabase.from("student_profiles").select("user_id,year_level,section").in("user_id", rows.map((row) => row.student_user_id))
       : { data: [], error: null };
     if (profileResult.error) throw new Error(profileResult.error.message);
-    const academicByStudent = new Map(((profileResult.data ?? []) as Array<{ id: string; year_level: number | null; section: string | null }>).map((profile) => [profile.id, profile]));
+    const academicByStudent = new Map(((profileResult.data ?? []) as Array<{ user_id: string; year_level: number | null; section: string | null }>).map((profile) => [profile.user_id, profile]));
     const names = await namesForUsers([...rows.map((row) => row.student_user_id), ...supervisorIds]);
     const progressByAssignment = new Map(((progress ?? []) as ProgressRow[]).map((row) => [row.internship_assignment_id, row]));
 
