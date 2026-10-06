@@ -3,9 +3,10 @@ import { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { institutionalService } from '../services/praxiz-services';
 import type { AcademicTerm } from '../types';
+import { StatusBadge } from './StatusBadge';
 
 type Options = Awaited<ReturnType<typeof institutionalService.loadRegistrationInstitutionalOptions>>;
-export function InstitutionalBrowser({ options, terms }: { options: Options; terms: AcademicTerm[] }) {
+export function InstitutionalBrowser({ options, terms, onEditTerm, onFinalizeTerm }: { options: Options; terms: AcademicTerm[]; onEditTerm?: (term: AcademicTerm) => void; onFinalizeTerm?: (term: AcademicTerm) => void }) {
   const [view, setView] = useState<'hierarchy' | 'terms'>('hierarchy');
   const [unitId, setUnitId] = useState<string | null>(null);
   const unit = options.units.find(item => item.id === unitId);
@@ -26,6 +27,6 @@ export function InstitutionalBrowser({ options, terms }: { options: Options; ter
       {!!children.length && <div className="hierarchy-list">{children.map(item => <button className="hierarchy-item" key={item.id} onClick={() => setUnitId(item.id)}><span><small>{item.unitType}</small><strong>{item.name}</strong><span>{item.code}</span></span><ChevronRight size={18} /></button>)}</div>}
       {!!programs.length && <><h3 className="hierarchy-program-heading">Programs</h3><div className="hierarchy-list">{programs.map(item => <article className="hierarchy-item" key={item.id}><span><strong>{item.code}</strong><span>{item.name}</span></span></article>)}</div></>}
       {!children.length && !programs.length && <p className="master-record-empty">No active departments or programs are configured under this selection.</p>}
-    </section> : <section className="card table-card"><div className="card-title"><h2>Academic terms</h2><span>{terms.length} terms</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Academic year</th><th>Term</th><th>Start</th><th>End</th><th>Status</th></tr></thead><tbody>{terms.map(term => <tr key={term.id}><td>{term.academicYear}</td><td>{term.term}</td><td>{term.startsOn}</td><td>{term.endsOn}</td><td>{term.isCurrent ? 'Current' : 'Not current'}</td></tr>)}{!terms.length && <tr><td colSpan={5}>No academic terms configured.</td></tr>}</tbody></table></div></section>}
+    </section> : <section className="card table-card"><div className="card-title"><h2>Academic terms</h2><span>{terms.length} terms</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Academic year</th><th>Term</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th></tr></thead><tbody>{terms.map(term => <tr key={term.id}><td>{term.academicYear}</td><td>{term.term}</td><td>{term.startsOn}</td><td>{term.endsOn}</td><td><div className="term-status"><StatusBadge status={term.configurationStatus} />{term.isCurrent && <span className="badge badge-info">Current</span>}</div></td><td><div className="inline-actions">{term.configurationStatus !== 'Finalized' && <button className="table-link" onClick={() => onEditTerm?.(term)}>Edit dates</button>}{term.configurationStatus !== 'Finalized' && <button className="table-link" onClick={() => onFinalizeTerm?.(term)}>Finalize</button>}{term.configurationStatus === 'Finalized' && <span className="muted-note">Read-only</span>}</div></td></tr>)}{!terms.length && <tr><td colSpan={6}>No academic terms configured.</td></tr>}</tbody></table></div></section>}
   </>;
 }

@@ -6,7 +6,7 @@ import { detectAnalyticsConcerns, parseAnalyticsModelResponse, type AnalyticsEvi
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-type AnalysisScope = 'overall' | 'hte' | 'student';
+type AnalysisScope = 'overall' | 'section' | 'hte' | 'student';
 type AssignmentRow = { id: string; student_user_id: string; hte_id: string; status: string };
 type ProgressRow = {
   internship_assignment_id: string;
@@ -36,20 +36,22 @@ export async function POST(request: Request) {
       .is('deleted_at', null).lte('starts_at', now).or(`ends_at.is.null,ends_at.gt.${now}`);
     if (roleError || !roleRows?.length) return NextResponse.json({ error: 'Only an active Internship Coordinator can generate performance insights.' }, { status: 403 });
 
-    const body = await request.json() as { scope?: unknown; hteId?: unknown; studentId?: unknown };
-    const scope: AnalysisScope | null = body.scope === 'overall' || body.scope === 'hte' || body.scope === 'student' ? body.scope : null;
+    const body = await request.json() as { scope?: unknown; section?: unknown; hteId?: unknown; studentId?: unknown };
+    const scope: AnalysisScope | null = body.scope === 'overall' || body.scope === 'section' || body.scope === 'hte' || body.scope === 'student' ? body.scope : null;
+    const section = typeof body.section === 'string' && /^[A-E]$/.test(body.section) ? body.section : '';
     const hteId = typeof body.hteId === 'string' && /^[0-9a-f-]{36}$/i.test(body.hteId) ? body.hteId : '';
     const studentId = typeof body.studentId === 'string' && /^[0-9a-f-]{36}$/i.test(body.studentId) ? body.studentId : '';
-    if (!scope || (scope === 'hte' && !hteId) || (scope === 'student' && !studentId)) return NextResponse.json({ error: 'Select a valid analytics scope and target.' }, { status: 400 });
+    if (!scope || (scope === 'section' && !section) || (scope === 'hte' && !hteId) || (scope === 'student' && !studentId)) return NextResponse.json({ error: 'Select a valid analytics scope and target.' }, { status: 400 });
 
     // The authenticated client keeps Supabase RLS authoritative. Target IDs are
     // then intersected with those already-authorized assignment rows, so changing
     // an ID in the request cannot widen the coordinator's scope.
     let assignmentQuery = supabase.from('internship_assignments')
-      .select('id,student_user_id,hte_id,status')
+      .select('id,student_user_id,hte_id,status,student_profiles!inner(section)')
       .in('status', ['active', 'completed']).is('deleted_at', null);
     if (scope === 'hte') assignmentQuery = assignmentQuery.eq('hte_id', hteId);
     if (scope === 'student') assignmentQuery = assignmentQuery.eq('student_user_id', studentId);
+    if (scope === 'section') assignmentQuery = assignmentQuery.eq('student_profiles.section', section);
     const { data: assignmentData, error: assignmentError } = await assignmentQuery;
     if (assignmentError) throw new Error(assignmentError.message);
     const assignments = (assignmentData ?? []) as AssignmentRow[];
@@ -84,7 +86,7 @@ export async function POST(request: Request) {
       assignedInterns: new Set(assignments.map(item => item.student_user_id)).size, concerns,
     };
     const detectedConcerns = detectAnalyticsConcerns(evidence);
-    const scopeLabel = scope === 'overall' ? 'the coordinator’s authorized overall scope' : scope === 'hte' ? 'the selected authorized HTE' : 'the selected authorized student';
+    const scopeLabel = scope === 'overall' ? 'the coordinator’s authorized overall scope' : scope === 'section' ? `authorized Section ${section}` : scope === 'hte' ? 'the selected authorized HTE' : 'the selected authorized student';
 
     const apiKey = process.env.OLLAMA_API_KEY?.trim();
     const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || (apiKey ? 'https://ollama.com' : 'http://localhost:11434');

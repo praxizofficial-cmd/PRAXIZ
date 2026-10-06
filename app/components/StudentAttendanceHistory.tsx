@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
+import { Download } from 'lucide-react';
 import { attendanceService, type AttendanceHistoryRow } from '../services/praxiz-services';
 import { Dialog } from './Dialog';
 import { userError } from '../../lib/user-error';
@@ -30,7 +31,7 @@ export function StudentAttendanceHistory({ studentId, name, onClose }: { student
   return <Dialog title={`Attendance · ${name}`} onClose={onClose} wide className="attendance-history-dialog">
     <p className="attendance-dialog-description">Original server timestamps are read-only. Only records within your authorized scope are shown.</p>
     {error && <p className="form-error" role="alert">{error}</p>}
-    {!loading && <div className="attendance-table-actions"><div className="attendance-filter-group" aria-label="Attendance history filters"><label className="field compact-field"><span>Month</span><select value={month} onChange={event => setMonth(event.target.value)}><option value="all">All months</option>{months.map(value => <option key={value} value={value}>{monthLabel(value)}</option>)}</select></label><label className="field compact-field"><span>Year</span><select value={year} onChange={event => setYear(event.target.value)}><option value="all">All years</option>{years.map(value => <option key={value} value={value}>{value}</option>)}</select></label></div><div className="attendance-export-action"><button className="button button-secondary" disabled={!visible.length} onClick={exportCsv}>Export filtered CSV</button></div></div>}
+    {!loading && <div className="attendance-table-actions"><div className="attendance-filter-group" aria-label="Attendance history filters"><label className="field compact-field"><span>Month</span><select value={month} onChange={event => setMonth(event.target.value)}><option value="all">All months</option>{months.map(value => <option key={value} value={value}>{monthLabel(value)}</option>)}</select></label><label className="field compact-field"><span>Year</span><select value={year} onChange={event => setYear(event.target.value)}><option value="all">All years</option>{years.map(value => <option key={value} value={value}>{value}</option>)}</select></label></div><div className="attendance-export-action"><button className="button button-secondary" disabled={!visible.length} onClick={exportCsv}><Download size={17} aria-hidden="true" /> Export filtered CSV</button></div></div>}
     {loading ? <p role="status">Loading attendance history…</p> : <div className="table-scroll"><table className="data-table"><thead><tr><th>Date</th><th>Time In</th><th>Time Out</th><th>Verified hours</th><th>Status</th><th>Reviewer</th><th>Remarks</th></tr></thead><tbody>{visible.map(row => <tr key={row.id}><td>{row.date}</td><td>{row.timeIn}</td><td>{row.timeOut}</td><td>{row.hours}</td><td>{row.status}</td><td>{row.verifiedBy}</td><td>{row.remarks}</td></tr>)}{!visible.length && <tr><td colSpan={7}>No attendance records match this month and year.</td></tr>}</tbody></table></div>}
   </Dialog>;
 }

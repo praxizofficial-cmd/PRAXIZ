@@ -8,6 +8,8 @@ import { useAuth } from '../auth/supabase-auth';
 import { roles } from '../data';
 import type { RoleId } from '../types';
 import { Dialog } from './Dialog';
+import { StatusBadge } from './StatusBadge';
+import { STUDENT_SECTION_OPTIONS } from '../academic-options';
 
 export function ProfileAvatar({ name, path }: { name: string; path?: string }) {
   const [photo, setPhoto] = useState<{ path: string; url: string } | null>(null);
@@ -31,6 +33,7 @@ function ProfileEditor({ close, saved }: { close: () => void; saved: () => void 
   const { user, refreshProfile } = useAuth();
   const [preferredName, setName] = useState(user?.preferredName ?? '');
   const [phone, setPhone] = useState(user?.phone ?? '');
+  const [section, setSection] = useState(user?.section ?? '');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
   const [busy, setBusy] = useState(false);
@@ -55,7 +58,7 @@ function ProfileEditor({ close, saved }: { close: () => void; saved: () => void 
         const { error: uploadError } = await client.storage.from('profile-photos').upload(uploaded,file,{ upsert: false, contentType: file.type });
         if (uploadError) throw uploadError;
       }
-      const { error: saveError } = await client.rpc('update_my_profile',{ p_preferred_name: preferredName, p_phone: phone, p_avatar_path: uploaded ?? user.avatarPath ?? null });
+      const { error: saveError } = await client.rpc('update_my_profile_v18',{ p_preferred_name: preferredName, p_phone: phone, p_avatar_path: uploaded ?? user.avatarPath ?? null, p_section: user.role === 'student' ? section : null });
       if (saveError) throw saveError;
       uploaded = null; // The saved reference owns the upload now; never delete it on refresh failure.
       await refreshProfile(); saved();
@@ -69,7 +72,8 @@ function ProfileEditor({ close, saved }: { close: () => void; saved: () => void 
     <label className="field"><span><Camera size={17} />Profile photo</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={event => chooseFile(event.target.files?.[0])} /><small>JPG, PNG, or WebP. Maximum 3 MB and 4096 × 4096 pixels. Visible in your own account.</small></label>
     <label className="field"><span>Preferred display name</span><input maxLength={100} value={preferredName} onChange={event => setName(event.target.value)} disabled={busy} /><small>Leave blank to use your official name.</small></label>
     <label className="field"><span>Contact number</span><input type="tel" autoComplete="tel" maxLength={40} value={phone} onChange={event => setPhone(event.target.value)} disabled={busy} /></label>
-    <p className="form-hint">Official identity, email, roles, and academic assignments can only be changed through authorized account administration.</p>
+    {user.role === 'student' && <label className="field"><span>Section</span><select value={section} onChange={event => setSection(event.target.value)} disabled={busy}><option value="">Not recorded</option>{STUDENT_SECTION_OPTIONS.map(value => <option key={value} value={value}>Section {value}</option>)}</select><small>Choose the Section used for coordinator monitoring, analytics, and reports.</small></label>}
+    <p className="form-hint">Official identity, email, roles, program, and academic term can only be changed through authorized account administration.</p>
     {error && <p role="alert" className="form-error">{error}</p>}
     <div className="modal-actions"><button className="button button-secondary" type="button" disabled={busy} onClick={close}>Cancel</button><button className="button button-primary" disabled={busy}>{busy ? 'Saving profile…' : 'Save profile'}</button></div>
   </form></Dialog>;
@@ -82,8 +86,8 @@ export function ProfileDetails({ role }: { role: RoleId }) {
   const identity = [['Official email',user.email],['Contact number',user.phone],['Account status',user.accountStatus === 'active' ? 'Active' : 'Pending verification'],['Campus',user.campus],['College / department',user.college]];
   if (role === 'student') identity.push(['Student number',user.studentNumber],['Year level',user.yearLevel?.toString()],['Section',user.section],['Academic term',user.academicTerm],['Academic program',user.academicProgram]);
   if (role === 'coordinator') identity.push(['Coordinated programs',user.scopeProgramNames?.join(', ') || user.scopeProgramName]);
-  return <><section className="card profile-identity"><div className="profile-photo-control"><ProfileAvatar name={user.fullName} path={user.avatarPath} /><button className="icon-button" aria-label="Change profile photo" onClick={() => setEditing(true)}><Camera size={20} /></button></div><div><h2>{user.fullName}</h2><p>{roles[role].label}</p><span className={`badge ${user.accountStatus === 'active' ? 'badge-success' : 'badge-warning'}`}>{user.accountStatus === 'active' ? 'Active account' : 'Pending verification'}</span></div><button className="button button-secondary" onClick={() => setEditing(true)}><Pencil size={17} />Edit profile</button></section>
+  return <><section className="card profile-identity"><div className="profile-photo-control"><ProfileAvatar name={user.fullName} path={user.avatarPath} /><button className="icon-button" aria-label="Change profile photo" onClick={() => setEditing(true)}><Camera size={20} /></button></div><div><h2>{user.fullName}</h2><p>{roles[role].label}</p><StatusBadge status={user.accountStatus === 'active' ? 'Active account' : 'Pending verification'} /></div><button className="button button-secondary" onClick={() => setEditing(true)}><Pencil size={17} />Edit profile</button></section>
     {notice && <p role="status" className="form-success">{notice}</p>}
-    <section className="card"><h2>Account information</h2><dl className="profile-details-grid">{identity.map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{label === 'Account status' ? <span className={`badge ${user.accountStatus === 'active' ? 'badge-success' : 'badge-warning'}`}>{value}</span> : value || 'Not recorded'}</dd></div>)}</dl><p className="verification-principle"><ShieldCheck size={20} />Contact an administrator to correct verified institutional information.</p></section>
+    <section className="card"><h2>Account information</h2><dl className="profile-details-grid">{identity.map(([label,value]) => <div key={label}><dt>{label}</dt><dd>{label === 'Account status' ? <StatusBadge status={value || 'Unknown'} /> : value || 'Not recorded'}</dd></div>)}</dl><p className="verification-principle"><ShieldCheck size={20} />Contact an administrator to correct verified institutional information.</p></section>
     {editing && <ProfileEditor close={() => setEditing(false)} saved={() => { setEditing(false); setNotice('Profile saved.'); }} />}</>;
 }

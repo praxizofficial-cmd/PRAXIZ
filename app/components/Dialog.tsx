@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { TriangleAlert, X } from 'lucide-react';
 
 export function Dialog({ title, children, onClose, busy = false, wide = false, protectChanges = true, className = "" }: { title: string; children: ReactNode; onClose: () => void; busy?: boolean; wide?: boolean; protectChanges?: boolean; className?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -45,6 +45,6 @@ export function Dialog({ title, children, onClose, busy = false, wide = false, p
     onCancel={event => { event.preventDefault(); requestClose(); }}>
     <div className="native-dialog-header"><h2 id={titleId}>{title}</h2><button className="icon-button dialog-close" disabled={busy} onClick={requestClose} aria-label={`Close ${title}`}><X size={20} /></button></div>
     <div className="native-dialog-content" aria-busy={busy}>{children}</div>
-    {confirmDiscard && <Dialog title="Discard unsaved changes?" protectChanges={false} onClose={() => setConfirmDiscard(false)}><p>Your changes have not been saved. Discarding them cannot be undone.</p><div className="inline-actions"><button className="button button-secondary" onClick={() => setConfirmDiscard(false)}>Keep editing</button><button className="button button-danger" onClick={onClose}>Discard changes</button></div></Dialog>}
+    {confirmDiscard && <Dialog title="Discard unsaved changes?" className="discard-dialog" protectChanges={false} onClose={() => setConfirmDiscard(false)}><div className="discard-dialog-message"><span aria-hidden="true"><TriangleAlert size={22} /></span><div><strong>Leave without saving?</strong><p>Your unsaved changes will be lost. Saved records and audit history are not affected.</p></div></div><div className="modal-actions"><button className="button button-secondary" onClick={() => setConfirmDiscard(false)}>Keep editing</button><button className="button button-danger" onClick={onClose}>Discard changes</button></div></Dialog>}
   </dialog>;
 }

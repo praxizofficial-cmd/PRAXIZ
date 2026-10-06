@@ -152,6 +152,7 @@ export type WeeklyLogRecord = {
   submitted: string;
   status: string;
   latestFeedback: string;
+  reviewedAt: string;
 };
 
 export type RegistrationRecord = {
@@ -234,7 +235,7 @@ export type PartnerHteRecord = {
 
 export type AssignmentOption = { id: string; label: string };
 export type AssignmentOptions = {
-  students: Array<AssignmentOption & { studentNumber: string }>;
+  students: Array<AssignmentOption & { studentNumber: string; programId: string; section?: string }>;
   htes: AssignmentOption[];
   terms: Array<AssignmentOption & { startsOn: string; endsOn: string }>;
 };
@@ -247,6 +248,17 @@ export type CreateAssignmentInput = {
   startDate: string;
   expectedEndDate: string;
   submitForApproval: boolean;
+};
+
+export type RequirementConfigRecord = {
+  id: string;
+  academicTermId: string;
+  termLabel: string;
+  academicProgramId: string;
+  programLabel: string;
+  section?: string;
+  requiredHours: number;
+  updatedAt: string;
 };
 
 export type RolePolicyRecord = {
@@ -457,12 +469,12 @@ export const institutionalService = {
     };
   },
   async listAcademicTerms(): Promise<AcademicTerm[]> {
-    const { data, error } = await createClient().from("academic_terms").select("id,academic_year_id,term,starts_on,ends_on,is_current,academic_years(label)").is("deleted_at", null).order("starts_on", { ascending: false });
+    const { data, error } = await createClient().from("academic_terms").select("id,academic_year_id,term,starts_on,ends_on,is_current,configuration_status,academic_years(label)").is("deleted_at", null).order("starts_on", { ascending: false });
     if (error) throw new Error(error.message);
-    return ((data ?? []) as Array<{ id: string; term: AcademicTermCode; starts_on: string; ends_on: string; is_current: boolean; academic_years?: { label: string } | Array<{ label: string }> | null }>).map((row) => {
+    return ((data ?? []) as Array<{ id: string; term: AcademicTermCode; starts_on: string; ends_on: string; is_current: boolean; configuration_status: "draft" | "configured" | "finalized"; academic_years?: { label: string } | Array<{ label: string }> | null }>).map((row) => {
       const year = Array.isArray(row.academic_years) ? row.academic_years[0] : row.academic_years;
       const term = academicTermLabel(row.term);
-      return { id: row.id, academicYear: year?.label ?? "", term, startsOn: row.starts_on, endsOn: row.ends_on, isCurrent: row.is_current };
+      return { id: row.id, academicYear: year?.label ?? "", term, startsOn: row.starts_on, endsOn: row.ends_on, isCurrent: row.is_current, configurationStatus: row.configuration_status.replace(/^./, letter => letter.toUpperCase()) as "Draft" | "Configured" | "Finalized" };
     });
   },
   async getCurrentAcademicTerm(): Promise<AcademicTerm | null> {
@@ -545,6 +557,14 @@ export const institutionalService = {
       p_ends_on: input.endsOn,
       p_is_current: input.isCurrent,
     });
+    if (error) throw new Error(error.message);
+  },
+  async updateAcademicTerm(input: { id: string; startsOn: string; endsOn: string; isCurrent: boolean }): Promise<void> {
+    const { error } = await createClient().rpc("update_academic_term", { p_term_id: input.id, p_starts_on: input.startsOn, p_ends_on: input.endsOn, p_is_current: input.isCurrent });
+    if (error) throw new Error(error.message);
+  },
+  async finalizeAcademicTerm(id: string): Promise<void> {
+    const { error } = await createClient().rpc("finalize_academic_term", { p_term_id: id });
     if (error) throw new Error(error.message);
   },
 };
@@ -730,6 +750,11 @@ export const internshipService = {
     const rows = (assignments ?? []) as unknown as AssignmentRow[];
     const activeSupervisors = (row: AssignmentRow) => (row.internship_supervisors ?? []).filter((supervisor) => !supervisor.ended_at && !supervisor.deleted_at);
     const supervisorIds = rows.flatMap(activeSupervisors).map((supervisor) => supervisor.supervisor_user_id);
+    const profileResult = rows.length
+      ? await supabase.from("profiles").select("id,year_level,section").in("id", rows.map((row) => row.student_user_id))
+      : { data: [], error: null };
+    if (profileResult.error) throw new Error(profileResult.error.message);
+    const academicByStudent = new Map(((profileResult.data ?? []) as Array<{ id: string; year_level: number | null; section: string | null }>).map((profile) => [profile.id, profile]));
     const names = await namesForUsers([...rows.map((row) => row.student_user_id), ...supervisorIds]);
     const progressByAssignment = new Map(((progress ?? []) as ProgressRow[]).map((row) => [row.internship_assignment_id, row]));
 
@@ -749,6 +774,7 @@ export const internshipService = {
       const status = rawStatus === "Active" && (summary?.has_open_issues || (attendanceRate > 0 && attendanceRate < 80)) ? "Needs Attention" : rawStatus;
       const name = names.get(row.student_user_id) ?? "Assigned intern";
       const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "SI";
+      const academicProfile = academicByStudent.get(row.student_user_id);
       return {
         assignmentId: row.id,
         hteId: row.hte_id,
@@ -758,6 +784,8 @@ export const internshipService = {
         campus: campus?.short_name ?? campus?.name ?? "Assigned campus",
         program: program?.code ?? "—",
         programId: program?.id,
+        yearLevel: academicProfile?.year_level ?? undefined,
+        section: academicProfile?.section ?? undefined,
         hte: hte?.trade_name ?? hte?.name ?? "Assigned HTE",
         hteRepresentative: hteRepresentative ? names.get(hteRepresentative.supervisor_user_id) ?? "Assigned HTE representative" : "Not assigned",
         hours: Math.round(Number(summary?.rendered_hours ?? 0)),
@@ -1095,6 +1123,7 @@ export const weeklyLogService = {
         submitted: row.submitted_at ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(row.submitted_at)) : "Draft",
         status: weeklyLogStatus[row.status] ?? row.status,
         latestFeedback: reviews[0]?.feedback ?? "",
+        reviewedAt: reviews[0]?.reviewed_at ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(reviews[0].reviewed_at)) : "",
       };
     });
   },
@@ -1368,11 +1397,15 @@ export const documentService = {
       throw new Error(submissionError.message);
     }
   },
-  async open(record: DocumentRecord, download = false): Promise<void> {
+  async signedUrl(record: DocumentRecord, download = false): Promise<string> {
     if (!record.objectPath) throw new Error("No submitted file is available.");
     const { data, error } = await createClient().storage.from("internship-documents").createSignedUrl(record.objectPath, 60, { download: download ? record.fileName : false });
     if (error || !data?.signedUrl) throw new Error(error?.message ?? "A secure file link could not be created.");
-    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    return data.signedUrl;
+  },
+  async open(record: DocumentRecord, download = false): Promise<void> {
+    const signedUrl = await documentService.signedUrl(record, download);
+    window.open(signedUrl, "_blank", "noopener,noreferrer");
   },
   async review(record: DocumentRecord, decision: "approved" | "needs_revision" | "rejected", feedback: string): Promise<void> {
     if (!record.submissionId) throw new Error("No submitted document is available for review.");
@@ -1815,16 +1848,16 @@ export const coordinatorService = {
     const supabase = createClient();
     const [{ data, error }, roster] = await Promise.all([
       supabase.rpc("get_coordinator_assignment_options"),
-      supabase.rpc("list_coordinator_program_students"),
+      supabase.rpc("list_coordinator_program_students_v2"),
     ]);
     if (error) throw new Error(error.message);
     if (roster.error) throw new Error(roster.error.message);
     const payload = (data ?? {}) as { students?: AssignmentOption[]; htes?: AssignmentOption[]; terms?: Array<AssignmentOption & { startsOn: string; endsOn: string }> };
-    const identities = new Map(((roster.data ?? []) as Array<{ student_user_id: string; full_name: string; student_number: string }>).map(row => [row.student_user_id, row]));
+    const identities = new Map(((roster.data ?? []) as Array<{ student_user_id: string; full_name: string; student_number: string; academic_program_id: string; section: string | null }>).map(row => [row.student_user_id, row]));
     // Intersect the two secured RPC results. Never parse a name/ID from a label.
     const students = (payload.students ?? []).flatMap(option => {
       const identity = identities.get(option.id);
-      return identity ? [{ id: option.id, label: identity.full_name, studentNumber: identity.student_number }] : [];
+      return identity ? [{ id: option.id, label: identity.full_name, studentNumber: identity.student_number, programId: identity.academic_program_id, section: identity.section ?? undefined }] : [];
     });
     return { students, htes: payload.htes ?? [], terms: payload.terms ?? [] };
   },
@@ -1838,6 +1871,25 @@ export const coordinatorService = {
       p_expected_end_date: input.expectedEndDate,
       p_submit_for_approval: input.submitForApproval,
     });
+    if (error) throw new Error(error.message);
+  },
+  async getRequirementConfig(studentUserId: string, academicTermId: string): Promise<number | null> {
+    const { data, error } = await createClient().rpc("get_internship_requirement_config", { p_student_user_id: studentUserId, p_academic_term_id: academicTermId });
+    if (error) throw new Error(error.message);
+    const row = Array.isArray(data) ? data[0] as { required_hours?: number | null } | undefined : undefined;
+    return row?.required_hours == null ? null : Number(row.required_hours);
+  },
+  async saveRequirementConfig(studentUserId: string, academicTermId: string, requiredHours: number): Promise<void> {
+    const { error } = await createClient().rpc("save_internship_requirement_config", { p_student_user_id: studentUserId, p_academic_term_id: academicTermId, p_required_hours: requiredHours });
+    if (error) throw new Error(error.message);
+  },
+  async listRequirementConfigs(): Promise<RequirementConfigRecord[]> {
+    const { data, error } = await createClient().rpc("list_internship_requirement_configs");
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as Array<{ id: string; academic_term_id: string; term_label: string; academic_program_id: string; program_label: string; section: string | null; required_hours: number; updated_at: string }>).map(row => ({ id: row.id, academicTermId: row.academic_term_id, termLabel: row.term_label, academicProgramId: row.academic_program_id, programLabel: row.program_label, section: row.section ?? undefined, requiredHours: Number(row.required_hours), updatedAt: row.updated_at }));
+  },
+  async saveRequirementScope(input: { academicTermId: string; academicProgramId: string; section?: string; requiredHours: number }): Promise<void> {
+    const { error } = await createClient().rpc("save_internship_requirement_scope", { p_academic_term_id: input.academicTermId, p_academic_program_id: input.academicProgramId, p_section: input.section || null, p_required_hours: input.requiredHours });
     if (error) throw new Error(error.message);
   },
 };

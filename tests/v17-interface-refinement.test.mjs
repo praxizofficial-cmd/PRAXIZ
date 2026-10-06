@@ -8,10 +8,12 @@ const ai = readFileSync(new URL('../app/components/PraxizAiAssistant.tsx', impor
 const loader = readFileSync(new URL('../app/components/PraxizLoaderMark.tsx', import.meta.url), 'utf8');
 const auth = readFileSync(new URL('../app/auth/supabase-auth.tsx', import.meta.url), 'utf8');
 const evaluation = readFileSync(new URL('../app/components/EvaluationWorkspace.tsx', import.meta.url), 'utf8');
+const statusBadge = readFileSync(new URL('../app/components/StatusBadge.tsx', import.meta.url), 'utf8');
 
 test('V17 uses one theme-aware semantic badge system', () => {
-  assert.match(app, /key\.includes\("rejected"\).*key\.includes\("failed"\)/s);
-  assert.match(app, /key\.includes\("attention"\).*key\.includes\("pending review"\)/s);
+  assert.match(app, /import \{ StatusBadge \} from "\.\/components\/StatusBadge"/);
+  assert.match(statusBadge, /dangerTerms[\s\S]*rejected[\s\S]*failed/);
+  assert.match(statusBadge, /warningTerms[\s\S]*attention[\s\S]*pending/);
   assert.match(css, /--status-danger-bg:/);
   assert.match(css, /html\[data-theme="dark"\][\s\S]*--status-danger-fg:/);
 });

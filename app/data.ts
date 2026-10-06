@@ -36,6 +36,7 @@ export const roles: Record<RoleId, { label: string; user: string; initials: stri
       { label: "Intern Management", href: "/coordinator/interns", icon: "users" },
       { label: "Partner HTEs", href: "/coordinator/htes", icon: "briefcase" },
       { label: "Internship Assignments", href: "/coordinator/assignments", icon: "assignments", permission: "internships:manage" },
+      { label: "Requirements Setup", href: "/coordinator/requirements", icon: "requirements", permission: "internships:manage" },
       { label: "Attendance Monitoring", href: "/coordinator/attendance", icon: "calendar", permission: "attendance:verify" },
       { label: "Weekly Logs", href: "/coordinator/weekly-logs", icon: "logs", permission: "daily-logs:review" },
       { label: "Document Compliance", href: "/coordinator/documents", icon: "documents", permission: "documents:review" },

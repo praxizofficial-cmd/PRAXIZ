@@ -55,6 +55,7 @@ export type AcademicTerm = {
   startsOn: string;
   endsOn: string;
   isCurrent: boolean;
+  configurationStatus: "Draft" | "Configured" | "Finalized";
 };
 
 export type AuthUser = {
