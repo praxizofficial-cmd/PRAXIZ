@@ -49,18 +49,7 @@ export function detectAnalyticsConcerns(evidence: AnalyticsEvidence): AnalyticsC
 }
 
 export function parseAnalyticsModelResponse(raw: string): AnalyticsModelResult {
-  const withoutFence = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "");
-  const firstBrace = withoutFence.indexOf("{");
-  const lastBrace = withoutFence.lastIndexOf("}");
-
-  if (firstBrace < 0 || lastBrace <= firstBrace) {
-    throw new Error("Ollama did not return a JSON object");
-  }
-
-  const parsed = JSON.parse(withoutFence.slice(firstBrace, lastBrace + 1)) as {
+  const parsed = JSON.parse(raw.trim()) as {
     summary?: unknown;
     patterns?: unknown;
     recommendations?: unknown;
@@ -74,7 +63,15 @@ export function parseAnalyticsModelResponse(raw: string): AnalyticsModelResult {
     : [];
   const summary = typeof parsed.summary === "string" ? parsed.summary.trim() : "";
 
-  if (!summary) throw new Error("Ollama returned an empty analysis");
+  if (
+    !summary ||
+    !Array.isArray(parsed.patterns) ||
+    !Array.isArray(parsed.recommendations) ||
+    parsed.patterns.some((item) => typeof item !== "string") ||
+    parsed.recommendations.some((item) => typeof item !== "string")
+  ) {
+    throw new Error("Ollama returned an invalid analytics schema");
+  }
 
   return {
     summary,

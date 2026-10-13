@@ -27,6 +27,15 @@ const rolePermissions: Record<RoleId, ReadonlySet<Permission>> = {
     "internships:manage",
     "reports:generate",
   ]),
+  placement: new Set([
+    "attendance:view",
+    "documents:review",
+    "evaluations:view",
+    "reports:generate",
+    "placement:read",
+    "placement:manage",
+    "file-formats:submit",
+  ]),
   admin: new Set([
     "attendance:view",
     "attendance:record",
@@ -42,6 +51,9 @@ const rolePermissions: Record<RoleId, ReadonlySet<Permission>> = {
     "users:manage",
     "master-data:manage",
     "audit:view",
+    "placement:read",
+    "placement:manage",
+    "file-formats:publish",
   ]),
 };
 

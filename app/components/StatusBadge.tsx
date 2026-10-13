@@ -1,6 +1,6 @@
-const successTerms = ['approved', 'verified', 'active', 'complete', 'completed', 'resolved', 'available', 'good'];
-const dangerTerms = ['rejected', 'failed', 'flagged'];
-const warningTerms = ['attention', 'revision', 'returned', 'pending', 'unread', 'missing', 'requires action', 'monitor'];
+const successTerms = ['approved', 'verified', 'active', 'complete', 'completed', 'finalized', 'resolved', 'available', 'good'];
+const dangerTerms = ['rejected', 'failed', 'flagged', 'missing', 'incomplete'];
+const warningTerms = ['attention', 'revision', 'returned', 'pending', 'unread', 'requires action', 'monitor'];
 const infoTerms = ['read', 'submitted', 'under review', 'draft', 'published', 'configured'];
 
 export function StatusBadge({ status }: { status: string }) {

@@ -12,6 +12,7 @@ type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string };
 const roleSuggestions: Record<RoleId, string[]> = {
   student: ['How do I submit a Weekly Log?', 'Where can I view my attendance?', 'How do I submit a required document?'],
   coordinator: ['Summarize the monitoring workflow', 'How do I review attendance?', 'Explain the evaluation workflow'],
+  placement: ['Summarize placement compliance', 'Which scopes need attention?', 'Explain the required-file workflow'],
   hte: ['How do I verify attendance?', 'How do I review an assigned intern?', 'How do I complete an evaluation?'],
   admin: ['How do I review registrations?', 'Explain role and scope assignment', 'How do I verify an HTE organization?'],
 };
@@ -26,6 +27,11 @@ const roleActions: Record<RoleId, Array<{ pattern: RegExp; label: string; href: 
     { pattern: /attendance/i, label: 'Review attendance', href: '/coordinator/attendance' },
     { pattern: /required hours|requirement setup/i, label: 'Open requirements', href: '/coordinator/requirements' },
     { pattern: /evaluation/i, label: 'Review evaluations', href: '/coordinator/evaluations' },
+  ],
+  placement: [
+    { pattern: /compliance|requirement/i, label: 'Open document compliance', href: '/placement/compliance' },
+    { pattern: /student|placement/i, label: 'Open student placements', href: '/placement/students' },
+    { pattern: /analytics|risk|trend/i, label: 'Open AI analytics', href: '/placement/analytics' },
   ],
   hte: [
     { pattern: /attendance/i, label: 'Verify attendance', href: '/hte/attendance' },
@@ -46,6 +52,7 @@ export default function PraxizAiAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [retryable, setRetryable] = useState(false);
   const [copiedId, setCopiedId] = useState('');
   const conversationRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -65,14 +72,18 @@ export default function PraxizAiAssistant() {
     if (composerRef.current) composerRef.current.style.height = '54px';
     setLoading(true);
     setError('');
+    setRetryable(false);
     try {
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: pending.slice(-12).map(({ role: messageRole, content }) => ({ role: messageRole, content })) }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || 'PRAXIZ AI could not process your request.');
+      const data = await response.json() as { error?: string; response?: string; kind?: string; retryable?: boolean };
+      if (!response.ok) {
+        setRetryable(Boolean(data?.retryable));
+        throw new Error(data?.error || 'PRAXIZ AI could not process your request.');
+      }
       setMessages(current => [...current, { id: crypto.randomUUID(), role: 'assistant', content: data?.response || 'No response was generated.' }]);
     } catch (reason) {
       console.error('PRAXIZ AI assistant request failed', reason);
@@ -121,17 +132,17 @@ export default function PraxizAiAssistant() {
   return <>
     <button type="button" className="ai-assistant-trigger" onClick={() => setOpen(true)} aria-label="Open PRAXIZ AI Assistant" title="Open PRAXIZ AI Assistant">✦</button>
     {open && <Dialog title="PRAXIZ AI Assistant" onClose={() => setOpen(false)} busy={loading} protectChanges={false} className="ai-chat-dialog">
-      <div className="ai-chat-status"><Sparkles size={17} aria-hidden="true" /><span><strong>{role === 'hte' ? 'HTE Representative' : role === 'coordinator' ? 'Internship Coordinator' : role === 'admin' ? 'System Administrator' : 'Student Intern'}</strong> · trusted role context · AI responses may require verification</span></div>
+      <div className="ai-chat-status"><Sparkles size={17} aria-hidden="true" /><span><strong>{role === 'hte' ? 'HTE Representative' : role === 'coordinator' ? 'Internship Coordinator' : role === 'placement' ? 'Placement Head' : role === 'admin' ? 'System Administrator' : 'Student Intern'}</strong> · trusted role context · AI responses may require verification</span></div>
       <div className="ai-chat-conversation" ref={conversationRef} aria-live="polite" aria-busy={loading}>
         {messages.length === 0 ? <div className="ai-chat-welcome">
           <span className="ai-chat-mark" aria-hidden="true">✦</span>
           <h3>How can I help with PRAXIZ?</h3>
-          <p>Ask about the workflows available in your {role === 'hte' ? 'HTE Representative' : role === 'coordinator' ? 'Internship Coordinator' : role === 'admin' ? 'System Administrator' : 'Student Intern'} workspace.</p>
+          <p>Ask about the workflows available in your {role === 'hte' ? 'HTE Representative' : role === 'coordinator' ? 'Internship Coordinator' : role === 'placement' ? 'Placement Head' : role === 'admin' ? 'System Administrator' : 'Student Intern'} workspace.</p>
           <div className="ai-chat-suggestions" aria-label="Suggested questions">{suggestions.map(suggestion => <button type="button" key={suggestion} onClick={() => void sendPrompt(suggestion)}>{suggestion}</button>)}</div>
         </div> : messages.map((item, index) => <article key={item.id} className={`ai-chat-message ai-chat-message-${item.role}`}><span>{item.role === 'user' ? 'You' : 'PRAXIZ AI'}</span>{item.role === 'assistant' ? <><div className="ai-chat-markdown"><ReactMarkdown>{item.content}</ReactMarkdown></div><div className="ai-message-actions"><button type="button" onClick={() => void copyAnswer(item)}>{copiedId === item.id ? <Check size={14} /> : <Copy size={14} />}{copiedId === item.id ? 'Copied' : 'Copy'}</button><button type="button" disabled={loading} onClick={() => regenerate(index)}><RefreshCw size={14} />Regenerate</button>{contextualAction(item.content) && <a href={contextualAction(item.content)!.href}><ExternalLink size={14} />{contextualAction(item.content)!.label}</a>}</div></> : <p>{item.content}</p>}</article>)}
-        {loading && <article className="ai-chat-message ai-chat-message-assistant ai-chat-typing" role="status"><span>PRAXIZ AI</span><p aria-label="PRAXIZ AI is thinking"><i /><i /><i /></p></article>}
+        {loading && <article className="ai-thinking" role="status" aria-label="PRAXIZ AI is thinking"><Sparkles size={18} aria-hidden="true" /><div><strong>PRAXIZ AI</strong><span>Thinking…</span><span className="ai-thinking-wave" aria-hidden="true"><i /><i /><i /><i /></span></div></article>}
       </div>
-      {error && <div className="ai-error" role="alert"><span>{error}</span><button type="button" className="table-link" onClick={() => void sendPrompt(messages.filter(item => item.role === 'user').at(-1)?.content ?? '')}>Retry</button></div>}
+      {error && <div className="ai-error" role="alert"><span>{error}</span>{retryable && <button type="button" className="table-link" onClick={() => void sendPrompt(messages.filter(item => item.role === 'user').at(-1)?.content ?? '')}>Retry</button>}</div>}
       <form className="ai-chat-composer" onSubmit={handleSubmit} aria-busy={loading}>
         <label htmlFor="praxiz-ai-message" className="sr-only">Message PRAXIZ AI</label>
         <textarea ref={composerRef} id="praxiz-ai-message" maxLength={4000} value={message} onChange={event => resizeComposer(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder="Message PRAXIZ AI…" rows={1} disabled={loading} />

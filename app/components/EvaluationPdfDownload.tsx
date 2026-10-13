@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from 'react';
-import { ExternalLink, Eye } from 'lucide-react';
+import { ExternalLink, FileText } from 'lucide-react';
 import { Dialog } from './Dialog';
 
 export function EvaluationPdfDownload({ id }: { id: string; studentName: string }) {
@@ -25,5 +25,5 @@ export function EvaluationPdfDownload({ id }: { id: string; studentName: string 
     } catch (reason) { setFailed(true); setMessage(reason instanceof Error ? reason.message : 'The PDF download failed. Please try again.'); }
     finally { lock.current = false; setBusy(false); }
   }
-  return <span className="pdf-download"><button className="table-link" disabled={busy} onClick={() => void load()}><Eye size={16} />{busy ? 'Preparing PDF…' : 'View PDF'}</button>{message && <small className={failed ? 'form-error' : 'muted-note'} role={failed ? 'alert' : 'status'}>{message}</small>}{open && url && <Dialog title="Official evaluation PDF" wide protectChanges={false} onClose={() => setOpen(false)}><div className="pdf-viewer-toolbar"><p>Use the PDF viewer toolbar to print or download the finalized report.</p><a className="button button-secondary" href={url} target="_blank" rel="noopener noreferrer"><ExternalLink size={17} />Open in new tab</a></div><iframe className="evaluation-pdf-frame" src={url} title="Official PSU-F-PLU-02 evaluation PDF" /></Dialog>}</span>;
+  return <span className="pdf-download"><button className="table-link" disabled={busy} onClick={() => void load()}><FileText size={16} />{busy ? 'Preparing PDF…' : 'Official PDF'}</button>{message && <small className={failed ? 'form-error' : 'muted-note'} role={failed ? 'alert' : 'status'}>{message}</small>}{open && url && <Dialog title="Official evaluation PDF" wide protectChanges={false} onClose={() => setOpen(false)}><div className="pdf-viewer-toolbar"><p>Use the PDF viewer toolbar to print or download the finalized report.</p><a className="button button-secondary" href={url} target="_blank" rel="noopener noreferrer"><ExternalLink size={17} />Open in new tab</a></div><iframe className="evaluation-pdf-frame" src={url} title="Official PSU-F-PLU-02 evaluation PDF" /></Dialog>}</span>;
 }

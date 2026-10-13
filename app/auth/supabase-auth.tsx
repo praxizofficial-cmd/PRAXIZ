@@ -13,13 +13,19 @@ import { createClient } from "../../lib/supabase/client";
 import { getSiteOrigin } from "../../lib/site-url";
 import type { AuthUser, RoleId } from "../types";
 import { academicTermLabel } from "../academic-options";
-import { mapStudentIdentity, requiresStudentProfile, resolveRoleCode } from "./student-stabilization";
+import {
+  mapStudentIdentity,
+  requiresStudentProfile,
+  resolveRoleCode,
+} from "./student-stabilization";
 import { PraxizLoaderMark } from "../components/PraxizLoaderMark";
+import { validateInstitutionalEmail } from "../services/institutional-email";
 
 const databaseRoleToUiRole: Record<string, RoleId> = {
   student_intern: "student",
   hte_supervisor: "hte",
   internship_coordinator: "coordinator",
+  placement_head: "placement",
   system_admin: "admin",
 };
 
@@ -27,6 +33,7 @@ const registrationRole: Record<RoleId, string> = {
   student: "student_intern",
   hte: "hte_supervisor",
   coordinator: "internship_coordinator",
+  placement: "placement_head",
   admin: "system_admin",
 };
 
@@ -46,10 +53,24 @@ type AuthContextValue = {
   signOut: () => Promise<void>;
   register: (input: RegistrationInput) => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
+  validatePasswordRecovery: () => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+const PASSWORD_RECOVERY_SESSION_KEY = "praxiz.password-recovery-session";
+
+function rememberPasswordRecoverySession(session: Session) {
+  window.sessionStorage.setItem(
+    PASSWORD_RECOVERY_SESSION_KEY,
+    session.user.id,
+  );
+}
+
+function clearPasswordRecoverySession() {
+  window.sessionStorage.removeItem(PASSWORD_RECOVERY_SESSION_KEY);
+}
 
 function authRedirectUrl(path: string) {
   const siteUrl = getSiteOrigin(window.location.origin);
@@ -61,20 +82,23 @@ function clearRecoveryCredentials(url: URL) {
   url.searchParams.delete("token_hash");
   url.searchParams.delete("type");
   url.hash = "";
-  window.history.replaceState({}, document.title, `${url.pathname}${url.search}`);
+  window.history.replaceState(
+    {},
+    document.title,
+    `${url.pathname}${url.search}`,
+  );
 }
 
-async function restorePasswordRecoverySession(supabase: ReturnType<typeof createClient>) {
-  const current = await supabase.auth.getSession();
-  if (current.error) throw current.error;
-  if (current.data.session) return current.data.session;
-
+async function restorePasswordRecoverySession(
+  supabase: ReturnType<typeof createClient>,
+) {
   const url = new URL(window.location.href);
   const queryCode = url.searchParams.get("code");
   if (queryCode) {
     const result = await supabase.auth.exchangeCodeForSession(queryCode);
     if (result.error) throw result.error;
     if (result.data.session) {
+      rememberPasswordRecoverySession(result.data.session);
       clearRecoveryCredentials(url);
       return result.data.session;
     }
@@ -90,29 +114,51 @@ async function restorePasswordRecoverySession(supabase: ReturnType<typeof create
     });
     if (result.error) throw result.error;
     if (result.data.session) {
+      rememberPasswordRecoverySession(result.data.session);
       clearRecoveryCredentials(url);
       return result.data.session;
     }
   }
 
-  const tokenHash = url.searchParams.get("token_hash") ?? hash.get("token_hash");
+  const tokenHash =
+    url.searchParams.get("token_hash") ?? hash.get("token_hash");
   const recoveryType = url.searchParams.get("type") ?? hash.get("type");
-  if (tokenHash && recoveryType === "recovery") {
-    const result = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
+  if (
+    tokenHash &&
+    (recoveryType === "recovery" || recoveryType === "invite")
+  ) {
+    const result = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: recoveryType,
+    });
     if (result.error) throw result.error;
     if (result.data.session) {
+      rememberPasswordRecoverySession(result.data.session);
       clearRecoveryCredentials(url);
       return result.data.session;
     }
   }
 
+  const current = await supabase.auth.getSession();
+  if (current.error) throw current.error;
+  const recoveryUserId = window.sessionStorage.getItem(
+    PASSWORD_RECOVERY_SESSION_KEY,
+  );
+  if (
+    current.data.session &&
+    recoveryUserId === current.data.session.user.id
+  ) {
+    return current.data.session;
+  }
   return null;
 }
 
 function splitName(fullName: string) {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return { firstName: "", middleName: "", lastName: "" };
-  if (parts.length === 1) return { firstName: parts[0], middleName: "", lastName: "" };
+  if (parts.length === 0)
+    return { firstName: "", middleName: "", lastName: "" };
+  if (parts.length === 1)
+    return { firstName: parts[0], middleName: "", lastName: "" };
   return {
     firstName: parts[0],
     middleName: parts.slice(1, -1).join(" "),
@@ -120,7 +166,10 @@ function splitName(fullName: string) {
   };
 }
 
-function logSupabaseError(operation: string, error: { code?: string; message?: string; details?: string; hint?: string }) {
+function logSupabaseError(
+  operation: string,
+  error: { code?: string; message?: string; details?: string; hint?: string },
+) {
   console.error(`Supabase ${operation} failed`, {
     code: error.code,
     message: error.message,
@@ -133,22 +182,30 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
   const supabase = createClient();
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("id,email,first_name,middle_name,last_name,preferred_name,phone,avatar_path,account_status,metadata")
+    .select(
+      "id,email,first_name,middle_name,last_name,preferred_name,phone,avatar_path,account_status,metadata",
+    )
     .eq("id", authUser.id)
     .single();
 
   if (profileError || !profile) {
     if (profileError) logSupabaseError("profile query", profileError);
-    throw new Error("Your PRAXIZ profile could not be loaded. Please contact the system administrator.");
+    throw new Error(
+      "Your PRAXIZ profile could not be loaded. Please contact the system administrator.",
+    );
   }
 
   if (profile.account_status !== "active") {
-    throw new Error("Your registration is still awaiting administrator approval.");
+    throw new Error(
+      "Your registration is still awaiting administrator approval.",
+    );
   }
 
   const { data: assignments, error: roleError } = await supabase
     .from("role_assignments")
-    .select("id,role_id,scope_org_unit_id,scope_academic_program_id,starts_at,ends_at,deleted_at")
+    .select(
+      "id,role_id,scope_org_unit_id,scope_academic_program_id,starts_at,ends_at,deleted_at",
+    )
     .eq("user_id", authUser.id)
     .is("deleted_at", null)
     .or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`)
@@ -169,9 +226,15 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
     scope_academic_program_id: string | null;
   };
   const assignmentRows = (assignments ?? []) as RoleAssignmentRow[];
-  const roleIds = [...new Set(assignmentRows.map((assignment) => assignment.role_id))];
+  const roleIds = [
+    ...new Set(assignmentRows.map((assignment) => assignment.role_id)),
+  ];
   const { data: roleRows, error: rolesError } = roleIds.length
-    ? await supabase.from("roles").select("id,code").in("id", roleIds).eq("is_active", true)
+    ? await supabase
+        .from("roles")
+        .select("id,code")
+        .in("id", roleIds)
+        .eq("is_active", true)
     : { data: [], error: null };
 
   if (rolesError) {
@@ -180,46 +243,78 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
   }
 
   const roleCodeById = new Map(
-    ((roleRows ?? []) as { id: string; code: string }[]).map((roleRow) => [roleRow.id, roleRow.code]),
+    ((roleRows ?? []) as { id: string; code: string }[]).map((roleRow) => [
+      roleRow.id,
+      roleRow.code,
+    ]),
   );
 
   const roleAssignments = assignmentRows.flatMap((assignment) => {
     const code = roleCodeById.get(assignment.role_id);
-    return code ? [{
-      code,
-      startsAt: assignment.starts_at,
-      endsAt: assignment.ends_at,
-      deletedAt: assignment.deleted_at,
-      scopeOrgUnitId: assignment.scope_org_unit_id,
-      scopeAcademicProgramId: assignment.scope_academic_program_id,
-    }] : [];
+    return code
+      ? [
+          {
+            code,
+            startsAt: assignment.starts_at,
+            endsAt: assignment.ends_at,
+            deletedAt: assignment.deleted_at,
+            scopeOrgUnitId: assignment.scope_org_unit_id,
+            scopeAcademicProgramId: assignment.scope_academic_program_id,
+          },
+        ]
+      : [];
   });
   const roleCodes = roleAssignments.map((assignment) => assignment.code);
-  const primaryRole = typeof profile.metadata === "object" && profile.metadata
-    ? (profile.metadata as { primary_role?: unknown }).primary_role
-    : null;
+  const primaryRole =
+    typeof profile.metadata === "object" && profile.metadata
+      ? (profile.metadata as { primary_role?: unknown }).primary_role
+      : null;
   const selectedCode = resolveRoleCode(roleAssignments, primaryRole);
-  const selectedRoleAssignment = roleAssignments.find((assignment) => assignment.code === selectedCode);
+  const selectedRoleAssignment = roleAssignments.find(
+    (assignment) => assignment.code === selectedCode,
+  );
   const role = selectedCode ? databaseRoleToUiRole[selectedCode] : undefined;
   const availableRoles = roleCodes
     .map((code) => databaseRoleToUiRole[code])
     .filter((item): item is RoleId => Boolean(item));
 
-  if (!role) throw new Error("Your account is active but has no PRAXIZ workspace role yet.");
+  if (!role)
+    throw new Error(
+      "Your account is active but has no PRAXIZ workspace role yet.",
+    );
 
-  const coordinatorProgramIds = selectedCode === "internship_coordinator"
-    ? [...new Set(roleAssignments.filter((assignment) => assignment.code === "internship_coordinator").map((assignment) => assignment.scopeAcademicProgramId).filter((id): id is string => Boolean(id)))]
-    : [];
+  const coordinatorProgramIds =
+    selectedCode === "internship_coordinator"
+      ? [
+          ...new Set(
+            roleAssignments
+              .filter(
+                (assignment) => assignment.code === "internship_coordinator",
+              )
+              .map((assignment) => assignment.scopeAcademicProgramId)
+              .filter((id): id is string => Boolean(id)),
+          ),
+        ]
+      : [];
   if (selectedCode === "internship_coordinator") {
-    const coordinatorAssignmentIds = assignmentRows.filter((assignment) => roleCodeById.get(assignment.role_id) === selectedCode).map((assignment) => assignment.id);
-    const { data: grants, error: grantsError } = await supabase.from("role_assignment_programs")
-      .select("academic_program_id").in("role_assignment_id", coordinatorAssignmentIds);
+    const coordinatorAssignmentIds = assignmentRows
+      .filter(
+        (assignment) => roleCodeById.get(assignment.role_id) === selectedCode,
+      )
+      .map((assignment) => assignment.id);
+    const { data: grants, error: grantsError } = await supabase
+      .from("role_assignment_programs")
+      .select("academic_program_id")
+      .in("role_assignment_id", coordinatorAssignmentIds);
     // Older deployments retain their existing primary scope until v7 migrates.
     if (grantsError && !["42P01", "PGRST205"].includes(grantsError.code)) {
-      throw new Error("Your coordinator program permissions could not be verified.");
+      throw new Error(
+        "Your coordinator program permissions could not be verified.",
+      );
     }
     for (const grant of grants ?? []) {
-      if (!coordinatorProgramIds.includes(grant.academic_program_id)) coordinatorProgramIds.push(grant.academic_program_id);
+      if (!coordinatorProgramIds.includes(grant.academic_program_id))
+        coordinatorProgramIds.push(grant.academic_program_id);
     }
   }
   let coordinatorPrograms: AcademicProgramReference[] = [];
@@ -232,7 +327,9 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
       .is("deleted_at", null);
     if (scopedProgramsError) {
       logSupabaseError("coordinator program scopes query", scopedProgramsError);
-      throw new Error("Your coordinator program scope could not be loaded. Please contact the system administrator.");
+      throw new Error(
+        "Your coordinator program scope could not be loaded. Please contact the system administrator.",
+      );
     }
     coordinatorPrograms = (scopedPrograms ?? []) as AcademicProgramReference[];
   }
@@ -248,28 +345,50 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
     section: string | null;
     expected_graduation_year: number | null;
     academic_term_id: string | null;
-    academic_terms?: { term: string; academic_years?: { label: string } | Array<{ label: string }> | null } | Array<{ term: string; academic_years?: { label: string } | Array<{ label: string }> | null }> | null;
-    academic_programs?: AcademicProgramReference | AcademicProgramReference[] | null;
+    academic_terms?:
+      | {
+          term: string;
+          academic_years?: { label: string } | Array<{ label: string }> | null;
+        }
+      | Array<{
+          term: string;
+          academic_years?: { label: string } | Array<{ label: string }> | null;
+        }>
+      | null;
+    academic_programs?:
+      | AcademicProgramReference
+      | AcademicProgramReference[]
+      | null;
   };
   let studentProfile: StudentProfile | null = null;
   if (requiresStudentProfile(selectedCode)) {
-    const { data: studentProfileData, error: studentProfileError } = await supabase
-      .from("student_profiles")
-      .select("student_number,year_level,section,expected_graduation_year,academic_term_id,academic_terms(term,academic_years(label)),academic_programs(code,name,owning_org_unit_id)")
-      .eq("user_id", authUser.id)
-      .maybeSingle();
+    const { data: studentProfileData, error: studentProfileError } =
+      await supabase
+        .from("student_profiles")
+        .select(
+          "student_number,year_level,section,expected_graduation_year,academic_term_id,academic_terms(term,academic_years(label)),academic_programs(code,name,owning_org_unit_id)",
+        )
+        .eq("user_id", authUser.id)
+        .maybeSingle();
     if (studentProfileError) {
       logSupabaseError("student profile query", studentProfileError);
-      throw new Error("Your student profile could not be loaded. Please contact the system administrator.");
+      throw new Error(
+        "Your student profile could not be loaded. Please contact the system administrator.",
+      );
     }
     if (!studentProfileData) {
-      throw new Error("Your student profile is missing. Please contact the system administrator.");
+      throw new Error(
+        "Your student profile is missing. Please contact the system administrator.",
+      );
     }
     studentProfile = studentProfileData as StudentProfile | null;
   }
   const programValue = studentProfile?.academic_programs;
   let program = Array.isArray(programValue) ? programValue[0] : programValue;
-  if (selectedCode === "internship_coordinator" && selectedRoleAssignment?.scopeAcademicProgramId) {
+  if (
+    selectedCode === "internship_coordinator" &&
+    selectedRoleAssignment?.scopeAcademicProgramId
+  ) {
     const { data: scopedProgram, error: scopedProgramError } = await supabase
       .from("academic_programs")
       .select("code,name,owning_org_unit_id")
@@ -277,10 +396,14 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
       .maybeSingle();
     if (scopedProgramError) {
       logSupabaseError("coordinator program scope query", scopedProgramError);
-      throw new Error("Your coordinator program scope could not be loaded. Please contact the system administrator.");
+      throw new Error(
+        "Your coordinator program scope could not be loaded. Please contact the system administrator.",
+      );
     }
     if (!scopedProgram) {
-      throw new Error("Your coordinator role is missing its academic program. Please contact the system administrator.");
+      throw new Error(
+        "Your coordinator role is missing its academic program. Please contact the system administrator.",
+      );
     }
     program = scopedProgram as AcademicProgramReference;
   }
@@ -306,9 +429,13 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
     unitId = unit.parent_id;
   }
 
-  const fullName = profile.preferred_name?.trim()
-    || [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ").trim()
-    || profile.email;
+  const fullName =
+    profile.preferred_name?.trim() ||
+    [profile.first_name, profile.middle_name, profile.last_name]
+      .filter(Boolean)
+      .join(" ")
+      .trim() ||
+    profile.email;
 
   const institutionalIdentity = mapStudentIdentity({
     studentNumber: studentProfile?.student_number ?? null,
@@ -341,8 +468,10 @@ async function resolveAuthUser(authUser: User): Promise<AuthUser> {
     ...institutionalIdentity,
     scopeProgramId: selectedRoleAssignment?.scopeAcademicProgramId ?? undefined,
     scopeProgramIds: coordinatorProgramIds,
-    scopeProgramCode: selectedCode === "internship_coordinator" ? program?.code : undefined,
-    scopeProgramName: selectedCode === "internship_coordinator" ? program?.name : undefined,
+    scopeProgramCode:
+      selectedCode === "internship_coordinator" ? program?.code : undefined,
+    scopeProgramName:
+      selectedCode === "internship_coordinator" ? program?.name : undefined,
     scopeProgramNames: coordinatorPrograms.map((item) => item.name),
     scopeOrgUnitId: selectedRoleAssignment?.scopeOrgUnitId ?? undefined,
     role,
@@ -372,17 +501,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    void supabase.auth.getUser().then((result: { data: { user: User | null } }) => hydrate(result.data.user)).finally(() => {
-      if (active) setReady(true);
-    });
+    void supabase.auth
+      .getUser()
+      .then((result: { data: { user: User | null } }) =>
+        hydrate(result.data.user),
+      )
+      .finally(() => {
+        if (active) setReady(true);
+      });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
-      window.setTimeout(() => {
-        void hydrate(session?.user ?? null).finally(() => {
-          if (active) setReady(true);
-        });
-      }, 0);
-    });
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (event: AuthChangeEvent, session: Session | null) => {
+        if (event === "PASSWORD_RECOVERY" && session) {
+          rememberPasswordRecoverySession(session);
+        }
+        window.setTimeout(() => {
+          void hydrate(session?.user ?? null).finally(() => {
+            if (active) setReady(true);
+          });
+        }, 0);
+      },
+    );
 
     return () => {
       active = false;
@@ -390,82 +529,116 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const value = useMemo<AuthContextValue>(() => ({
-    user,
-    ready,
-    async refreshProfile() {
-      const { data, error } = await createClient().auth.getUser();
-      if (error || !data.user) throw new Error('Please sign in again.');
-      setUser(await resolveAuthUser(data.user));
-    },
-    async signIn(email, password) {
-      const supabase = createClient();
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password,
-      });
-      if (error || !data.user) throw new Error(error?.message ?? "The email or password is incorrect.");
-      try {
-        const account = await resolveAuthUser(data.user);
-        setUser(account);
-        return account;
-      } catch (error) {
-        await supabase.auth.signOut();
-        throw error;
-      }
-    },
-    async signOut() {
-      const { error } = await createClient().auth.signOut();
-      setUser(null);
-      if (error) throw new Error(error.message);
-    },
-    async register(input) {
-      if (input.role !== 'student') {
-        throw new Error('Public account creation is available only to Student Interns. Coordinator and HTE Representative accounts must be provisioned by an authorized user.');
-      }
-      const supabase = createClient();
-      const names = splitName(input.fullName);
-      const metadata = {
-        ...input.fields,
-        requested_role: registrationRole.student,
-        first_name: names.firstName,
-        middle_name: names.middleName,
-        last_name: names.lastName,
-      };
-      const { data, error } = await supabase.auth.signUp({
-        email: input.email.trim().toLowerCase(),
-        password: input.password,
-        options: {
-          emailRedirectTo: authRedirectUrl("/signin"),
-          data: metadata,
-        },
-      });
-      if (error) throw new Error(error.message);
-      if (!data.user) throw new Error("Supabase did not create the registration account.");
-      if (data.session) await supabase.auth.signOut();
-      setUser(null);
-    },
-    async requestPasswordReset(email) {
-      const { error } = await createClient().auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-        redirectTo: authRedirectUrl("/reset-password"),
-      });
-      if (error) throw new Error(error.message);
-    },
-    async updatePassword(password) {
-      const supabase = createClient();
-      let session = null;
-      try {
-        session = await restorePasswordRecoverySession(supabase);
-      } catch {
-        throw new Error("This password-reset link is invalid or has expired. Request a new link and try again.");
-      }
-      if (!session) {
-        throw new Error("This password-reset link is invalid or has expired. Request a new link and try again.");
-      }
-      const { error } = await supabase.auth.updateUser({ password });
-      if (error) throw new Error(error.message);
-    },
-  }), [ready, user]);
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      ready,
+      async refreshProfile() {
+        const { data, error } = await createClient().auth.getUser();
+        if (error || !data.user) throw new Error("Please sign in again.");
+        setUser(await resolveAuthUser(data.user));
+      },
+      async signIn(email, password) {
+        const supabase = createClient();
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.trim().toLowerCase(),
+          password,
+        });
+        if (error || !data.user)
+          throw new Error(
+            error?.message ?? "The email or password is incorrect.",
+          );
+        try {
+          const account = await resolveAuthUser(data.user);
+          setUser(account);
+          return account;
+        } catch (error) {
+          await supabase.auth.signOut();
+          throw error;
+        }
+      },
+      async signOut() {
+        const { error } = await createClient().auth.signOut();
+        setUser(null);
+        if (error) throw new Error(error.message);
+      },
+      async register(input) {
+        if (input.role !== "student") {
+          throw new Error(
+            "Public account creation is available only to Student Interns. Coordinator and HTE Representative accounts must be provisioned by an authorized user.",
+          );
+        }
+        const institutionalEmail = validateInstitutionalEmail(
+          input.email,
+          String(input.fields.student_number ?? ""),
+        );
+        if (!institutionalEmail.valid) {
+          throw new Error(institutionalEmail.error);
+        }
+        const supabase = createClient();
+        const names = splitName(input.fullName);
+        const metadata = {
+          ...input.fields,
+          requested_role: registrationRole.student,
+          first_name: names.firstName,
+          middle_name: names.middleName,
+          last_name: names.lastName,
+        };
+        const { data, error } = await supabase.auth.signUp({
+          email: institutionalEmail.normalizedEmail,
+          password: input.password,
+          options: {
+            emailRedirectTo: authRedirectUrl("/signin"),
+            data: metadata,
+          },
+        });
+        if (error) throw new Error(error.message);
+        if (!data.user)
+          throw new Error("Supabase did not create the registration account.");
+        if (data.session) await supabase.auth.signOut();
+        setUser(null);
+      },
+      async requestPasswordReset(email) {
+        const { error } = await createClient().auth.resetPasswordForEmail(
+          email.trim().toLowerCase(),
+          {
+            redirectTo: authRedirectUrl("/reset-password"),
+          },
+        );
+        if (error) throw new Error(error.message);
+      },
+      async validatePasswordRecovery() {
+        try {
+          const session = await restorePasswordRecoverySession(createClient());
+          if (!session) throw new Error("No recovery session was created.");
+        } catch {
+          throw new Error(
+            "This password link is invalid, has already been used, or has expired. Request a new link and try again.",
+          );
+        }
+      },
+      async updatePassword(password) {
+        const supabase = createClient();
+        let session = null;
+        try {
+          session = await restorePasswordRecoverySession(supabase);
+        } catch {
+          throw new Error(
+            "This password-reset link is invalid or has expired. Request a new link and try again.",
+          );
+        }
+        if (!session) {
+          throw new Error(
+            "This password-reset link is invalid or has expired. Request a new link and try again.",
+          );
+        }
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) throw new Error(error.message);
+        clearPasswordRecoverySession();
+      },
+    }),
+    [ready, user],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -476,17 +649,36 @@ export function useAuth(): AuthContextValue {
   return context;
 }
 
-export function ProtectedRoute({ role, children }: { role: RoleId; children: ReactNode }) {
+export function ProtectedRoute({
+  role,
+  children,
+}: {
+  role: RoleId;
+  children: ReactNode;
+}) {
   const { ready, user } = useAuth();
 
   useEffect(() => {
     if (!ready) return;
     if (!user) window.location.replace(`/signin?returnTo=/${role}/dashboard`);
-    else if (!user.roles.includes(role)) window.location.replace(`/${user.role}/dashboard`);
+    else if (!user.roles.includes(role))
+      window.location.replace(`/${user.role}/dashboard`);
   }, [ready, role, user]);
 
   if (!ready || !user || !user.roles.includes(role)) {
-    return <main className="route-loading" role="status" aria-live="polite" aria-busy="true"><div className="workspace-loading-content"><PraxizLoaderMark /><p>Preparing workspace…</p></div></main>;
+    return (
+      <main
+        className="route-loading"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <div className="workspace-loading-content">
+          <PraxizLoaderMark />
+          <p>Preparing workspace…</p>
+        </div>
+      </main>
+    );
   }
   return children;
 }

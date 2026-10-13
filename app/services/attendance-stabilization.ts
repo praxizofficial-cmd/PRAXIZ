@@ -23,7 +23,8 @@ export type ReviewableAttendanceStatus =
   | "Verified"
   | "Flagged"
   | "Rejected"
-  | "Voided";
+  | "Voided"
+  | "Incomplete";
 
 const MAX_SESSION_MS = 24 * 60 * 60 * 1000;
 
@@ -33,10 +34,15 @@ function inspectPair(pair: AttendancePair): string | null {
 
   const timeIn = new Date(pair.timeInAt).getTime();
   const timeOut = new Date(pair.timeOutAt).getTime();
-  if (!Number.isFinite(timeIn) || !Number.isFinite(timeOut) || timeOut <= timeIn) {
+  if (
+    !Number.isFinite(timeIn) ||
+    !Number.isFinite(timeOut) ||
+    timeOut <= timeIn
+  ) {
     return "Time Out must be later than Time In";
   }
-  if (timeOut - timeIn > MAX_SESSION_MS) return "The attendance duration exceeds 24 hours";
+  if (timeOut - timeIn > MAX_SESSION_MS)
+    return "The attendance duration exceeds 24 hours";
   return null;
 }
 
@@ -55,7 +61,9 @@ export function resolveAttendancePair(input: {
       authoritativePair: "original",
       ...input.original,
       complete: true,
-      blockingReason: pendingCorrection ? "An attendance correction is still pending approval" : null,
+      blockingReason: pendingCorrection
+        ? "An attendance correction is still pending approval"
+        : null,
     };
   }
 
@@ -80,7 +88,9 @@ export function resolveAttendancePair(input: {
     };
   }
 
-  const correctionState = pendingCorrection ? " An attendance correction is still pending approval." : "";
+  const correctionState = pendingCorrection
+    ? " An attendance correction is still pending approval."
+    : "";
   return {
     authoritativePair: "none",
     timeInAt: null,
@@ -96,11 +106,21 @@ export function attendanceDecisionBlock(
   resolution: AttendancePairResolution,
   hasRemarks: boolean,
 ): string | null {
-  if (status === "Verified") return "This attendance session has already been verified.";
-  if (status === "Rejected") return "This attendance session has already been rejected.";
-  if (status === "Voided") return "A voided attendance session cannot be reviewed.";
-  if (status === "Active") return "This attendance session is still active. Record Time Out before review.";
-  if (decision === "verified" && (!resolution.complete || resolution.blockingReason)) {
+  if (status === "Verified")
+    return "This attendance session has already been verified.";
+  if (status === "Rejected")
+    return "This attendance session has already been rejected.";
+  if (status === "Voided")
+    return "A voided attendance session cannot be reviewed.";
+  if (status === "Incomplete" && decision === "verified") {
+    return "An incomplete attendance session cannot be verified. Correct, flag, or reject the record first.";
+  }
+  if (status === "Active")
+    return "This attendance session is still active. Record Time Out before review.";
+  if (
+    decision === "verified" &&
+    (!resolution.complete || resolution.blockingReason)
+  ) {
     return `${resolution.blockingReason ?? "A complete attendance pair is required"}.`;
   }
   if (decision !== "verified" && !hasRemarks) {

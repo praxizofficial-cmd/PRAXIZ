@@ -3,55 +3,97 @@ import assert from "node:assert/strict";
 import { mergeCoordinatorProgramStudents } from "../app/services/coordinator-routing.ts";
 
 test("program students without placements remain visible to their coordinator", () => {
-  const assigned = [{
-    studentUserId: "ashley",
-    initials: "AM",
-    name: "Ashley Mañago",
-    campus: "Goa Main Campus",
-    program: "BSIT",
-    hte: "Assigned HTE",
-    hteRepresentative: "Representative",
-    hours: 0,
-    requiredHours: 400,
-    attendance: 0,
-    requirements: "0/0",
-    status: "Needs Attention",
-  }];
+  const assigned = [
+    {
+      studentUserId: "ashley",
+      initials: "AM",
+      name: "Ashley Mañago",
+      campus: "Goa Main Campus",
+      program: "BSIT",
+      hte: "Assigned HTE",
+      hteRepresentative: "Representative",
+      hours: 0,
+      requiredHours: 400,
+      attendance: 0,
+      requirements: "0/0",
+      status: "Needs Attention",
+    },
+  ];
   const students = [
-    { studentUserId: "elyssa", name: "Elyssa Vasquez", campus: "Goa Main Campus", program: "BSIT", yearLevel: 4, section: "A", academicTerm: "2026–2027 · 1st Semester" },
-    { studentUserId: "ashley", name: "Ashley Mañago", campus: "Goa Main Campus", program: "BSIT", yearLevel: 3, section: "B", academicTerm: "2026–2027 · 1st Semester" },
+    {
+      studentUserId: "elyssa",
+      name: "Elyssa Vasquez",
+      campus: "Goa Main Campus",
+      program: "BSIT",
+      yearLevel: 4,
+      section: "A",
+      academicTerm: "2026–2027 · 1st Semester",
+    },
+    {
+      studentUserId: "ashley",
+      name: "Ashley Mañago",
+      campus: "Goa Main Campus",
+      program: "BSIT",
+      yearLevel: 3,
+      section: "B",
+      academicTerm: "2026–2027 · 1st Semester",
+    },
   ];
 
-  assert.deepEqual(mergeCoordinatorProgramStudents(assigned, students).map((student) => ({
-    id: student.studentUserId,
-    status: student.status,
-    hte: student.hte,
-    yearLevel: student.yearLevel,
-    section: student.section,
-  })), [
-    { id: "ashley", status: "Needs Attention", hte: "Assigned HTE", yearLevel: 3, section: "B" },
-    { id: "elyssa", status: "Awaiting Assignment", hte: "Not assigned", yearLevel: 4, section: "A" },
-  ]);
+  assert.deepEqual(
+    mergeCoordinatorProgramStudents(assigned, students).map((student) => ({
+      id: student.studentUserId,
+      status: student.status,
+      hte: student.hte,
+      yearLevel: student.yearLevel,
+      section: student.section,
+    })),
+    [
+      {
+        id: "ashley",
+        status: "Needs Attention",
+        hte: "Assigned HTE",
+        yearLevel: 3,
+        section: "B",
+      },
+      {
+        id: "elyssa",
+        status: "Awaiting Assignment",
+        hte: "Not assigned",
+        yearLevel: 4,
+        section: "A",
+      },
+    ],
+  );
 });
 
 test("students already represented by an assignment are not duplicated", () => {
-  const assigned = [{
-    studentUserId: "student-1",
-    initials: "AS",
-    name: "Assigned Student",
-    campus: "Main Campus",
-    program: "BSIT",
-    hte: "HTE",
-    hteRepresentative: "Representative",
-    hours: 20,
-    requiredHours: 400,
-    attendance: 100,
-    requirements: "1/1",
-    status: "Active",
-  }];
+  const assigned = [
+    {
+      studentUserId: "student-1",
+      initials: "AS",
+      name: "Assigned Student",
+      campus: "Main Campus",
+      program: "BSIT",
+      hte: "HTE",
+      hteRepresentative: "Representative",
+      hours: 20,
+      requiredHours: 400,
+      attendance: 100,
+      requirements: "1/1",
+      status: "Active",
+    },
+  ];
 
   const result = mergeCoordinatorProgramStudents(assigned, [
-    { studentUserId: "student-1", name: "Assigned Student", campus: "Main Campus", program: "BSIT", yearLevel: 4, section: "C" },
+    {
+      studentUserId: "student-1",
+      name: "Assigned Student",
+      campus: "Main Campus",
+      program: "BSIT",
+      yearLevel: 4,
+      section: "C",
+    },
   ]);
 
   assert.equal(result.length, 1);

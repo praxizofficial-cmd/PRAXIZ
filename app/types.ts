@@ -1,4 +1,10 @@
-export const roleIds = ["student", "hte", "coordinator", "admin"] as const;
+export const roleIds = [
+  "student",
+  "hte",
+  "coordinator",
+  "placement",
+  "admin",
+] as const;
 
 export type RoleId = (typeof roleIds)[number];
 
@@ -18,6 +24,10 @@ export type Permission =
   | "reports:generate"
   | "users:manage"
   | "master-data:manage"
+  | "placement:read"
+  | "placement:manage"
+  | "file-formats:submit"
+  | "file-formats:publish"
   | "audit:view";
 
 export type NavItem = {
@@ -55,7 +65,7 @@ export type AcademicTerm = {
   startsOn: string;
   endsOn: string;
   isCurrent: boolean;
-  configurationStatus: "Draft" | "Configured" | "Finalized";
+  configurationStatus: "Draft" | "Active" | "Pending Closure" | "Finalized";
 };
 
 export type AuthUser = {
@@ -86,12 +96,7 @@ export type AuthUser = {
 };
 
 export type InternshipStatus =
-  | "Pending"
-  | "Approved"
-  | "Active"
-  | "Completed"
-  | "Cancelled"
-  | "Suspended";
+  "Pending" | "Approved" | "Active" | "Completed" | "Cancelled" | "Suspended";
 
 export type InternshipAssignment = {
   id: string;
@@ -113,7 +118,8 @@ export type AttendanceStatus =
   | "Verified"
   | "Flagged"
   | "Rejected"
-  | "Voided";
+  | "Voided"
+  | "Incomplete";
 
 export type AttendanceEvent = {
   id: string;
@@ -147,6 +153,7 @@ export type Intern = {
   hteRepresentative: string;
   hours: number;
   requiredHours?: number;
+  dailyRequiredHours?: number;
   attendance: number;
   requirements: string;
   status: "Active" | "Completed" | "Needs Attention" | "Awaiting Assignment";

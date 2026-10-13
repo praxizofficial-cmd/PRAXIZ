@@ -2,12 +2,30 @@ import type { EvaluationFormMetadata } from "../../lib/evaluation-report";
 import { createClient } from "../../lib/supabase/client";
 import { getSiteOrigin } from "../../lib/site-url";
 import { resolveActiveAssignmentId } from "../auth/student-stabilization";
-import { supportedRoleCodes, supportedRoleNames, isSupportedRoleCode } from "../auth/supported-roles";
-import { buildSaveWeeklyLogRpcArgs, type WeeklyLogAssignment, type WeeklyLogInput } from "./weekly-log-stabilization";
+import {
+  supportedRoleCodes,
+  supportedRoleNames,
+  isSupportedRoleCode,
+} from "../auth/supported-roles";
+import {
+  buildSaveWeeklyLogRpcArgs,
+  type WeeklyLogAssignment,
+  type WeeklyLogInput,
+} from "./weekly-log-stabilization";
 import { programsForCollege } from "./institutional-stabilization";
-import { normalizeDocumentTemplateCode, validateDocumentTemplate, type DocumentTemplatePhase } from "./workflow-template-stabilization";
-import { mergeCoordinatorProgramStudents, type CoordinatorProgramStudent } from "./coordinator-routing";
-import { attendanceDecisionBlock, resolveAttendancePair } from "./attendance-stabilization";
+import {
+  normalizeDocumentTemplateCode,
+  validateDocumentTemplate,
+  type DocumentTemplatePhase,
+} from "./workflow-template-stabilization";
+import {
+  mergeCoordinatorProgramStudents,
+  type CoordinatorProgramStudent,
+} from "./coordinator-routing";
+import {
+  attendanceDecisionBlock,
+  resolveAttendancePair,
+} from "./attendance-stabilization";
 import { academicTermLabel, type AcademicTermCode } from "../academic-options";
 import {
   normalizeEvaluationCode,
@@ -16,7 +34,16 @@ import {
   type EvaluationTemplateEvaluator,
   type EvaluationTemplateStage,
 } from "./evaluation-template-stabilization";
-import type { AcademicTerm, AttendanceEvent, AttendanceSession, AttendanceStatus, Campus, College, Intern, Program } from "../types";
+import type {
+  AcademicTerm,
+  AttendanceEvent,
+  AttendanceSession,
+  AttendanceStatus,
+  Campus,
+  College,
+  Intern,
+  Program,
+} from "../types";
 
 type AttendanceEventRow = {
   id: string;
@@ -38,7 +65,14 @@ type AttendanceSessionRow = {
   id: string;
   internship_assignment_id: string;
   work_date: string;
-  status: "open" | "pending_verification" | "verified" | "flagged" | "rejected" | "voided";
+  status:
+    | "open"
+    | "incomplete"
+    | "pending_verification"
+    | "verified"
+    | "flagged"
+    | "rejected"
+    | "voided";
   attendance_events?: AttendanceEventRow[] | null;
   attendance_corrections?: AttendanceCorrectionRow[] | null;
   attendance_verifications?: Array<{
@@ -48,7 +82,8 @@ type AttendanceSessionRow = {
     remarks: string | null;
     created_at: string;
   }> | null;
-  internship_assignments?: { student_user_id?: string } | Array<{ student_user_id?: string }> | null;
+  internship_assignments?:
+    { student_user_id?: string } | Array<{ student_user_id?: string }> | null;
 };
 
 export type AttendanceHistoryRow = {
@@ -235,7 +270,13 @@ export type PartnerHteRecord = {
 
 export type AssignmentOption = { id: string; label: string };
 export type AssignmentOptions = {
-  students: Array<AssignmentOption & { studentNumber: string; programId: string; section?: string }>;
+  students: Array<
+    AssignmentOption & {
+      studentNumber: string;
+      programId: string;
+      section?: string;
+    }
+  >;
   htes: AssignmentOption[];
   terms: Array<AssignmentOption & { startsOn: string; endsOn: string }>;
 };
@@ -258,6 +299,21 @@ export type RequirementConfigRecord = {
   programLabel: string;
   section?: string;
   requiredHours: number;
+  updatedAt: string;
+};
+
+export type HteDailyHourConfig = {
+  id: string;
+  hteId: string;
+  hteName: string;
+  academicTermId: string | null;
+  termLabel: string;
+  dailyRequiredHours: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  status: "Active" | "Retired";
+  correctionReason: string;
+  configuredBy: string;
   updatedAt: string;
 };
 
@@ -344,8 +400,24 @@ export type UserAccountRecord = {
   status: string;
 };
 
-type InstitutionalUnitRow = { id: string; parent_id: string | null; unit_type: string; code: string; name: string; short_name: string | null; is_active: boolean; deleted_at: string | null };
-type InstitutionalProgramRow = { id: string; owning_org_unit_id: string; code: string; name: string; is_active: boolean; deleted_at: string | null };
+type InstitutionalUnitRow = {
+  id: string;
+  parent_id: string | null;
+  unit_type: string;
+  code: string;
+  name: string;
+  short_name: string | null;
+  is_active: boolean;
+  deleted_at: string | null;
+};
+type InstitutionalProgramRow = {
+  id: string;
+  owning_org_unit_id: string;
+  code: string;
+  name: string;
+  is_active: boolean;
+  deleted_at: string | null;
+};
 
 export type AcademicYearRecord = {
   id: string;
@@ -355,9 +427,23 @@ export type AcademicYearRecord = {
   isCurrent: boolean;
 };
 
-export type CreateCampusInput = { code: string; name: string; shortName: string; municipality: string };
-export type CreateCollegeInput = { campusId: string; code: string; name: string; shortName: string };
-export type CreateProgramInput = { collegeId: string; code: string; name: string };
+export type CreateCampusInput = {
+  code: string;
+  name: string;
+  shortName: string;
+  municipality: string;
+};
+export type CreateCollegeInput = {
+  campusId: string;
+  code: string;
+  name: string;
+  shortName: string;
+};
+export type CreateProgramInput = {
+  collegeId: string;
+  code: string;
+  name: string;
+};
 export type CreateAcademicTermInput = {
   academicYearId: string;
   term: "first_semester" | "second_semester" | "midyear";
@@ -377,7 +463,9 @@ async function activeInstitutionalUnits(): Promise<InstitutionalUnitRow[]> {
   return (data ?? []) as InstitutionalUnitRow[];
 }
 
-async function registrationInstitutionalUnits(): Promise<InstitutionalUnitRow[]> {
+async function registrationInstitutionalUnits(): Promise<
+  InstitutionalUnitRow[]
+> {
   const { data, error } = await createClient()
     .from("org_units")
     .select("id,parent_id,unit_type,code,name,short_name,is_active,deleted_at")
@@ -386,7 +474,12 @@ async function registrationInstitutionalUnits(): Promise<InstitutionalUnitRow[]>
     .is("deleted_at", null)
     .order("name");
   if (error) {
-    console.error("Registration org_units lookup failed", { code: error.code, message: error.message, details: error.details, hint: error.hint });
+    console.error("Registration org_units lookup failed", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
     throw new Error(error.message);
   }
   return (data ?? []) as InstitutionalUnitRow[];
@@ -400,7 +493,12 @@ async function registrationPrograms(): Promise<InstitutionalProgramRow[]> {
     .is("deleted_at", null)
     .order("code");
   if (error) {
-    console.error("Registration academic_programs lookup failed", { code: error.code, message: error.message, details: error.details, hint: error.hint });
+    console.error("Registration academic_programs lookup failed", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
     throw new Error(error.message);
   }
   return (data ?? []) as InstitutionalProgramRow[];
@@ -413,55 +511,168 @@ export const institutionalService = {
       activeInstitutionalUnits(),
     ]);
     if (campusError) {
-      console.error("Institutional campuses lookup failed", { code: campusError.code, message: campusError.message, details: campusError.details, hint: campusError.hint });
+      console.error("Institutional campuses lookup failed", {
+        code: campusError.code,
+        message: campusError.message,
+        details: campusError.details,
+        hint: campusError.hint,
+      });
       throw new Error(campusError.message);
     }
-    const typedCampusRows = (campusRows ?? []) as Array<{ org_unit_id: string; municipality: string | null }>;
-    const campusLocations = new Map<string, string | undefined>(typedCampusRows.map((row) => [row.org_unit_id, row.municipality ?? undefined]));
-    return rows.filter((row) => row.unit_type === "campus" && campusLocations.has(row.id)).map((row) => ({ id: row.id, name: row.name, shortName: row.short_name ?? row.name, municipality: campusLocations.get(row.id) }));
+    const typedCampusRows = (campusRows ?? []) as Array<{
+      org_unit_id: string;
+      municipality: string | null;
+    }>;
+    const campusLocations = new Map<string, string | undefined>(
+      typedCampusRows.map((row) => [
+        row.org_unit_id,
+        row.municipality ?? undefined,
+      ]),
+    );
+    return rows
+      .filter(
+        (row) => row.unit_type === "campus" && campusLocations.has(row.id),
+      )
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        shortName: row.short_name ?? row.name,
+        municipality: campusLocations.get(row.id),
+      }));
   },
   async listActiveColleges(): Promise<College[]> {
     const rows = await activeInstitutionalUnits();
-    return rows.filter((row) => row.unit_type === "college").map((row) => ({ id: row.id, campusId: row.parent_id ?? "", name: row.name, shortName: row.short_name ?? row.name }));
+    return rows
+      .filter((row) => row.unit_type === "college")
+      .map((row) => ({
+        id: row.id,
+        campusId: row.parent_id ?? "",
+        name: row.name,
+        shortName: row.short_name ?? row.name,
+      }));
   },
   async listCollegesForCampus(campusId: string): Promise<College[]> {
     const rows = await activeInstitutionalUnits();
-    return rows.filter((row) => row.parent_id === campusId && row.unit_type === "college").map((row) => ({ id: row.id, campusId, name: row.name, shortName: row.short_name ?? row.name }));
+    return rows
+      .filter(
+        (row) => row.parent_id === campusId && row.unit_type === "college",
+      )
+      .map((row) => ({
+        id: row.id,
+        campusId,
+        name: row.name,
+        shortName: row.short_name ?? row.name,
+      }));
   },
   async listActivePrograms(): Promise<Program[]> {
-    const { data, error } = await createClient().from("academic_programs").select("id,owning_org_unit_id,code,name,is_active,deleted_at").eq("is_active", true).is("deleted_at", null).order("code");
+    const { data, error } = await createClient()
+      .from("academic_programs")
+      .select("id,owning_org_unit_id,code,name,is_active,deleted_at")
+      .eq("is_active", true)
+      .is("deleted_at", null)
+      .order("code");
     if (error) throw new Error(error.message);
-    return ((data ?? []) as InstitutionalProgramRow[]).map((row) => ({ id: row.id, collegeId: row.owning_org_unit_id, code: row.code, name: row.name }));
+    return ((data ?? []) as InstitutionalProgramRow[]).map((row) => ({
+      id: row.id,
+      collegeId: row.owning_org_unit_id,
+      code: row.code,
+      name: row.name,
+    }));
   },
   async listProgramsForUnit(unitId: string): Promise<Program[]> {
-    const [units, programs] = await Promise.all([activeInstitutionalUnits(), this.listActivePrograms()]);
-    return programsForCollege(units.map((row) => ({ id: row.id, parentId: row.parent_id, unitType: row.unit_type, code: row.code, name: row.name, shortName: row.short_name })), programs.map((program) => ({ ...program, owningOrgUnitId: program.collegeId, isActive: true })), unitId).map((program) => ({ id: program.id, collegeId: program.owningOrgUnitId, code: program.code, name: program.name }));
+    const [units, programs] = await Promise.all([
+      activeInstitutionalUnits(),
+      this.listActivePrograms(),
+    ]);
+    return programsForCollege(
+      units.map((row) => ({
+        id: row.id,
+        parentId: row.parent_id,
+        unitType: row.unit_type,
+        code: row.code,
+        name: row.name,
+        shortName: row.short_name,
+      })),
+      programs.map((program) => ({
+        ...program,
+        owningOrgUnitId: program.collegeId,
+        isActive: true,
+      })),
+      unitId,
+    ).map((program) => ({
+      id: program.id,
+      collegeId: program.owningOrgUnitId,
+      code: program.code,
+      name: program.name,
+    }));
   },
   async loadRegistrationInstitutionalOptions() {
     const [{ units, programs }, campusResult, termResult] = await Promise.all([
-      Promise.all([registrationInstitutionalUnits(), registrationPrograms()]).then(([unitRows, programRows]) => ({ units: unitRows, programs: programRows })),
+      Promise.all([
+        registrationInstitutionalUnits(),
+        registrationPrograms(),
+      ]).then(([unitRows, programRows]) => ({
+        units: unitRows,
+        programs: programRows,
+      })),
       createClient().from("campuses").select("org_unit_id,municipality"),
       createClient().rpc("get_registration_academic_terms"),
     ]);
     if (campusResult.error) {
       const error = campusResult.error;
-      console.error("Registration campuses lookup failed", { code: error.code, message: error.message, details: error.details, hint: error.hint });
+      console.error("Registration campuses lookup failed", {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
       throw new Error(error.message);
     }
     if (termResult.error) throw new Error(termResult.error.message);
-    const unitModels = units.map((row) => ({ id: row.id, parentId: row.parent_id, unitType: row.unit_type, code: row.code, name: row.name, shortName: row.short_name }));
-    const programModels = programs.map((row) => ({ id: row.id, owningOrgUnitId: row.owning_org_unit_id, code: row.code, name: row.name, isActive: row.is_active }));
-    const campusIds = new Set(units.filter((row) => row.unit_type === "campus").map((row) => row.id));
+    const unitModels = units.map((row) => ({
+      id: row.id,
+      parentId: row.parent_id,
+      unitType: row.unit_type,
+      code: row.code,
+      name: row.name,
+      shortName: row.short_name,
+    }));
+    const programModels = programs.map((row) => ({
+      id: row.id,
+      owningOrgUnitId: row.owning_org_unit_id,
+      code: row.code,
+      name: row.name,
+      isActive: row.is_active,
+    }));
+    const campusIds = new Set(
+      units.filter((row) => row.unit_type === "campus").map((row) => row.id),
+    );
     return {
-      campuses: ((campusResult.data ?? []) as Array<{ org_unit_id: string; municipality: string | null }>)
+      campuses: (
+        (campusResult.data ?? []) as Array<{
+          org_unit_id: string;
+          municipality: string | null;
+        }>
+      )
         .filter((row) => campusIds.has(row.org_unit_id as string))
         .map((row) => {
           const unit = units.find((item) => item.id === row.org_unit_id);
-          return { id: row.org_unit_id as string, name: unit?.name ?? "", shortName: unit?.short_name ?? unit?.name ?? "", municipality: row.municipality as string };
+          return {
+            id: row.org_unit_id as string,
+            name: unit?.name ?? "",
+            shortName: unit?.short_name ?? unit?.name ?? "",
+            municipality: row.municipality as string,
+          };
         }),
       units: unitModels,
       programs: programModels,
-      terms: ((termResult.data ?? []) as Array<{ id: string; academic_year: string; term: AcademicTermCode }>).map((row) => ({
+      terms: (
+        (termResult.data ?? []) as Array<{
+          id: string;
+          academic_year: string;
+          term: AcademicTermCode;
+        }>
+      ).map((row) => ({
         id: row.id,
         academicYear: row.academic_year,
         term: academicTermLabel(row.term),
@@ -469,12 +680,46 @@ export const institutionalService = {
     };
   },
   async listAcademicTerms(): Promise<AcademicTerm[]> {
-    const { data, error } = await createClient().from("academic_terms").select("id,academic_year_id,term,starts_on,ends_on,is_current,configuration_status,academic_years(label)").is("deleted_at", null).order("starts_on", { ascending: false });
+    const { data, error } = await createClient()
+      .from("academic_terms")
+      .select(
+        "id,academic_year_id,term,starts_on,ends_on,is_current,configuration_status,academic_years(label)",
+      )
+      .is("deleted_at", null)
+      .order("starts_on", { ascending: false });
     if (error) throw new Error(error.message);
-    return ((data ?? []) as Array<{ id: string; term: AcademicTermCode; starts_on: string; ends_on: string; is_current: boolean; configuration_status: "draft" | "configured" | "finalized"; academic_years?: { label: string } | Array<{ label: string }> | null }>).map((row) => {
-      const year = Array.isArray(row.academic_years) ? row.academic_years[0] : row.academic_years;
+    return (
+      (data ?? []) as Array<{
+        id: string;
+        term: AcademicTermCode;
+        starts_on: string;
+        ends_on: string;
+        is_current: boolean;
+        configuration_status:
+          "draft" | "active" | "pending_closure" | "finalized" | "configured";
+        academic_years?: { label: string } | Array<{ label: string }> | null;
+      }>
+    ).map((row) => {
+      const year = Array.isArray(row.academic_years)
+        ? row.academic_years[0]
+        : row.academic_years;
       const term = academicTermLabel(row.term);
-      return { id: row.id, academicYear: year?.label ?? "", term, startsOn: row.starts_on, endsOn: row.ends_on, isCurrent: row.is_current, configurationStatus: row.configuration_status.replace(/^./, letter => letter.toUpperCase()) as "Draft" | "Configured" | "Finalized" };
+      const status =
+        row.configuration_status === "configured"
+          ? "Active"
+          : row.configuration_status
+              .split("_")
+              .map((word) => word[0]?.toUpperCase() + word.slice(1))
+              .join(" ");
+      return {
+        id: row.id,
+        academicYear: year?.label ?? "",
+        term,
+        startsOn: row.starts_on,
+        endsOn: row.ends_on,
+        isCurrent: row.is_current,
+        configurationStatus: status as AcademicTerm["configurationStatus"],
+      };
     });
   },
   async getCurrentAcademicTerm(): Promise<AcademicTerm | null> {
@@ -488,7 +733,15 @@ export const institutionalService = {
       .is("deleted_at", null)
       .order("starts_on", { ascending: false });
     if (error) throw new Error(error.message);
-    return ((data ?? []) as Array<{ id: string; label: string; starts_on: string; ends_on: string; is_current: boolean }>).map((row) => ({
+    return (
+      (data ?? []) as Array<{
+        id: string;
+        label: string;
+        starts_on: string;
+        ends_on: string;
+        is_current: boolean;
+      }>
+    ).map((row) => ({
       id: row.id,
       label: row.label,
       startsOn: row.starts_on,
@@ -504,8 +757,14 @@ export const institutionalService = {
       p_short_name: input.shortName.trim(),
       p_municipality: input.municipality.trim(),
     });
-    if (error || !data) throw new Error(error?.message ?? "The campus could not be created.");
-    return { id: data as string, name: input.name.trim(), shortName: input.shortName.trim(), municipality: input.municipality.trim() };
+    if (error || !data)
+      throw new Error(error?.message ?? "The campus could not be created.");
+    return {
+      id: data as string,
+      name: input.name.trim(),
+      shortName: input.shortName.trim(),
+      municipality: input.municipality.trim(),
+    };
   },
   async createCollege(input: CreateCollegeInput): Promise<College> {
     const { data, error } = await createClient()
@@ -519,8 +778,14 @@ export const institutionalService = {
       })
       .select("id,parent_id,name,short_name")
       .single();
-    if (error || !data) throw new Error(error?.message ?? "The college could not be created.");
-    return { id: data.id as string, campusId: data.parent_id as string, name: data.name as string, shortName: (data.short_name as string | null) ?? (data.name as string) };
+    if (error || !data)
+      throw new Error(error?.message ?? "The college could not be created.");
+    return {
+      id: data.id as string,
+      campusId: data.parent_id as string,
+      name: data.name as string,
+      shortName: (data.short_name as string | null) ?? (data.name as string),
+    };
   },
   async createProgram(input: CreateProgramInput): Promise<Program> {
     const supabase = createClient();
@@ -535,19 +800,33 @@ export const institutionalService = {
       .maybeSingle();
     if (lookupError) throw new Error(lookupError.message);
     if (existing) {
-      throw new Error(`${code} already exists in the selected college as ${existing.name}. Use the existing program or enter a different code.`);
+      throw new Error(
+        `${code} already exists in the selected college as ${existing.name}. Use the existing program or enter a different code.`,
+      );
     }
 
     const { data, error } = await supabase
       .from("academic_programs")
-      .insert({ owning_org_unit_id: input.collegeId, code, name: input.name.trim() })
+      .insert({
+        owning_org_unit_id: input.collegeId,
+        code,
+        name: input.name.trim(),
+      })
       .select("id,owning_org_unit_id,code,name")
       .single();
     if (error || !data) {
-      if (error?.code === "23505") throw new Error(`${code} already exists in the selected college. Use the existing program or enter a different code.`);
+      if (error?.code === "23505")
+        throw new Error(
+          `${code} already exists in the selected college. Use the existing program or enter a different code.`,
+        );
       throw new Error(error?.message ?? "The program could not be created.");
     }
-    return { id: data.id as string, collegeId: data.owning_org_unit_id as string, code: data.code as string, name: data.name as string };
+    return {
+      id: data.id as string,
+      collegeId: data.owning_org_unit_id as string,
+      code: data.code as string,
+      name: data.name as string,
+    };
   },
   async createAcademicTerm(input: CreateAcademicTermInput): Promise<void> {
     const { error } = await createClient().rpc("create_academic_term", {
@@ -559,19 +838,52 @@ export const institutionalService = {
     });
     if (error) throw new Error(error.message);
   },
-  async updateAcademicTerm(input: { id: string; startsOn: string; endsOn: string; isCurrent: boolean }): Promise<void> {
-    const { error } = await createClient().rpc("update_academic_term", { p_term_id: input.id, p_starts_on: input.startsOn, p_ends_on: input.endsOn, p_is_current: input.isCurrent });
+  async updateAcademicTerm(input: {
+    id: string;
+    startsOn: string;
+    endsOn: string;
+    isCurrent: boolean;
+  }): Promise<void> {
+    const { error } = await createClient().rpc("update_academic_term", {
+      p_term_id: input.id,
+      p_starts_on: input.startsOn,
+      p_ends_on: input.endsOn,
+      p_is_current: input.isCurrent,
+    });
     if (error) throw new Error(error.message);
   },
   async finalizeAcademicTerm(id: string): Promise<void> {
-    const { error } = await createClient().rpc("finalize_academic_term", { p_term_id: id });
+    const { error } = await createClient().rpc("transition_academic_term", {
+      p_term_id: id,
+      p_new_status: "finalized",
+    });
     if (error) throw new Error(error.message);
+  },
+  async transitionAcademicTerm(
+    id: string,
+    status: "active" | "pending_closure" | "finalized",
+  ): Promise<void> {
+    const { error } = await createClient().rpc("transition_academic_term", {
+      p_term_id: id,
+      p_new_status: status,
+    });
+    if (error) throw new Error(error.message);
+  },
+  async detectEndedAcademicTerms(): Promise<number> {
+    const { data, error } = await createClient().rpc(
+      "mark_ended_terms_pending_closure",
+    );
+    if (error) throw new Error(error.message);
+    return Number(data ?? 0);
   },
 };
 
-function attendanceStatus(status: AttendanceSessionRow["status"]): AttendanceStatus {
+function attendanceStatus(
+  status: AttendanceSessionRow["status"],
+): AttendanceStatus {
   const statuses: Record<AttendanceSessionRow["status"], AttendanceStatus> = {
     open: "Active",
+    incomplete: "Incomplete",
     pending_verification: "Pending Verification",
     verified: "Verified",
     flagged: "Flagged",
@@ -621,19 +933,24 @@ function manilaDate() {
     month: "2-digit",
     day: "2-digit",
   }).formatToParts(new Date());
-  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
   return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
 async function currentUserId() {
   const { data, error } = await createClient().auth.getUser();
-  if (error || !data.user) throw new Error("Sign in before recording attendance.");
+  if (error || !data.user)
+    throw new Error("Sign in before recording attendance.");
   return data.user.id;
 }
 
 async function activeStudentAssignmentId() {
   const assignment = await activeStudentAssignment();
-  if (!assignment) throw new Error("No active internship assignment is available for your account.");
+  if (!assignment)
+    throw new Error(
+      "No active internship assignment is available for your account.",
+    );
   return assignment.id;
 }
 
@@ -659,27 +976,58 @@ async function activeStudentAssignment(): Promise<WeeklyLogAssignment | null> {
     .order("expected_end_date", { ascending: false })
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
-  const rows = ((data ?? []) as Array<{ id: string; academic_term_id: string; start_date: string; expected_end_date: string }>).map((row) => ({
-      id: row.id,
-      academicTermId: row.academic_term_id,
-      startDate: row.start_date,
-      expectedEndDate: row.expected_end_date,
-    }));
-  const currentTermRow = currentTerm as { id: string; starts_on: string; ends_on: string } | null;
+  const rows = (
+    (data ?? []) as Array<{
+      id: string;
+      academic_term_id: string;
+      start_date: string;
+      expected_end_date: string;
+    }>
+  ).map((row) => ({
+    id: row.id,
+    academicTermId: row.academic_term_id,
+    startDate: row.start_date,
+    expectedEndDate: row.expected_end_date,
+  }));
+  const currentTermRow = currentTerm as {
+    id: string;
+    starts_on: string;
+    ends_on: string;
+  } | null;
   const assignmentId = resolveActiveAssignmentId(
     rows,
-    currentTermRow ? { id: currentTermRow.id, startsOn: currentTermRow.starts_on, endsOn: currentTermRow.ends_on } : null,
+    currentTermRow
+      ? {
+          id: currentTermRow.id,
+          startsOn: currentTermRow.starts_on,
+          endsOn: currentTermRow.ends_on,
+        }
+      : null,
     manilaDate(),
   );
   const assignment = rows.find((row) => row.id === assignmentId);
-  return assignment ? { id: assignment.id, startDate: assignment.startDate, endDate: assignment.expectedEndDate } : null;
+  return assignment
+    ? {
+        id: assignment.id,
+        startDate: assignment.startDate,
+        endDate: assignment.expectedEndDate,
+      }
+    : null;
 }
 
-const sessionSelection = "id,internship_assignment_id,work_date,status,internship_assignments(student_user_id),attendance_events(id,event_type,occurred_at,source),attendance_corrections(requested_time_in,requested_time_out,status,approved_minutes,reviewed_at,created_at),attendance_verifications(reviewer_user_id,decision,verified_minutes,remarks,created_at)";
+const sessionSelection =
+  "id,internship_assignment_id,work_date,status,internship_assignments(student_user_id),attendance_events(id,event_type,occurred_at,source),attendance_corrections(requested_time_in,requested_time_out,status,approved_minutes,reviewed_at,created_at),attendance_verifications(reviewer_user_id,decision,verified_minutes,remarks,created_at)";
 
-function latestAttendanceCorrection(row: AttendanceSessionRow): AttendanceCorrectionRow | null {
-  return [...(row.attendance_corrections ?? [])]
-    .sort((a, b) => (b.reviewed_at ?? b.created_at).localeCompare(a.reviewed_at ?? a.created_at))[0] ?? null;
+function latestAttendanceCorrection(
+  row: AttendanceSessionRow,
+): AttendanceCorrectionRow | null {
+  return (
+    [...(row.attendance_corrections ?? [])].sort((a, b) =>
+      (b.reviewed_at ?? b.created_at).localeCompare(
+        a.reviewed_at ?? a.created_at,
+      ),
+    )[0] ?? null
+  );
 }
 
 function resolveAttendanceRowPair(row: AttendanceSessionRow) {
@@ -687,8 +1035,12 @@ function resolveAttendanceRowPair(row: AttendanceSessionRow) {
   const correction = latestAttendanceCorrection(row);
   return resolveAttendancePair({
     original: {
-      timeInAt: events.find((event) => event.event_type === "time_in")?.occurred_at ?? null,
-      timeOutAt: events.find((event) => event.event_type === "time_out")?.occurred_at ?? null,
+      timeInAt:
+        events.find((event) => event.event_type === "time_in")?.occurred_at ??
+        null,
+      timeOutAt:
+        events.find((event) => event.event_type === "time_out")?.occurred_at ??
+        null,
     },
     correction: correction
       ? {
@@ -706,14 +1058,18 @@ async function readSession(sessionId: string) {
     .select(sessionSelection)
     .eq("id", sessionId)
     .single();
-  if (error || !data) throw new Error(error?.message ?? "Attendance session could not be loaded.");
+  if (error || !data)
+    throw new Error(
+      error?.message ?? "Attendance session could not be loaded.",
+    );
   return mapSession(data as unknown as AttendanceSessionRow);
 }
 
-const assignmentSelection = "id,student_user_id,hte_id,required_hours,status,start_date,expected_end_date,academic_programs(id,code,name),hte_organizations(name,trade_name),org_units(name,short_name),internship_supervisors(supervisor_user_id,supervisor_type,is_primary,ended_at,deleted_at)";
+const assignmentSelection =
+  "id,student_user_id,hte_id,required_hours,daily_required_hours_snapshot,status,start_date,expected_end_date,academic_programs(id,code,name),hte_organizations(name,trade_name),org_units(name,short_name),internship_supervisors(supervisor_user_id,supervisor_type,is_primary,ended_at,deleted_at)";
 
 function joinedOne<T>(value: T | T[] | null | undefined): T | undefined {
-  return Array.isArray(value) ? value[0] : value ?? undefined;
+  return Array.isArray(value) ? value[0] : (value ?? undefined);
 }
 
 function displayDate(value: string) {
@@ -726,11 +1082,92 @@ function displayDate(value: string) {
 }
 
 export const internshipService = {
+  async listHteInterns(): Promise<Intern[]> {
+    const { data, error } = await createClient().rpc("list_my_hte_interns_v22");
+    if (error) throw new Error(error.message);
+    type Row = {
+      assignment_id: string;
+      hte_id: string;
+      student_user_id: string;
+      student_name: string;
+      campus_name: string;
+      program_code: string;
+      academic_program_id: string;
+      year_level: number | null;
+      section: string | null;
+      hte_name: string;
+      representative_name: string;
+      rendered_hours: number | string;
+      required_hours: number | string | null;
+      daily_required_hours: number | string | null;
+      attendance_percent: number | string;
+      required_documents: number;
+      satisfied_documents: number;
+      has_open_issues: boolean;
+      assignment_status: string;
+    };
+    return ((data ?? []) as Row[]).map((row) => {
+      const name = row.student_name || "Assigned intern";
+      const attendance = Math.round(Number(row.attendance_percent ?? 0));
+      const baseStatus =
+        row.assignment_status === "completed"
+          ? "Completed"
+          : row.assignment_status === "active"
+            ? "Active"
+            : "Needs Attention";
+      return {
+        assignmentId: row.assignment_id,
+        hteId: row.hte_id,
+        studentUserId: row.student_user_id,
+        initials:
+          name
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((part) => part[0])
+            .join("")
+            .toUpperCase() || "SI",
+        name,
+        campus: row.campus_name || "Assigned campus",
+        program: row.program_code || "—",
+        programId: row.academic_program_id,
+        yearLevel: row.year_level ?? undefined,
+        section: row.section ?? undefined,
+        hte: row.hte_name || "Assigned HTE",
+        hteRepresentative: row.representative_name || "Assigned representative",
+        hours: Math.round(Number(row.rendered_hours ?? 0)),
+        requiredHours:
+          row.required_hours == null ? undefined : Number(row.required_hours),
+        dailyRequiredHours:
+          row.daily_required_hours == null
+            ? undefined
+            : Number(row.daily_required_hours),
+        attendance,
+        requirements: `${Number(row.satisfied_documents ?? 0)}/${Number(row.required_documents ?? 0)}`,
+        status:
+          baseStatus === "Active" &&
+          (row.has_open_issues || (attendance > 0 && attendance < 80))
+            ? "Needs Attention"
+            : baseStatus,
+      } as Intern;
+    });
+  },
   async listLiveInterns(): Promise<Intern[]> {
     const supabase = createClient();
-    const [{ data: assignments, error: assignmentError }, { data: progress, error: progressError }] = await Promise.all([
-      supabase.from("internship_assignments").select(assignmentSelection).is("deleted_at", null).order("created_at", { ascending: false }),
-      supabase.from("assignment_progress").select("internship_assignment_id,rendered_hours,attendance_verification_percent,required_documents,satisfied_documents,has_open_issues"),
+    const [
+      { data: assignments, error: assignmentError },
+      { data: progress, error: progressError },
+    ] = await Promise.all([
+      supabase
+        .from("internship_assignments")
+        .select(assignmentSelection)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("assignment_progress")
+        .select(
+          "internship_assignment_id,rendered_hours,attendance_verification_percent,required_documents,satisfied_documents,has_open_issues",
+        ),
     ]);
     if (assignmentError) throw new Error(assignmentError.message);
     if (progressError) throw new Error(progressError.message);
@@ -740,40 +1177,111 @@ export const internshipService = {
       student_user_id: string;
       hte_id: string;
       required_hours: number;
+      daily_required_hours_snapshot: number | null;
       status: string;
-      academic_programs?: { id: string; code: string; name: string } | Array<{ id: string; code: string; name: string }> | null;
-      hte_organizations?: { name: string; trade_name: string | null } | Array<{ name: string; trade_name: string | null }> | null;
-      org_units?: { name: string; short_name: string | null } | Array<{ name: string; short_name: string | null }> | null;
-      internship_supervisors?: Array<{ supervisor_user_id: string; supervisor_type: string; is_primary: boolean; ended_at: string | null; deleted_at: string | null }> | null;
+      academic_programs?:
+        | { id: string; code: string; name: string }
+        | Array<{ id: string; code: string; name: string }>
+        | null;
+      hte_organizations?:
+        | { name: string; trade_name: string | null }
+        | Array<{ name: string; trade_name: string | null }>
+        | null;
+      org_units?:
+        | { name: string; short_name: string | null }
+        | Array<{ name: string; short_name: string | null }>
+        | null;
+      internship_supervisors?: Array<{
+        supervisor_user_id: string;
+        supervisor_type: string;
+        is_primary: boolean;
+        ended_at: string | null;
+        deleted_at: string | null;
+      }> | null;
     };
-    type ProgressRow = { internship_assignment_id: string; rendered_hours: number | string; attendance_verification_percent: number | string; required_documents: number; satisfied_documents: number; has_open_issues: boolean };
+    type ProgressRow = {
+      internship_assignment_id: string;
+      rendered_hours: number | string;
+      attendance_verification_percent: number | string;
+      required_documents: number;
+      satisfied_documents: number;
+      has_open_issues: boolean;
+    };
     const rows = (assignments ?? []) as unknown as AssignmentRow[];
-    const activeSupervisors = (row: AssignmentRow) => (row.internship_supervisors ?? []).filter((supervisor) => !supervisor.ended_at && !supervisor.deleted_at);
-    const supervisorIds = rows.flatMap(activeSupervisors).map((supervisor) => supervisor.supervisor_user_id);
+    const activeSupervisors = (row: AssignmentRow) =>
+      (row.internship_supervisors ?? []).filter(
+        (supervisor) => !supervisor.ended_at && !supervisor.deleted_at,
+      );
+    const supervisorIds = rows
+      .flatMap(activeSupervisors)
+      .map((supervisor) => supervisor.supervisor_user_id);
     const profileResult = rows.length
-      ? await supabase.from("student_profiles").select("user_id,year_level,section").in("user_id", rows.map((row) => row.student_user_id))
+      ? await supabase
+          .from("student_profiles")
+          .select("user_id,year_level,section")
+          .in(
+            "user_id",
+            rows.map((row) => row.student_user_id),
+          )
       : { data: [], error: null };
     if (profileResult.error) throw new Error(profileResult.error.message);
-    const academicByStudent = new Map(((profileResult.data ?? []) as Array<{ user_id: string; year_level: number | null; section: string | null }>).map((profile) => [profile.user_id, profile]));
-    const names = await namesForUsers([...rows.map((row) => row.student_user_id), ...supervisorIds]);
-    const progressByAssignment = new Map(((progress ?? []) as ProgressRow[]).map((row) => [row.internship_assignment_id, row]));
+    const academicByStudent = new Map(
+      (
+        (profileResult.data ?? []) as Array<{
+          user_id: string;
+          year_level: number | null;
+          section: string | null;
+        }>
+      ).map((profile) => [profile.user_id, profile]),
+    );
+    const names = await namesForUsers([
+      ...rows.map((row) => row.student_user_id),
+      ...supervisorIds,
+    ]);
+    const progressByAssignment = new Map(
+      ((progress ?? []) as ProgressRow[]).map((row) => [
+        row.internship_assignment_id,
+        row,
+      ]),
+    );
 
     return rows.map((row) => {
       const program = joinedOne(row.academic_programs);
       const hte = joinedOne(row.hte_organizations);
       const campus = joinedOne(row.org_units);
       const summary = progressByAssignment.get(row.id);
-      const attendanceRate = Math.round(Number(summary?.attendance_verification_percent ?? 0));
+      const attendanceRate = Math.round(
+        Number(summary?.attendance_verification_percent ?? 0),
+      );
       const supervisors = activeSupervisors(row);
       const hteRepresentative = [...supervisors]
-        .sort((left, right) => Number(right.is_primary) - Number(left.is_primary))
+        .sort(
+          (left, right) => Number(right.is_primary) - Number(left.is_primary),
+        )
         .find((item) => item.supervisor_type === "hte");
       const requiredDocuments = Number(summary?.required_documents ?? 0);
       const satisfiedDocuments = Number(summary?.satisfied_documents ?? 0);
-      const rawStatus = row.status === "completed" ? "Completed" : row.status === "active" ? "Active" : "Needs Attention";
-      const status = rawStatus === "Active" && (summary?.has_open_issues || (attendanceRate > 0 && attendanceRate < 80)) ? "Needs Attention" : rawStatus;
+      const rawStatus =
+        row.status === "completed"
+          ? "Completed"
+          : row.status === "active"
+            ? "Active"
+            : "Needs Attention";
+      const status =
+        rawStatus === "Active" &&
+        (summary?.has_open_issues ||
+          (attendanceRate > 0 && attendanceRate < 80))
+          ? "Needs Attention"
+          : rawStatus;
       const name = names.get(row.student_user_id) ?? "Assigned intern";
-      const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "SI";
+      const initials =
+        name
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part) => part[0])
+          .join("")
+          .toUpperCase() || "SI";
       const academicProfile = academicByStudent.get(row.student_user_id);
       return {
         assignmentId: row.id,
@@ -787,9 +1295,16 @@ export const internshipService = {
         yearLevel: academicProfile?.year_level ?? undefined,
         section: academicProfile?.section ?? undefined,
         hte: hte?.trade_name ?? hte?.name ?? "Assigned HTE",
-        hteRepresentative: hteRepresentative ? names.get(hteRepresentative.supervisor_user_id) ?? "Assigned HTE representative" : "Not assigned",
+        hteRepresentative: hteRepresentative
+          ? (names.get(hteRepresentative.supervisor_user_id) ??
+            "Assigned HTE representative")
+          : "Not assigned",
         hours: Math.round(Number(summary?.rendered_hours ?? 0)),
         requiredHours: row.required_hours,
+        dailyRequiredHours:
+          row.daily_required_hours_snapshot == null
+            ? undefined
+            : Number(row.daily_required_hours_snapshot),
         attendance: attendanceRate,
         requirements: `${satisfiedDocuments}/${requiredDocuments}`,
         status,
@@ -814,16 +1329,18 @@ export const internshipService = {
       section: string | null;
       academic_term_label: string | null;
     };
-    const programStudents = ((data ?? []) as ProgramStudentRow[]).map((row): CoordinatorProgramStudent => ({
-      studentUserId: row.student_user_id,
-      name: row.full_name,
-      campus: row.campus_name,
-      program: row.program_code,
-      programId: row.academic_program_id,
-      yearLevel: row.year_level,
-      section: row.section ?? undefined,
-      academicTerm: row.academic_term_label ?? undefined,
-    }));
+    const programStudents = ((data ?? []) as ProgramStudentRow[]).map(
+      (row): CoordinatorProgramStudent => ({
+        studentUserId: row.student_user_id,
+        name: row.full_name,
+        campus: row.campus_name,
+        program: row.program_code,
+        programId: row.academic_program_id,
+        yearLevel: row.year_level,
+        section: row.section ?? undefined,
+        academicTerm: row.academic_term_label ?? undefined,
+      }),
+    );
 
     return mergeCoordinatorProgramStudents(assignedInterns, programStudents);
   },
@@ -848,52 +1365,126 @@ export const internshipService = {
       status: string;
       start_date: string;
       expected_end_date: string;
-      academic_programs?: { id: string; code: string; name: string } | Array<{ id: string; code: string; name: string }> | null;
-      hte_organizations?: { name: string; trade_name: string | null } | Array<{ name: string; trade_name: string | null }> | null;
-      org_units?: { name: string; short_name: string | null } | Array<{ name: string; short_name: string | null }> | null;
-      internship_supervisors?: Array<{ supervisor_user_id: string; supervisor_type: string; is_primary: boolean; ended_at: string | null; deleted_at: string | null }> | null;
+      academic_programs?:
+        | { id: string; code: string; name: string }
+        | Array<{ id: string; code: string; name: string }>
+        | null;
+      hte_organizations?:
+        | { name: string; trade_name: string | null }
+        | Array<{ name: string; trade_name: string | null }>
+        | null;
+      org_units?:
+        | { name: string; short_name: string | null }
+        | Array<{ name: string; short_name: string | null }>
+        | null;
+      internship_supervisors?: Array<{
+        supervisor_user_id: string;
+        supervisor_type: string;
+        is_primary: boolean;
+        ended_at: string | null;
+        deleted_at: string | null;
+      }> | null;
     };
     const row = assignment as unknown as AssignmentRow;
-    const [{ data: progress, error: progressError }, { data: requirements, error: requirementError }, { count: finalizedEvaluationCount, error: evaluationError }] = await Promise.all([
-      supabase.from("assignment_progress").select("rendered_hours,total_sessions,verified_sessions,attendance_verification_percent,total_log_days,submitted_logs,approved_logs,required_documents,satisfied_documents,average_score").eq("internship_assignment_id", row.id).maybeSingle(),
-      supabase.from("document_requirements").select("status,document_requirement_templates(name,display_order)").eq("internship_assignment_id", row.id).order("created_at", { ascending: true }),
-      supabase.from("evaluations").select("id,evaluation_templates!inner(evaluator_type)", { count: "exact", head: true }).eq("internship_assignment_id", row.id).eq("status", "finalized").eq("evaluation_templates.evaluator_type", "hte").is("deleted_at", null),
+    const [
+      { data: progress, error: progressError },
+      { data: requirements, error: requirementError },
+      { count: finalizedEvaluationCount, error: evaluationError },
+    ] = await Promise.all([
+      supabase
+        .from("assignment_progress")
+        .select(
+          "rendered_hours,total_sessions,verified_sessions,attendance_verification_percent,total_log_days,submitted_logs,approved_logs,required_documents,satisfied_documents,average_score",
+        )
+        .eq("internship_assignment_id", row.id)
+        .maybeSingle(),
+      supabase
+        .from("document_requirements")
+        .select("status,document_requirement_templates(name,display_order)")
+        .eq("internship_assignment_id", row.id)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("evaluations")
+        .select("id,evaluation_templates!inner(evaluator_type)", {
+          count: "exact",
+          head: true,
+        })
+        .eq("internship_assignment_id", row.id)
+        .eq("status", "finalized")
+        .eq("evaluation_templates.evaluator_type", "hte")
+        .is("deleted_at", null),
     ]);
     if (progressError) throw new Error(progressError.message);
     if (requirementError) throw new Error(requirementError.message);
     if (evaluationError) throw new Error(evaluationError.message);
 
-    const supervisors = (row.internship_supervisors ?? []).filter((supervisor) => !supervisor.ended_at && !supervisor.deleted_at);
-    const names = await namesForUsers(supervisors.map((supervisor) => supervisor.supervisor_user_id));
-    const findSupervisor = (type: string) => supervisors.find((item) => item.supervisor_type === type && item.is_primary) ?? supervisors.find((item) => item.supervisor_type === type);
-    type RequirementRow = { status: string; document_requirement_templates?: { name: string; display_order: number } | Array<{ name: string; display_order: number }> | null };
-    const requirementItems = ((requirements ?? []) as unknown as RequirementRow[]).map((requirement) => {
-      const template = joinedOne(requirement.document_requirement_templates);
-      return {
-        name: template?.name ?? "Internship requirement",
-        status: documentStatus[requirement.status] ?? requirement.status,
-        complete: requirement.status === "approved" || requirement.status === "waived",
-        displayOrder: template?.display_order ?? 0,
-      };
-    }).sort((left, right) => left.displayOrder - right.displayOrder);
+    const supervisors = (row.internship_supervisors ?? []).filter(
+      (supervisor) => !supervisor.ended_at && !supervisor.deleted_at,
+    );
+    const names = await namesForUsers(
+      supervisors.map((supervisor) => supervisor.supervisor_user_id),
+    );
+    const findSupervisor = (type: string) =>
+      supervisors.find(
+        (item) => item.supervisor_type === type && item.is_primary,
+      ) ?? supervisors.find((item) => item.supervisor_type === type);
+    type RequirementRow = {
+      status: string;
+      document_requirement_templates?:
+        | { name: string; display_order: number }
+        | Array<{ name: string; display_order: number }>
+        | null;
+    };
+    const requirementItems = (
+      (requirements ?? []) as unknown as RequirementRow[]
+    )
+      .map((requirement) => {
+        const template = joinedOne(requirement.document_requirement_templates);
+        return {
+          name: template?.name ?? "Internship requirement",
+          status: documentStatus[requirement.status] ?? requirement.status,
+          complete:
+            requirement.status === "approved" ||
+            requirement.status === "waived",
+          displayOrder: template?.display_order ?? 0,
+        };
+      })
+      .sort((left, right) => left.displayOrder - right.displayOrder);
     const program = joinedOne(row.academic_programs);
     const hte = joinedOne(row.hte_organizations);
     const campus = joinedOne(row.org_units);
     let hteDisplayName = hte?.trade_name ?? hte?.name ?? "";
     if (!hteDisplayName) {
-      const { data: assignedHteName, error: assignedHteError } = await supabase.rpc("get_assignment_hte_name", {
-        p_assignment_id: row.id,
-      });
-      if (!assignedHteError && typeof assignedHteName === "string") hteDisplayName = assignedHteName.trim();
+      const { data: assignedHteName, error: assignedHteError } =
+        await supabase.rpc("get_assignment_hte_name", {
+          p_assignment_id: row.id,
+        });
+      if (!assignedHteError && typeof assignedHteName === "string")
+        hteDisplayName = assignedHteName.trim();
     }
-    const progressRow = progress as null | { rendered_hours: number | string; total_sessions: number; verified_sessions: number; attendance_verification_percent: number | string; total_log_days: number; submitted_logs: number; approved_logs: number; required_documents: number; satisfied_documents: number; average_score: number | string | null };
+    const progressRow = progress as null | {
+      rendered_hours: number | string;
+      total_sessions: number;
+      verified_sessions: number;
+      attendance_verification_percent: number | string;
+      total_log_days: number;
+      submitted_logs: number;
+      approved_logs: number;
+      required_documents: number;
+      satisfied_documents: number;
+      average_score: number | string | null;
+    };
     const logsSubmitted = Number(progressRow?.submitted_logs ?? 0);
     return {
       assignmentId: row.id,
-      status: row.status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      status: row.status
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, (letter) => letter.toUpperCase()),
       renderedHours: Number(progressRow?.rendered_hours ?? 0),
       requiredHours: row.required_hours,
-      attendanceRate: Math.round(Number(progressRow?.attendance_verification_percent ?? 0)),
+      attendanceRate: Math.round(
+        Number(progressRow?.attendance_verification_percent ?? 0),
+      ),
       recordedSessions: Number(progressRow?.total_sessions ?? 0),
       verifiedSessions: Number(progressRow?.verified_sessions ?? 0),
       logsSubmitted,
@@ -905,69 +1496,156 @@ export const internshipService = {
       evaluationAverage: null,
       finalizedEvaluationCount: finalizedEvaluationCount ?? 0,
       campus: campus?.short_name ?? campus?.name ?? "Assigned campus",
-      program: program ? `${program.code} — ${program.name}` : "Assigned program",
+      program: program
+        ? `${program.code} — ${program.name}`
+        : "Assigned program",
       hte: hteDisplayName || "Assigned HTE",
-      coordinator: (() => { const person = findSupervisor("coordinator"); return person ? names.get(person.supervisor_user_id) ?? "Assigned coordinator" : "Not assigned"; })(),
+      coordinator: (() => {
+        const person = findSupervisor("coordinator");
+        return person
+          ? (names.get(person.supervisor_user_id) ?? "Assigned coordinator")
+          : "Not assigned";
+      })(),
       startDate: displayDate(row.start_date),
       endDate: displayDate(row.expected_end_date),
-      requirements: requirementItems.map((requirement) => ({ name: requirement.name, status: requirement.status, complete: requirement.complete })),
+      requirements: requirementItems.map((requirement) => ({
+        name: requirement.name,
+        status: requirement.status,
+        complete: requirement.complete,
+      })),
     };
   },
 };
 
 export const attendanceService = {
   listHistory: (): AttendanceHistoryRow[] => [],
-  async listLiveHistory(studentUserId?: string): Promise<AttendanceHistoryRow[]> {
+  async closeMyStaleSessions(): Promise<void> {
+    const { error } = await createClient().rpc(
+      "close_my_stale_attendance_sessions",
+    );
+    if (error && !["PGRST202", "42883"].includes(error.code ?? ""))
+      throw new Error(error.message);
+  },
+  async listLiveHistory(
+    studentUserId?: string,
+  ): Promise<AttendanceHistoryRow[]> {
     const rows: AttendanceSessionRow[] = [];
     for (let offset = 0; ; offset += 500) {
-      let query = createClient().from("attendance_sessions")
-        .select(sessionSelection.replace("internship_assignments(student_user_id)", "internship_assignments!inner(student_user_id)"))
-        .order("work_date", { ascending: false }).order("id").range(offset, offset + 499);
-      if (studentUserId) query = query.eq("internship_assignments.student_user_id", studentUserId);
+      let query = createClient()
+        .from("attendance_sessions")
+        .select(
+          sessionSelection.replace(
+            "internship_assignments(student_user_id)",
+            "internship_assignments!inner(student_user_id)",
+          ),
+        )
+        .order("work_date", { ascending: false })
+        .order("id")
+        .range(offset, offset + 499);
+      if (studentUserId)
+        query = query.eq(
+          "internship_assignments.student_user_id",
+          studentUserId,
+        );
       const { data, error } = await query;
       if (error) throw new Error(error.message);
       rows.push(...((data ?? []) as unknown as AttendanceSessionRow[]));
       if (!data || data.length < 500) break;
     }
-    const visibleUserIds = [...new Set(rows.flatMap((row) => {
-      const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
-      const reviewerIds = (row.attendance_verifications ?? []).map((verification) => verification.reviewer_user_id);
-      return [...(assignment?.student_user_id ? [assignment.student_user_id] : []), ...reviewerIds];
-    }))];
+    const visibleUserIds = [
+      ...new Set(
+        rows.flatMap((row) => {
+          const assignment = Array.isArray(row.internship_assignments)
+            ? row.internship_assignments[0]
+            : row.internship_assignments;
+          const reviewerIds = (row.attendance_verifications ?? []).map(
+            (verification) => verification.reviewer_user_id,
+          );
+          return [
+            ...(assignment?.student_user_id
+              ? [assignment.student_user_id]
+              : []),
+            ...reviewerIds,
+          ];
+        }),
+      ),
+    ];
     const nameById = new Map<string, string>();
     if (visibleUserIds.length) {
-      const { data: profiles } = await createClient().from("profiles").select("id,first_name,middle_name,last_name,email").in("id", visibleUserIds);
-      for (const profile of (profiles ?? []) as Array<{ id: string; first_name: string; middle_name: string | null; last_name: string; email: string }>) {
-        nameById.set(profile.id, [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ").trim() || profile.email);
+      const { data: profiles } = await createClient()
+        .from("profiles")
+        .select("id,first_name,middle_name,last_name,email")
+        .in("id", visibleUserIds);
+      for (const profile of (profiles ?? []) as Array<{
+        id: string;
+        first_name: string;
+        middle_name: string | null;
+        last_name: string;
+        email: string;
+      }>) {
+        nameById.set(
+          profile.id,
+          [profile.first_name, profile.middle_name, profile.last_name]
+            .filter(Boolean)
+            .join(" ")
+            .trim() || profile.email,
+        );
       }
     }
     return rows.map((row) => {
       const events = row.attendance_events ?? [];
       const timeIn = events.find((event) => event.event_type === "time_in");
       const timeOut = events.find((event) => event.event_type === "time_out");
-      const verification = [...(row.attendance_verifications ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-      const minutes = verification?.decision === "verified" ? verification.verified_minutes : null;
-      const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
+      const verification = [...(row.attendance_verifications ?? [])].sort(
+        (a, b) => b.created_at.localeCompare(a.created_at),
+      )[0];
+      const minutes =
+        verification?.decision === "verified"
+          ? verification.verified_minutes
+          : null;
+      const assignment = Array.isArray(row.internship_assignments)
+        ? row.internship_assignments[0]
+        : row.internship_assignments;
       const pair = resolveAttendanceRowPair(row);
-      const timeInAt = pair.complete ? pair.timeInAt : timeIn?.occurred_at ?? null;
-      const timeOutAt = pair.complete ? pair.timeOutAt : timeOut?.occurred_at ?? null;
+      const timeInAt = pair.complete
+        ? pair.timeInAt
+        : (timeIn?.occurred_at ?? null);
+      const timeOutAt = pair.complete
+        ? pair.timeOutAt
+        : (timeOut?.occurred_at ?? null);
       return {
         id: row.id,
         assignmentId: row.internship_assignment_id,
         workDate: row.work_date,
         studentUserId: assignment?.student_user_id,
-        studentName: assignment?.student_user_id ? nameById.get(assignment.student_user_id) ?? "Assigned intern" : "Assigned intern",
-        date: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(new Date(`${row.work_date}T00:00:00+08:00`)),
-        day: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", weekday: "long" }).format(new Date(`${row.work_date}T00:00:00+08:00`)),
+        studentName: assignment?.student_user_id
+          ? (nameById.get(assignment.student_user_id) ?? "Assigned intern")
+          : "Assigned intern",
+        date: new Intl.DateTimeFormat("en-PH", {
+          timeZone: "Asia/Manila",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }).format(new Date(`${row.work_date}T00:00:00+08:00`)),
+        day: new Intl.DateTimeFormat("en-PH", {
+          timeZone: "Asia/Manila",
+          weekday: "long",
+        }).format(new Date(`${row.work_date}T00:00:00+08:00`)),
         timeIn: formatClock(timeInAt ?? undefined),
         timeOut: formatClock(timeOutAt ?? undefined),
         timeInAt,
         timeOutAt,
         pairIssue: pair.blockingReason,
         pairSource: pair.authoritativePair,
-        hours: minutes == null ? "—" : `${Math.floor(minutes / 60)}h ${minutes % 60}m`,
+        hours:
+          minutes == null
+            ? "—"
+            : `${Math.floor(minutes / 60)}h ${minutes % 60}m`,
         status: attendanceStatus(row.status),
-        verifiedBy: verification ? nameById.get(verification.reviewer_user_id) ?? "Authorized reviewer" : "—",
+        verifiedBy: verification
+          ? (nameById.get(verification.reviewer_user_id) ??
+            "Authorized reviewer")
+          : "—",
         remarks: verification?.remarks ?? "—",
       };
     });
@@ -987,6 +1665,7 @@ export const attendanceService = {
   },
   async timeIn(): Promise<AttendanceSession> {
     const supabase = createClient();
+    await attendanceService.closeMyStaleSessions();
     const assignmentId = await activeStudentAssignmentId();
     const { data: existing } = await supabase
       .from("attendance_sessions")
@@ -994,7 +1673,8 @@ export const attendanceService = {
       .eq("internship_assignment_id", assignmentId)
       .eq("work_date", manilaDate())
       .maybeSingle();
-    if (existing) return mapSession(existing as unknown as AttendanceSessionRow);
+    if (existing)
+      return mapSession(existing as unknown as AttendanceSessionRow);
 
     const { data, error } = await supabase.rpc("record_attendance_event", {
       p_assignment_id: assignmentId,
@@ -1007,7 +1687,10 @@ export const attendanceService = {
     });
     if (error) throw new Error(error.message);
     const sessionId = (data as { session_id?: string } | null)?.session_id;
-    if (!sessionId) throw new Error("Time In was recorded but its attendance session could not be resolved.");
+    if (!sessionId)
+      throw new Error(
+        "Time In was recorded but its attendance session could not be resolved.",
+      );
     return readSession(sessionId);
   },
   async timeOut(session: AttendanceSession): Promise<AttendanceSession> {
@@ -1024,7 +1707,11 @@ export const attendanceService = {
     if (error) throw new Error(error.message);
     return readSession(session.id);
   },
-  async review(sessionId: string, decision: "verified" | "flagged" | "rejected", notes: string): Promise<void> {
+  async review(
+    sessionId: string,
+    decision: "verified" | "flagged" | "rejected",
+    notes: string,
+  ): Promise<void> {
     const supabase = createClient();
     const { data: current, error: readError } = await supabase
       .from("attendance_sessions")
@@ -1032,11 +1719,19 @@ export const attendanceService = {
       .eq("id", sessionId)
       .maybeSingle();
     if (readError) throw new Error(readError.message);
-    if (!current) throw new Error("This attendance session is outside your authorized review scope or no longer exists.");
+    if (!current)
+      throw new Error(
+        "This attendance session is outside your authorized review scope or no longer exists.",
+      );
 
     const row = current as unknown as AttendanceSessionRow;
     const pair = resolveAttendanceRowPair(row);
-    const blocked = attendanceDecisionBlock(attendanceStatus(row.status), decision, pair, Boolean(notes.trim()));
+    const blocked = attendanceDecisionBlock(
+      attendanceStatus(row.status),
+      decision,
+      pair,
+      Boolean(notes.trim()),
+    );
     if (blocked) throw new Error(blocked);
 
     const { error } = await supabase.rpc("review_attendance_session", {
@@ -1045,13 +1740,21 @@ export const attendanceService = {
       p_remarks: notes.trim() || null,
     });
     if (error) {
-      if (/complete original or approved corrected time pair/i.test(error.message)) {
-        throw new Error("The attendance pair changed while this review was open. Refresh the session and review it again.");
+      if (
+        /complete original or approved corrected time pair/i.test(error.message)
+      ) {
+        throw new Error(
+          "The attendance pair changed while this review was open. Refresh the session and review it again.",
+        );
       }
-      if (/already verified/i.test(error.message)) throw new Error("This attendance session has already been verified.");
-      if (/already rejected/i.test(error.message)) throw new Error("This attendance session has already been rejected.");
+      if (/already verified/i.test(error.message))
+        throw new Error("This attendance session has already been verified.");
+      if (/already rejected/i.test(error.message))
+        throw new Error("This attendance session has already been rejected.");
       if (/permission|policy|authorized|scope/i.test(error.message)) {
-        throw new Error("You are not authorized to review this attendance session.");
+        throw new Error(
+          "You are not authorized to review this attendance session.",
+        );
       }
       throw new Error(error.message);
     }
@@ -1070,7 +1773,9 @@ export const weeklyLogService = {
   async listLive(): Promise<WeeklyLogRecord[]> {
     const { data, error } = await createClient()
       .from("daily_logs")
-      .select("id,internship_assignment_id,log_date,week_start_date,week_end_date,reporting_period_kind,status,submitted_at,internship_assignments(student_user_id),current_version:daily_log_versions!daily_logs_current_version_fk(hours,activities,learnings,challenges,submitted_at),daily_log_reviews(feedback,reviewed_at)")
+      .select(
+        "id,internship_assignment_id,log_date,week_start_date,week_end_date,reporting_period_kind,status,submitted_at,internship_assignments(student_user_id),current_version:daily_log_versions!daily_logs_current_version_fk(hours,activities,learnings,challenges,submitted_at),daily_log_reviews(feedback,reviewed_at)",
+      )
       .is("deleted_at", null)
       .order("week_start_date", { ascending: false })
       .limit(100);
@@ -1085,33 +1790,88 @@ export const weeklyLogService = {
       reporting_period_kind: "weekly" | "daily_legacy";
       status: string;
       submitted_at: string | null;
-      current_version?: { hours: number | string; activities: string; learnings: string | null; challenges: string | null; submitted_at: string | null } | Array<{ hours: number | string; activities: string; learnings: string | null; challenges: string | null; submitted_at: string | null }> | null;
-      internship_assignments?: { student_user_id?: string } | Array<{ student_user_id?: string }> | null;
-      daily_log_reviews?: Array<{ feedback: string | null; reviewed_at: string }> | null;
+      current_version?:
+        | {
+            hours: number | string;
+            activities: string;
+            learnings: string | null;
+            challenges: string | null;
+            submitted_at: string | null;
+          }
+        | Array<{
+            hours: number | string;
+            activities: string;
+            learnings: string | null;
+            challenges: string | null;
+            submitted_at: string | null;
+          }>
+        | null;
+      internship_assignments?:
+        | { student_user_id?: string }
+        | Array<{ student_user_id?: string }>
+        | null;
+      daily_log_reviews?: Array<{
+        feedback: string | null;
+        reviewed_at: string;
+      }> | null;
     };
     const rows = (data ?? []) as unknown as Row[];
-    const userIds = [...new Set(rows.flatMap((row) => {
-      const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
-      return assignment?.student_user_id ? [assignment.student_user_id] : [];
-    }))];
+    const userIds = [
+      ...new Set(
+        rows.flatMap((row) => {
+          const assignment = Array.isArray(row.internship_assignments)
+            ? row.internship_assignments[0]
+            : row.internship_assignments;
+          return assignment?.student_user_id
+            ? [assignment.student_user_id]
+            : [];
+        }),
+      ),
+    ];
     const nameById = new Map<string, string>();
     if (userIds.length) {
-      const { data: profiles } = await createClient().from("profiles").select("id,first_name,middle_name,last_name,email").in("id", userIds);
-      for (const profile of (profiles ?? []) as Array<{ id: string; first_name: string; middle_name: string | null; last_name: string; email: string }>) {
-        nameById.set(profile.id, [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ").trim() || profile.email);
+      const { data: profiles } = await createClient()
+        .from("profiles")
+        .select("id,first_name,middle_name,last_name,email")
+        .in("id", userIds);
+      for (const profile of (profiles ?? []) as Array<{
+        id: string;
+        first_name: string;
+        middle_name: string | null;
+        last_name: string;
+        email: string;
+      }>) {
+        nameById.set(
+          profile.id,
+          [profile.first_name, profile.middle_name, profile.last_name]
+            .filter(Boolean)
+            .join(" ")
+            .trim() || profile.email,
+        );
       }
     }
     return rows.map((row) => {
-      const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
+      const assignment = Array.isArray(row.internship_assignments)
+        ? row.internship_assignments[0]
+        : row.internship_assignments;
       const currentVersion = joinedOne(row.current_version);
-      const reviews = [...(row.daily_log_reviews ?? [])].sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at));
+      const reviews = [...(row.daily_log_reviews ?? [])].sort((a, b) =>
+        b.reviewed_at.localeCompare(a.reviewed_at),
+      );
       const startValue = new Date(`${row.week_start_date}T00:00:00+08:00`);
       const endValue = new Date(`${row.week_end_date}T00:00:00+08:00`);
-      const dateFormatter = new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" });
+      const dateFormatter = new Intl.DateTimeFormat("en-PH", {
+        timeZone: "Asia/Manila",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
       return {
         id: row.id,
         assignmentId: row.internship_assignment_id,
-        studentName: assignment?.student_user_id ? nameById.get(assignment.student_user_id) ?? "Assigned intern" : "Assigned intern",
+        studentName: assignment?.student_user_id
+          ? (nameById.get(assignment.student_user_id) ?? "Assigned intern")
+          : "Assigned intern",
         weekStartDate: row.week_start_date,
         weekEndDate: row.week_end_date,
         reportingPeriod: `${dateFormatter.format(startValue)} – ${dateFormatter.format(endValue)}`,
@@ -1120,20 +1880,50 @@ export const weeklyLogService = {
         summary: currentVersion?.activities ?? "",
         learnings: currentVersion?.learnings ?? "",
         challenges: currentVersion?.challenges ?? "",
-        submitted: row.submitted_at ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(row.submitted_at)) : "Draft",
+        submitted: row.submitted_at
+          ? new Intl.DateTimeFormat("en-PH", {
+              timeZone: "Asia/Manila",
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            }).format(new Date(row.submitted_at))
+          : "Draft",
         status: weeklyLogStatus[row.status] ?? row.status,
         latestFeedback: reviews[0]?.feedback ?? "",
-        reviewedAt: reviews[0]?.reviewed_at ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(reviews[0].reviewed_at)) : "",
+        reviewedAt: reviews[0]?.reviewed_at
+          ? new Intl.DateTimeFormat("en-PH", {
+              timeZone: "Asia/Manila",
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            }).format(new Date(reviews[0].reviewed_at))
+          : "",
       };
     });
   },
-  async save(input: WeeklyLogInput, status: "draft" | "submitted" = "submitted"): Promise<void> {
+  async save(
+    input: WeeklyLogInput,
+    status: "draft" | "submitted" = "submitted",
+  ): Promise<void> {
     const assignment = await activeStudentAssignment();
-    if (!assignment) throw new Error("No active internship assignment is available for your account.");
-    const { error } = await createClient().rpc("save_weekly_log", buildSaveWeeklyLogRpcArgs(input, assignment, status));
+    if (!assignment)
+      throw new Error(
+        "No active internship assignment is available for your account.",
+      );
+    const { error } = await createClient().rpc(
+      "save_weekly_log",
+      buildSaveWeeklyLogRpcArgs(input, assignment, status),
+    );
     if (error) throw new Error(error.message);
   },
-  async review(logId: string, decision: "approved" | "needs_revision" | "rejected", feedback: string): Promise<void> {
+  async review(
+    logId: string,
+    decision: "approved" | "needs_revision" | "rejected",
+    feedback: string,
+  ): Promise<void> {
     const { error } = await createClient().rpc("review_weekly_log", {
       p_weekly_log_id: logId,
       p_decision: decision,
@@ -1146,22 +1936,26 @@ export const workflowTemplateService = {
   async listDocumentTemplates(): Promise<DocumentTemplateRecord[]> {
     const { data, error } = await createClient()
       .from("document_requirement_templates")
-      .select("id,code,name,description,phase,allowed_mime_types,max_file_size_bytes,is_required,is_active,display_order")
+      .select(
+        "id,code,name,description,phase,allowed_mime_types,max_file_size_bytes,is_required,is_active,display_order",
+      )
       .order("display_order", { ascending: true })
       .order("name", { ascending: true });
     if (error) throw new Error(error.message);
-    return ((data ?? []) as Array<{
-      id: string;
-      code: string;
-      name: string;
-      description: string | null;
-      phase: DocumentTemplatePhase;
-      allowed_mime_types: string[];
-      max_file_size_bytes: number | string;
-      is_required: boolean;
-      is_active: boolean;
-      display_order: number;
-    }>).map((row) => ({
+    return (
+      (data ?? []) as Array<{
+        id: string;
+        code: string;
+        name: string;
+        description: string | null;
+        phase: DocumentTemplatePhase;
+        allowed_mime_types: string[];
+        max_file_size_bytes: number | string;
+        is_required: boolean;
+        is_active: boolean;
+        display_order: number;
+      }>
+    ).map((row) => ({
       id: row.id,
       code: row.code,
       name: row.name,
@@ -1174,22 +1968,33 @@ export const workflowTemplateService = {
       displayOrder: row.display_order,
     }));
   },
-  async createDocumentTemplate(input: CreateDocumentTemplateInput): Promise<{ templateId: string; provisionedAssignments: number }> {
+  async createDocumentTemplate(
+    input: CreateDocumentTemplateInput,
+  ): Promise<{ templateId: string; provisionedAssignments: number }> {
     const validationError = validateDocumentTemplate(input);
     if (validationError) throw new Error(validationError);
-    const { data, error } = await createClient().rpc("create_document_requirement_template", {
-      p_code: normalizeDocumentTemplateCode(input.code),
-      p_name: input.name.trim(),
-      p_description: input.description.trim(),
-      p_phase: input.phase,
-      p_allowed_mime_types: input.allowedMimeTypes,
-      p_max_file_size_bytes: input.maxFileSizeMb * 1024 * 1024,
-      p_is_required: input.isRequired,
-      p_is_active: input.isActive,
-      p_display_order: input.displayOrder,
-    });
-    if (error || !data) throw new Error(error?.message ?? "The document template could not be created.");
-    const result = data as { template_id?: string; provisioned_assignments?: number };
+    const { data, error } = await createClient().rpc(
+      "create_document_requirement_template",
+      {
+        p_code: normalizeDocumentTemplateCode(input.code),
+        p_name: input.name.trim(),
+        p_description: input.description.trim(),
+        p_phase: input.phase,
+        p_allowed_mime_types: input.allowedMimeTypes,
+        p_max_file_size_bytes: input.maxFileSizeMb * 1024 * 1024,
+        p_is_required: input.isRequired,
+        p_is_active: input.isActive,
+        p_display_order: input.displayOrder,
+      },
+    );
+    if (error || !data)
+      throw new Error(
+        error?.message ?? "The document template could not be created.",
+      );
+    const result = data as {
+      template_id?: string;
+      provisioned_assignments?: number;
+    };
     return {
       templateId: result.template_id ?? "",
       provisionedAssignments: Number(result.provisioned_assignments ?? 0),
@@ -1198,23 +2003,35 @@ export const workflowTemplateService = {
   async listEvaluationTemplates(): Promise<EvaluationTemplateRecord[]> {
     const { data, error } = await createClient()
       .from("evaluation_templates")
-      .select("id,code,name,description,stage,evaluator_type,version,is_active,form_metadata,evaluation_criteria(code,label,description,weight,minimum_score,maximum_score,display_order)")
+      .select(
+        "id,code,name,description,stage,evaluator_type,version,is_active,form_metadata,evaluation_criteria(code,label,description,weight,minimum_score,maximum_score,display_order)",
+      )
       .order("version", { ascending: false })
       .order("name", { ascending: true });
     if (error) throw new Error(error.message);
-    type CriterionRow = { code: string; label: string; description: string | null; weight: number | string; minimum_score: number | string; maximum_score: number | string; display_order: number };
-    return ((data ?? []) as unknown as Array<{
-      id: string;
+    type CriterionRow = {
       code: string;
-      name: string;
+      label: string;
       description: string | null;
-      stage: EvaluationTemplateStage;
-      evaluator_type: EvaluationTemplateRecord["evaluatorType"];
-      form_metadata: EvaluationFormMetadata | null;
-      version: number;
-      is_active: boolean;
-      evaluation_criteria?: CriterionRow[] | null;
-    }>).map((row) => ({
+      weight: number | string;
+      minimum_score: number | string;
+      maximum_score: number | string;
+      display_order: number;
+    };
+    return (
+      (data ?? []) as unknown as Array<{
+        id: string;
+        code: string;
+        name: string;
+        description: string | null;
+        stage: EvaluationTemplateStage;
+        evaluator_type: EvaluationTemplateRecord["evaluatorType"];
+        form_metadata: EvaluationFormMetadata | null;
+        version: number;
+        is_active: boolean;
+        evaluation_criteria?: CriterionRow[] | null;
+      }>
+    ).map((row) => ({
       id: row.id,
       code: row.code,
       name: row.name,
@@ -1224,18 +2041,22 @@ export const workflowTemplateService = {
       metadata: row.form_metadata,
       version: row.version,
       isActive: row.is_active,
-      criteria: [...(row.evaluation_criteria ?? [])].sort((a, b) => a.display_order - b.display_order).map((criterion) => ({
-        code: criterion.code,
-        label: criterion.label,
-        description: criterion.description ?? "",
-        weight: Number(criterion.weight),
-        minimumScore: Number(criterion.minimum_score),
-        maximumScore: Number(criterion.maximum_score),
-        displayOrder: criterion.display_order,
-      })),
+      criteria: [...(row.evaluation_criteria ?? [])]
+        .sort((a, b) => a.display_order - b.display_order)
+        .map((criterion) => ({
+          code: criterion.code,
+          label: criterion.label,
+          description: criterion.description ?? "",
+          weight: Number(criterion.weight),
+          minimumScore: Number(criterion.minimum_score),
+          maximumScore: Number(criterion.maximum_score),
+          displayOrder: criterion.display_order,
+        })),
     }));
   },
-  async createEvaluationTemplate(input: CreateEvaluationTemplateInput): Promise<{ templateId: string; version: number; criteriaCount: number }> {
+  async createEvaluationTemplate(
+    input: CreateEvaluationTemplateInput,
+  ): Promise<{ templateId: string; version: number; criteriaCount: number }> {
     const validationError = validateEvaluationTemplate(input);
     if (validationError) throw new Error(validationError);
     const criteria = input.criteria.map((criterion, index) => ({
@@ -1247,17 +2068,27 @@ export const workflowTemplateService = {
       maximum_score: criterion.maximumScore,
       display_order: index * 10 + 10,
     }));
-    const { data, error } = await createClient().rpc("create_evaluation_template", {
-      p_code: normalizeEvaluationCode(input.code),
-      p_name: input.name.trim(),
-      p_description: input.description.trim(),
-      p_stage: input.stage,
-      p_evaluator_type: input.evaluatorType,
-      p_is_active: input.isActive,
-      p_criteria: criteria,
-    });
-    if (error || !data) throw new Error(error?.message ?? "The evaluation template could not be created.");
-    const result = data as { template_id?: string; version?: number; criteria_count?: number };
+    const { data, error } = await createClient().rpc(
+      "create_evaluation_template",
+      {
+        p_code: normalizeEvaluationCode(input.code),
+        p_name: input.name.trim(),
+        p_description: input.description.trim(),
+        p_stage: input.stage,
+        p_evaluator_type: input.evaluatorType,
+        p_is_active: input.isActive,
+        p_criteria: criteria,
+      },
+    );
+    if (error || !data)
+      throw new Error(
+        error?.message ?? "The evaluation template could not be created.",
+      );
+    const result = data as {
+      template_id?: string;
+      version?: number;
+      criteria_count?: number;
+    };
     return {
       templateId: result.template_id ?? "",
       version: Number(result.version ?? 1),
@@ -1284,7 +2115,11 @@ const documentPhase: Record<string, DocumentRecord["phase"]> = {
 
 export const documentService = {
   async complianceSummary() {
-    const { data, error } = await createClient().from('assignment_document_summary').select('required_documents,satisfied_documents,submitted_documents,under_review_documents,missing_documents,needs_revision_documents,rejected_documents');
+    const { data, error } = await createClient()
+      .from("assignment_document_summary")
+      .select(
+        "required_documents,satisfied_documents,submitted_documents,under_review_documents,missing_documents,needs_revision_documents,rejected_documents",
+      );
     if (error) throw error;
     return data ?? [];
   },
@@ -1292,7 +2127,9 @@ export const documentService = {
     const supabase = createClient();
     const { data, error } = await supabase
       .from("document_requirements")
-      .select("id,internship_assignment_id,due_at,status,internship_assignments(student_user_id),document_requirement_templates(name,phase,allowed_mime_types,max_file_size_bytes,display_order)")
+      .select(
+        "id,internship_assignment_id,due_at,status,internship_assignments(student_user_id),document_requirement_templates(name,phase,allowed_mime_types,max_file_size_bytes,display_order)",
+      )
       .order("created_at", { ascending: true });
     if (error) throw new Error(error.message);
 
@@ -1301,52 +2138,140 @@ export const documentService = {
       internship_assignment_id: string;
       due_at: string | null;
       status: string;
-      internship_assignments?: { student_user_id?: string } | Array<{ student_user_id?: string }> | null;
-      document_requirement_templates?: { name: string; phase: string; allowed_mime_types: string[]; max_file_size_bytes: number; display_order: number } | Array<{ name: string; phase: string; allowed_mime_types: string[]; max_file_size_bytes: number; display_order: number }> | null;
-      document_submissions?: Array<{ id: string; file_id: string; version_number: number; submitted_at: string; files?: { original_name: string; object_path: string; mime_type: string } | Array<{ original_name: string; object_path: string; mime_type: string }> | null; document_reviews?: Array<{ feedback: string | null; reviewed_at: string }> | null }> | null;
+      internship_assignments?:
+        | { student_user_id?: string }
+        | Array<{ student_user_id?: string }>
+        | null;
+      document_requirement_templates?:
+        | {
+            name: string;
+            phase: string;
+            allowed_mime_types: string[];
+            max_file_size_bytes: number;
+            display_order: number;
+          }
+        | Array<{
+            name: string;
+            phase: string;
+            allowed_mime_types: string[];
+            max_file_size_bytes: number;
+            display_order: number;
+          }>
+        | null;
+      document_submissions?: Array<{
+        id: string;
+        file_id: string;
+        version_number: number;
+        submitted_at: string;
+        files?:
+          | { original_name: string; object_path: string; mime_type: string }
+          | Array<{
+              original_name: string;
+              object_path: string;
+              mime_type: string;
+            }>
+          | null;
+        document_reviews?: Array<{
+          feedback: string | null;
+          reviewed_at: string;
+        }> | null;
+      }> | null;
     };
     const rows = (data ?? []) as unknown as Row[];
     const requirementIds = rows.map((row) => row.id);
     if (requirementIds.length) {
       const { data: submissions, error: submissionError } = await supabase
         .from("document_submissions")
-        .select("id,document_requirement_id,file_id,version_number,submitted_at,files(original_name,object_path,mime_type),document_reviews(feedback,reviewed_at)")
+        .select(
+          "id,document_requirement_id,file_id,version_number,submitted_at,files(original_name,object_path,mime_type),document_reviews(feedback,reviewed_at)",
+        )
         .in("document_requirement_id", requirementIds);
       if (submissionError) throw new Error(submissionError.message);
-      type SubmissionRow = NonNullable<Row["document_submissions"]>[number] & { document_requirement_id: string };
+      type SubmissionRow = NonNullable<Row["document_submissions"]>[number] & {
+        document_requirement_id: string;
+      };
       const submissionsByRequirement = new Map<string, SubmissionRow[]>();
-      for (const submission of (submissions ?? []) as unknown as SubmissionRow[]) {
-        submissionsByRequirement.set(submission.document_requirement_id, [...(submissionsByRequirement.get(submission.document_requirement_id) ?? []), submission]);
+      for (const submission of (submissions ??
+        []) as unknown as SubmissionRow[]) {
+        submissionsByRequirement.set(submission.document_requirement_id, [
+          ...(submissionsByRequirement.get(
+            submission.document_requirement_id,
+          ) ?? []),
+          submission,
+        ]);
       }
-      for (const row of rows) row.document_submissions = submissionsByRequirement.get(row.id) ?? [];
+      for (const row of rows)
+        row.document_submissions = submissionsByRequirement.get(row.id) ?? [];
     }
-    const studentIds = [...new Set(rows.flatMap((row) => {
-      const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
-      return assignment?.student_user_id ? [assignment.student_user_id] : [];
-    }))];
+    const studentIds = [
+      ...new Set(
+        rows.flatMap((row) => {
+          const assignment = Array.isArray(row.internship_assignments)
+            ? row.internship_assignments[0]
+            : row.internship_assignments;
+          return assignment?.student_user_id
+            ? [assignment.student_user_id]
+            : [];
+        }),
+      ),
+    ];
     const nameById = new Map<string, string>();
     if (studentIds.length) {
-      const { data: profiles } = await supabase.from("profiles").select("id,first_name,middle_name,last_name,email").in("id", studentIds);
-      for (const profile of (profiles ?? []) as Array<{ id: string; first_name: string; middle_name: string | null; last_name: string; email: string }>) {
-        nameById.set(profile.id, [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ").trim() || profile.email);
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id,first_name,middle_name,last_name,email")
+        .in("id", studentIds);
+      for (const profile of (profiles ?? []) as Array<{
+        id: string;
+        first_name: string;
+        middle_name: string | null;
+        last_name: string;
+        email: string;
+      }>) {
+        nameById.set(
+          profile.id,
+          [profile.first_name, profile.middle_name, profile.last_name]
+            .filter(Boolean)
+            .join(" ")
+            .trim() || profile.email,
+        );
       }
     }
 
     return rows.map((row) => {
-      const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
-      const template = Array.isArray(row.document_requirement_templates) ? row.document_requirement_templates[0] : row.document_requirement_templates;
-      const submissions = [...(row.document_submissions ?? [])].sort((a, b) => b.version_number - a.version_number);
+      const assignment = Array.isArray(row.internship_assignments)
+        ? row.internship_assignments[0]
+        : row.internship_assignments;
+      const template = Array.isArray(row.document_requirement_templates)
+        ? row.document_requirement_templates[0]
+        : row.document_requirement_templates;
+      const submissions = [...(row.document_submissions ?? [])].sort(
+        (a, b) => b.version_number - a.version_number,
+      );
       const latest = submissions[0];
-      const file = Array.isArray(latest?.files) ? latest.files[0] : latest?.files;
-      const review = [...(latest?.document_reviews ?? [])].sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at))[0];
+      const file = Array.isArray(latest?.files)
+        ? latest.files[0]
+        : latest?.files;
+      const review = [...(latest?.document_reviews ?? [])].sort((a, b) =>
+        b.reviewed_at.localeCompare(a.reviewed_at),
+      )[0];
       return {
         id: row.id,
         assignmentId: row.internship_assignment_id,
-        studentName: assignment?.student_user_id ? nameById.get(assignment.student_user_id) ?? "Assigned intern" : "Assigned intern",
+        studentName: assignment?.student_user_id
+          ? (nameById.get(assignment.student_user_id) ?? "Assigned intern")
+          : "Assigned intern",
         templateName: template?.name ?? "Internship document",
         phase: documentPhase[template?.phase ?? ""] ?? "During Internship",
         status: documentStatus[row.status] ?? row.status,
-        dueAt: row.due_at ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(new Date(row.due_at)) : "No due date",
+        dueAt: row.due_at
+          ? new Intl.DateTimeFormat("en-PH", {
+              timeZone: "Asia/Manila",
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            }).format(new Date(row.due_at))
+          : "No due date",
         fileId: latest?.file_id ?? null,
         submissionId: latest?.id ?? null,
         fileName: file?.original_name ?? "No file uploaded",
@@ -1354,38 +2279,68 @@ export const documentService = {
         mimeType: file?.mime_type ?? null,
         latestFeedback: review?.feedback ?? "",
         allowedMimeTypes: template?.allowed_mime_types ?? ["application/pdf"],
-        maxFileSizeBytes: Number(template?.max_file_size_bytes ?? 20 * 1024 * 1024),
+        maxFileSizeBytes: Number(
+          template?.max_file_size_bytes ?? 20 * 1024 * 1024,
+        ),
       };
     });
   },
-  async upload(requirement: DocumentRecord, selectedFile: File, notes: string): Promise<void> {
+  async upload(
+    requirement: DocumentRecord,
+    selectedFile: File,
+    notes: string,
+  ): Promise<void> {
     if (!requirement.allowedMimeTypes.includes(selectedFile.type)) {
-      throw new Error(`This requirement accepts: ${requirement.allowedMimeTypes.join(", ")}.`);
+      throw new Error(
+        `This requirement accepts: ${requirement.allowedMimeTypes.join(", ")}.`,
+      );
     }
     if (selectedFile.size > requirement.maxFileSizeBytes) {
-      throw new Error(`The selected file exceeds the ${Math.round(requirement.maxFileSizeBytes / 1024 / 1024)} MB limit.`);
+      throw new Error(
+        `The selected file exceeds the ${Math.round(requirement.maxFileSizeBytes / 1024 / 1024)} MB limit.`,
+      );
     }
     const supabase = createClient();
-    const digest = await crypto.subtle.digest("SHA-256", await selectedFile.arrayBuffer());
-    const sha256 = Array.from(new Uint8Array(digest)).map((value) => value.toString(16).padStart(2, "0")).join("");
-    const { data: preparedRows, error: prepareError } = await supabase.rpc("prepare_document_upload", {
-      p_requirement_id: requirement.id,
-      p_original_name: selectedFile.name,
-      p_mime_type: selectedFile.type,
-      p_byte_size: selectedFile.size,
-      p_sha256: sha256,
-    });
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      await selectedFile.arrayBuffer(),
+    );
+    const sha256 = Array.from(new Uint8Array(digest))
+      .map((value) => value.toString(16).padStart(2, "0"))
+      .join("");
+    const { data: preparedRows, error: prepareError } = await supabase.rpc(
+      "prepare_document_upload",
+      {
+        p_requirement_id: requirement.id,
+        p_original_name: selectedFile.name,
+        p_mime_type: selectedFile.type,
+        p_byte_size: selectedFile.size,
+        p_sha256: sha256,
+      },
+    );
     if (prepareError) throw new Error(prepareError.message);
-    const prepared = Array.isArray(preparedRows) ? preparedRows[0] : preparedRows;
-    const preparedFile = prepared as { file_id?: string; bucket_id?: string; object_path?: string } | null;
-    if (!preparedFile?.file_id || !preparedFile.bucket_id || !preparedFile.object_path) {
+    const prepared = Array.isArray(preparedRows)
+      ? preparedRows[0]
+      : preparedRows;
+    const preparedFile = prepared as {
+      file_id?: string;
+      bucket_id?: string;
+      object_path?: string;
+    } | null;
+    if (
+      !preparedFile?.file_id ||
+      !preparedFile.bucket_id ||
+      !preparedFile.object_path
+    ) {
       throw new Error("The secure upload path could not be prepared.");
     }
 
-    const { error: uploadError } = await supabase.storage.from(preparedFile.bucket_id).upload(preparedFile.object_path, selectedFile, {
-      contentType: selectedFile.type,
-      upsert: false,
-    });
+    const { error: uploadError } = await supabase.storage
+      .from(preparedFile.bucket_id)
+      .upload(preparedFile.object_path, selectedFile, {
+        contentType: selectedFile.type,
+        upsert: false,
+      });
     if (uploadError) throw new Error(uploadError.message);
 
     const { error: submissionError } = await supabase.rpc("submit_document", {
@@ -1393,22 +2348,47 @@ export const documentService = {
       p_notes: notes.trim() || null,
     });
     if (submissionError) {
-      await supabase.storage.from(preparedFile.bucket_id).remove([preparedFile.object_path]);
+      await supabase.storage
+        .from(preparedFile.bucket_id)
+        .remove([preparedFile.object_path]);
       throw new Error(submissionError.message);
     }
   },
   async signedUrl(record: DocumentRecord, download = false): Promise<string> {
     if (!record.objectPath) throw new Error("No submitted file is available.");
-    const { data, error } = await createClient().storage.from("internship-documents").createSignedUrl(record.objectPath, 60, { download: download ? record.fileName : false });
-    if (error || !data?.signedUrl) throw new Error(error?.message ?? "A secure file link could not be created.");
+    const { data, error } = await createClient()
+      .storage.from("internship-documents")
+      .createSignedUrl(record.objectPath, 60, {
+        download: download ? record.fileName : false,
+      });
+    if (error || !data?.signedUrl)
+      throw new Error(
+        error?.message ?? "A secure file link could not be created.",
+      );
     return data.signedUrl;
   },
   async open(record: DocumentRecord, download = false): Promise<void> {
-    const signedUrl = await documentService.signedUrl(record, download);
-    window.open(signedUrl, "_blank", "noopener,noreferrer");
+    const popup = window.open("", "_blank");
+    if (!popup)
+      throw new Error(
+        "Your browser blocked the secure file window. Allow pop-ups for PRAXIZ and try again.",
+      );
+    try {
+      const signedUrl = await documentService.signedUrl(record, download);
+      popup.opener = null;
+      popup.location.replace(signedUrl);
+    } catch (reason) {
+      popup.close();
+      throw reason;
+    }
   },
-  async review(record: DocumentRecord, decision: "approved" | "needs_revision" | "rejected", feedback: string): Promise<void> {
-    if (!record.submissionId) throw new Error("No submitted document is available for review.");
+  async review(
+    record: DocumentRecord,
+    decision: "approved" | "needs_revision" | "rejected",
+    feedback: string,
+  ): Promise<void> {
+    if (!record.submissionId)
+      throw new Error("No submitted document is available for review.");
     const { error } = await createClient().rpc("review_document_submission", {
       p_submission_id: record.submissionId,
       p_decision: decision,
@@ -1428,18 +2408,36 @@ const evaluationStatus: Record<string, EvaluationRecord["status"]> = {
 async function namesForUsers(userIds: string[]) {
   const nameById = new Map<string, string>();
   if (!userIds.length) return nameById;
-  const { data, error } = await createClient().from("profiles").select("id,first_name,middle_name,last_name,email").in("id", [...new Set(userIds)]);
+  const { data, error } = await createClient()
+    .from("profiles")
+    .select("id,first_name,middle_name,last_name,email")
+    .in("id", [...new Set(userIds)]);
   if (error) throw new Error(error.message);
-  for (const profile of (data ?? []) as Array<{ id: string; first_name: string; middle_name: string | null; last_name: string; email: string }>) {
-    nameById.set(profile.id, [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ").trim() || profile.email);
+  for (const profile of (data ?? []) as Array<{
+    id: string;
+    first_name: string;
+    middle_name: string | null;
+    last_name: string;
+    email: string;
+  }>) {
+    nameById.set(
+      profile.id,
+      [profile.first_name, profile.middle_name, profile.last_name]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || profile.email,
+    );
   }
   return nameById;
 }
 
 export const evaluationService = {
   async listLive(): Promise<EvaluationRecord[]> {
-    const { data, error } = await createClient().from("evaluations")
-      .select("id,internship_assignment_id,evaluation_template_id,evaluator_user_id,status,weighted_score,submitted_at,internship_assignments(student_user_id),evaluation_templates!inner(name,evaluator_type,form_metadata,evaluation_criteria(id,label,description,section_label,group_label,minimum_score,maximum_score,weight,display_order)),current_version:evaluation_versions!evaluations_current_version_fk(form_context,strengths,areas_for_improvement,overall_remarks,submitted_at,evaluation_scores(criterion_id,score)),evaluation_reviews(decision,feedback,reviewed_at)")
+    const { data, error } = await createClient()
+      .from("evaluations")
+      .select(
+        "id,internship_assignment_id,evaluation_template_id,evaluator_user_id,status,weighted_score,submitted_at,internship_assignments(student_user_id),evaluation_templates!inner(name,evaluator_type,form_metadata,evaluation_criteria(id,label,description,section_label,group_label,minimum_score,maximum_score,weight,display_order)),current_version:evaluation_versions!evaluations_current_version_fk(form_context,strengths,areas_for_improvement,overall_remarks,submitted_at,evaluation_scores(criterion_id,score)),evaluation_reviews(decision,feedback,reviewed_at)",
+      )
       .eq("evaluation_templates.evaluator_type", "hte")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -1452,95 +2450,249 @@ export const evaluationService = {
       status: string;
       weighted_score: number | string | null;
       submitted_at: string | null;
-      current_version?: { form_context?: { ratingPeriod?: string; designation?: string; office?: string }; strengths: string | null; areas_for_improvement: string | null; overall_remarks: string | null; submitted_at: string | null; evaluation_scores?: Array<{ criterion_id: string; score: number | string }> | null } | Array<{ form_context?: { ratingPeriod?: string; designation?: string; office?: string }; strengths: string | null; areas_for_improvement: string | null; overall_remarks: string | null; submitted_at: string | null; evaluation_scores?: Array<{ criterion_id: string; score: number | string }> | null }> | null;
-      evaluation_reviews?: Array<{ decision: string; feedback: string | null; reviewed_at: string }> | null;
-      internship_assignments?: { student_user_id?: string } | Array<{ student_user_id?: string }> | null;
-      evaluation_templates?: { name: string; evaluator_type: "hte"; form_metadata?: EvaluationFormMetadata | null; evaluation_criteria?: Array<{ id: string; label: string; description: string | null; section_label?: string; group_label?: string; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number }> } | Array<{ name: string; evaluator_type: "hte"; form_metadata?: EvaluationFormMetadata | null; evaluation_criteria?: Array<{ id: string; label: string; description: string | null; section_label?: string; group_label?: string; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number }> }> | null;
+      current_version?:
+        | {
+            form_context?: {
+              ratingPeriod?: string;
+              designation?: string;
+              office?: string;
+            };
+            strengths: string | null;
+            areas_for_improvement: string | null;
+            overall_remarks: string | null;
+            submitted_at: string | null;
+            evaluation_scores?: Array<{
+              criterion_id: string;
+              score: number | string;
+            }> | null;
+          }
+        | Array<{
+            form_context?: {
+              ratingPeriod?: string;
+              designation?: string;
+              office?: string;
+            };
+            strengths: string | null;
+            areas_for_improvement: string | null;
+            overall_remarks: string | null;
+            submitted_at: string | null;
+            evaluation_scores?: Array<{
+              criterion_id: string;
+              score: number | string;
+            }> | null;
+          }>
+        | null;
+      evaluation_reviews?: Array<{
+        decision: string;
+        feedback: string | null;
+        reviewed_at: string;
+      }> | null;
+      internship_assignments?:
+        | { student_user_id?: string }
+        | Array<{ student_user_id?: string }>
+        | null;
+      evaluation_templates?:
+        | {
+            name: string;
+            evaluator_type: "hte";
+            form_metadata?: EvaluationFormMetadata | null;
+            evaluation_criteria?: Array<{
+              id: string;
+              label: string;
+              description: string | null;
+              section_label?: string;
+              group_label?: string;
+              minimum_score: number | string;
+              maximum_score: number | string;
+              weight: number | string;
+              display_order: number;
+            }>;
+          }
+        | Array<{
+            name: string;
+            evaluator_type: "hte";
+            form_metadata?: EvaluationFormMetadata | null;
+            evaluation_criteria?: Array<{
+              id: string;
+              label: string;
+              description: string | null;
+              section_label?: string;
+              group_label?: string;
+              minimum_score: number | string;
+              maximum_score: number | string;
+              weight: number | string;
+              display_order: number;
+            }>;
+          }>
+        | null;
     };
     const rows = (data ?? []) as unknown as Row[];
     const userIds = rows.flatMap((row) => {
-      const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
-      return [row.evaluator_user_id, ...(assignment?.student_user_id ? [assignment.student_user_id] : [])];
+      const assignment = Array.isArray(row.internship_assignments)
+        ? row.internship_assignments[0]
+        : row.internship_assignments;
+      return [
+        row.evaluator_user_id,
+        ...(assignment?.student_user_id ? [assignment.student_user_id] : []),
+      ];
     });
     const nameById = await namesForUsers(userIds);
     return rows.map((row) => {
-      const assignment = Array.isArray(row.internship_assignments) ? row.internship_assignments[0] : row.internship_assignments;
-      const template = Array.isArray(row.evaluation_templates) ? row.evaluation_templates[0] : row.evaluation_templates;
+      const assignment = Array.isArray(row.internship_assignments)
+        ? row.internship_assignments[0]
+        : row.internship_assignments;
+      const template = Array.isArray(row.evaluation_templates)
+        ? row.evaluation_templates[0]
+        : row.evaluation_templates;
       const currentVersion = joinedOne(row.current_version);
-      const latestReview = [...(row.evaluation_reviews ?? [])].sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at))[0];
-      const scoreByCriterion = new Map((currentVersion?.evaluation_scores ?? []).map((score) => [score.criterion_id, Number(score.score)]));
-      const criteria = [...(template?.evaluation_criteria ?? [])].sort((a, b) => a.display_order - b.display_order).map((criterion) => ({
-        id: criterion.id,
-        label: criterion.label,
-        section: criterion.section_label,
-        group: criterion.group_label,
-        description: criterion.description ?? "",
-        minimumScore: Number(criterion.minimum_score),
-        maximumScore: Number(criterion.maximum_score),
-        weight: Number(criterion.weight),
-        score: scoreByCriterion.get(criterion.id) ?? Number.NaN,
-      }));
+      const latestReview = [...(row.evaluation_reviews ?? [])].sort((a, b) =>
+        b.reviewed_at.localeCompare(a.reviewed_at),
+      )[0];
+      const scoreByCriterion = new Map(
+        (currentVersion?.evaluation_scores ?? []).map((score) => [
+          score.criterion_id,
+          Number(score.score),
+        ]),
+      );
+      const criteria = [...(template?.evaluation_criteria ?? [])]
+        .sort((a, b) => a.display_order - b.display_order)
+        .map((criterion) => ({
+          id: criterion.id,
+          label: criterion.label,
+          section: criterion.section_label,
+          group: criterion.group_label,
+          description: criterion.description ?? "",
+          minimumScore: Number(criterion.minimum_score),
+          maximumScore: Number(criterion.maximum_score),
+          weight: Number(criterion.weight),
+          score: scoreByCriterion.get(criterion.id) ?? Number.NaN,
+        }));
       return {
         id: row.id,
         assignmentId: row.internship_assignment_id,
         templateId: row.evaluation_template_id,
         templateName: template?.name ?? "Internship Evaluation",
-        studentName: assignment?.student_user_id ? nameById.get(assignment.student_user_id) ?? "Assigned intern" : "Assigned intern",
+        studentName: assignment?.student_user_id
+          ? (nameById.get(assignment.student_user_id) ?? "Assigned intern")
+          : "Assigned intern",
         evaluatorId: row.evaluator_user_id,
         metadata: template?.form_metadata ?? null,
         context: currentVersion?.form_context ?? {},
-        evaluatorName: nameById.get(row.evaluator_user_id) ?? "Authorized evaluator",
+        evaluatorName:
+          nameById.get(row.evaluator_user_id) ?? "Authorized evaluator",
         status: evaluationStatus[row.status] ?? "Draft",
         strengths: currentVersion?.strengths ?? "",
         areasForImprovement: currentVersion?.areas_for_improvement ?? "",
         overallRemarks: currentVersion?.overall_remarks ?? "",
         reviewFeedback: latestReview?.feedback ?? "",
-        reviewedAt: latestReview?.reviewed_at ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(latestReview.reviewed_at)) : "",
-        weightedScore: row.weighted_score == null ? null : Number(row.weighted_score),
-        submittedAt: row.submitted_at ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(row.submitted_at)) : "Not submitted",
+        reviewedAt: latestReview?.reviewed_at
+          ? new Intl.DateTimeFormat("en-PH", {
+              timeZone: "Asia/Manila",
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            }).format(new Date(latestReview.reviewed_at))
+          : "",
+        weightedScore:
+          row.weighted_score == null ? null : Number(row.weighted_score),
+        submittedAt: row.submitted_at
+          ? new Intl.DateTimeFormat("en-PH", {
+              timeZone: "Asia/Manila",
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            }).format(new Date(row.submitted_at))
+          : "Not submitted",
         criteria,
       };
     });
   },
   async listAssignments(): Promise<EvaluationAssignment[]> {
-    const { data, error } = await createClient().from("internship_assignments").select("id,student_user_id").in("status", ["active", "completed"]).is("deleted_at", null).order("created_at", { ascending: false });
+    const { data, error } = await createClient()
+      .from("internship_assignments")
+      .select("id,student_user_id")
+      .in("status", ["active", "completed"])
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as Array<{ id: string; student_user_id: string }>;
     const names = await namesForUsers(rows.map((row) => row.student_user_id));
-    return rows.map((row) => ({ id: row.id, studentName: names.get(row.student_user_id) ?? "Assigned intern" }));
+    return rows.map((row) => ({
+      id: row.id,
+      studentName: names.get(row.student_user_id) ?? "Assigned intern",
+    }));
   },
-  async listActiveTemplates(): Promise<{ id: string; name: string; metadata: EvaluationFormMetadata | null; criteria: EvaluationCriterionRecord[] }[]> {
-    const { data, error } = await createClient().from("evaluation_templates")
-      .select("id,name,form_metadata,evaluation_criteria(id,label,description,section_label,group_label,minimum_score,maximum_score,weight,display_order)")
+  async listActiveTemplates(): Promise<
+    {
+      id: string;
+      name: string;
+      metadata: EvaluationFormMetadata | null;
+      criteria: EvaluationCriterionRecord[];
+    }[]
+  > {
+    const { data, error } = await createClient()
+      .from("evaluation_templates")
+      .select(
+        "id,name,form_metadata,evaluation_criteria(id,label,description,section_label,group_label,minimum_score,maximum_score,weight,display_order)",
+      )
       .eq("is_active", true)
       .eq("evaluator_type", "hte")
       .order("version", { ascending: false })
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    type Criterion = { id: string; label: string; description: string | null; section_label?: string; group_label?: string; minimum_score: number | string; maximum_score: number | string; weight: number | string; display_order: number };
-    return [...(data ?? [])].sort((a, b) => Number(b.form_metadata?.formCode === "PSU-F-PLU-02") - Number(a.form_metadata?.formCode === "PSU-F-PLU-02")).map(data => ({
-      id: data.id as string,
-      name: data.name as string,
-      metadata: data.form_metadata as EvaluationFormMetadata | null,
-      criteria: [...((data.evaluation_criteria ?? []) as unknown as Criterion[])].sort((a, b) => a.display_order - b.display_order).map((criterion) => ({
-        id: criterion.id,
-        label: criterion.label,
-        section: criterion.section_label,
-        group: criterion.group_label,
-        description: criterion.description ?? "",
-        minimumScore: Number(criterion.minimum_score),
-        maximumScore: Number(criterion.maximum_score),
-        weight: Number(criterion.weight),
-        score: Number.NaN, // Unanswered; zero remains a valid rating for a configured legacy scale.
-      })),
-    }));
+    type Criterion = {
+      id: string;
+      label: string;
+      description: string | null;
+      section_label?: string;
+      group_label?: string;
+      minimum_score: number | string;
+      maximum_score: number | string;
+      weight: number | string;
+      display_order: number;
+    };
+    return [...(data ?? [])]
+      .sort(
+        (a, b) =>
+          Number(b.form_metadata?.formCode === "PSU-F-PLU-02") -
+          Number(a.form_metadata?.formCode === "PSU-F-PLU-02"),
+      )
+      .map((data) => ({
+        id: data.id as string,
+        name: data.name as string,
+        metadata: data.form_metadata as EvaluationFormMetadata | null,
+        criteria: [
+          ...((data.evaluation_criteria ?? []) as unknown as Criterion[]),
+        ]
+          .sort((a, b) => a.display_order - b.display_order)
+          .map((criterion) => ({
+            id: criterion.id,
+            label: criterion.label,
+            section: criterion.section_label,
+            group: criterion.group_label,
+            description: criterion.description ?? "",
+            minimumScore: Number(criterion.minimum_score),
+            maximumScore: Number(criterion.maximum_score),
+            weight: Number(criterion.weight),
+            score: Number.NaN, // Unanswered; zero remains a valid rating for a configured legacy scale.
+          })),
+      }));
   },
   async save(input: EvaluationInput): Promise<void> {
     const { error } = await createClient().rpc("save_evaluation_form", {
       p_assignment_id: input.assignmentId,
       p_template_id: input.templateId,
       p_context: input.context ?? {},
-      p_scores: input.criteria.filter((criterion) => Number.isFinite(criterion.score)).map((criterion) => ({ criterion_id: criterion.id, score: criterion.score })),
+      p_scores: input.criteria
+        .filter((criterion) => Number.isFinite(criterion.score))
+        .map((criterion) => ({
+          criterion_id: criterion.id,
+          score: criterion.score,
+        })),
       p_strengths: input.strengths.trim() || null,
       p_areas_for_improvement: input.areasForImprovement.trim() || null,
       p_overall_remarks: input.overallRemarks.trim() || null,
@@ -1550,15 +2702,24 @@ export const evaluationService = {
     if (error) throw new Error(error.message);
   },
   async deleteDraft(evaluationId: string): Promise<void> {
-    const { error } = await createClient().rpc("delete_evaluation_draft", { p_evaluation_id: evaluationId });
+    const { error } = await createClient().rpc("delete_evaluation_draft", {
+      p_evaluation_id: evaluationId,
+    });
     if (error) throw new Error(error.message);
   },
   async publishOfficial(): Promise<void> {
-    const { error } = await createClient().rpc("publish_official_evaluation_templates");
+    const { error } = await createClient().rpc(
+      "publish_official_evaluation_templates",
+    );
     if (error) throw new Error(error.message);
   },
-  async review(evaluationId: string, decision: "finalized" | "returned", feedback: string): Promise<void> {
-    if (decision === "returned" && !feedback.trim()) throw new Error("Enter feedback before returning this evaluation.");
+  async review(
+    evaluationId: string,
+    decision: "finalized" | "returned",
+    feedback: string,
+  ): Promise<void> {
+    if (decision === "returned" && !feedback.trim())
+      throw new Error("Enter feedback before returning this evaluation.");
     const { error } = await createClient().rpc("review_evaluation", {
       p_evaluation_id: evaluationId,
       p_decision: decision,
@@ -1571,29 +2732,60 @@ export const evaluationService = {
 export const notificationService = {
   async listLive(): Promise<NotificationRecord[]> {
     const userId = await currentUserId();
-    const { data, error } = await createClient().from("notification_recipients")
-      .select("notification_id,read_at,created_at,notifications(id,title,message,severity,related_entity_type,related_entity_id,metadata,created_at)")
+    const { data, error } = await createClient()
+      .from("notification_recipients")
+      .select(
+        "notification_id,read_at,created_at,notifications(id,title,message,severity,related_entity_type,related_entity_id,metadata,created_at)",
+      )
       .eq("user_id", userId)
       .is("archived_at", null)
       .order("created_at", { ascending: false })
       .limit(100);
     if (error) throw new Error(error.message);
-    type NotificationRow = { id: string; title: string; message: string; severity: NotificationRecord["tone"]; related_entity_type: string; related_entity_id: string; metadata?: { targetPath?: string } | null; created_at: string };
-    type Row = { notification_id: string; read_at: string | null; notifications?: NotificationRow | NotificationRow[] | null };
+    type NotificationRow = {
+      id: string;
+      title: string;
+      message: string;
+      severity: NotificationRecord["tone"];
+      related_entity_type: string;
+      related_entity_id: string;
+      metadata?: { targetPath?: string } | null;
+      created_at: string;
+    };
+    type Row = {
+      notification_id: string;
+      read_at: string | null;
+      notifications?: NotificationRow | NotificationRow[] | null;
+    };
     return ((data ?? []) as unknown as Row[]).flatMap((row) => {
-      const notification = Array.isArray(row.notifications) ? row.notifications[0] : row.notifications;
+      const notification = Array.isArray(row.notifications)
+        ? row.notifications[0]
+        : row.notifications;
       if (!notification) return [];
-      return [{
-        id: notification.id,
-        title: notification.title,
-        message: notification.message,
-        tone: notification.severity,
-        time: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(notification.created_at)),
-        unread: !row.read_at,
-        targetPath: typeof notification.metadata?.targetPath === "string" && notification.metadata.targetPath.startsWith("/")
-          ? notification.metadata.targetPath
-          : notification.related_entity_type === "internship_feedback" && /^[0-9a-f-]{36}$/i.test(notification.related_entity_id) ? `/student/feedback?feedback=${notification.related_entity_id}` : null,
-      }];
+      return [
+        {
+          id: notification.id,
+          title: notification.title,
+          message: notification.message,
+          tone: notification.severity,
+          time: new Intl.DateTimeFormat("en-PH", {
+            timeZone: "Asia/Manila",
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          }).format(new Date(notification.created_at)),
+          unread: !row.read_at,
+          targetPath:
+            typeof notification.metadata?.targetPath === "string" &&
+            notification.metadata.targetPath.startsWith("/")
+              ? notification.metadata.targetPath
+              : notification.related_entity_type === "internship_feedback" &&
+                  /^[0-9a-f-]{36}$/i.test(notification.related_entity_id)
+                ? `/student/feedback?feedback=${notification.related_entity_id}`
+                : null,
+        },
+      ];
     });
   },
   async markRead(notificationId: string): Promise<void> {
@@ -1607,10 +2799,17 @@ export const notificationService = {
     const { error } = await createClient().rpc("mark_all_notifications_read");
     if (error) throw new Error(error.message);
   },
-  async getPreferences(): Promise<{ emailNotifications: boolean; weeklyProgressSummary: boolean; monitoringNotices: boolean }> {
+  async getPreferences(): Promise<{
+    emailNotifications: boolean;
+    weeklyProgressSummary: boolean;
+    monitoringNotices: boolean;
+  }> {
     const userId = await currentUserId();
-    const { data, error } = await createClient().from("notification_preferences")
-      .select("email_notifications,weekly_progress_summary,monitoring_notices").eq("user_id", userId).maybeSingle();
+    const { data, error } = await createClient()
+      .from("notification_preferences")
+      .select("email_notifications,weekly_progress_summary,monitoring_notices")
+      .eq("user_id", userId)
+      .maybeSingle();
     if (error) throw new Error(error.message);
     return {
       emailNotifications: data?.email_notifications ?? true,
@@ -1618,15 +2817,24 @@ export const notificationService = {
       monitoringNotices: data?.monitoring_notices ?? false,
     };
   },
-  async savePreferences(preferences: { emailNotifications: boolean; weeklyProgressSummary: boolean; monitoringNotices: boolean }): Promise<void> {
+  async savePreferences(preferences: {
+    emailNotifications: boolean;
+    weeklyProgressSummary: boolean;
+    monitoringNotices: boolean;
+  }): Promise<void> {
     const userId = await currentUserId();
-    const { error } = await createClient().from("notification_preferences").upsert({
-      user_id: userId,
-      email_notifications: preferences.emailNotifications,
-      weekly_progress_summary: preferences.weeklyProgressSummary,
-      monitoring_notices: preferences.monitoringNotices,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id" });
+    const { error } = await createClient()
+      .from("notification_preferences")
+      .upsert(
+        {
+          user_id: userId,
+          email_notifications: preferences.emailNotifications,
+          weekly_progress_summary: preferences.weeklyProgressSummary,
+          monitoring_notices: preferences.monitoringNotices,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" },
+      );
     if (error) throw new Error(error.message);
   },
 };
@@ -1635,12 +2843,28 @@ export const adminService = {
     const supabase = createClient();
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const [accounts, registrations, assignments, audits] = await Promise.all([
-      supabase.from("profiles").select("id", { count: "exact", head: true }).eq("account_status", "active").is("deleted_at", null),
-      supabase.from("registration_applications").select("id", { count: "exact", head: true }).in("status", ["pending", "under_review"]).is("deleted_at", null),
-      supabase.from("role_assignments").select("id", { count: "exact", head: true }).is("deleted_at", null),
-      supabase.from("audit_logs").select("id", { count: "exact", head: true }).gte("occurred_at", since),
+      supabase
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("account_status", "active")
+        .is("deleted_at", null),
+      supabase
+        .from("registration_applications")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["pending", "under_review"])
+        .is("deleted_at", null),
+      supabase
+        .from("role_assignments")
+        .select("id", { count: "exact", head: true })
+        .is("deleted_at", null),
+      supabase
+        .from("audit_logs")
+        .select("id", { count: "exact", head: true })
+        .gte("occurred_at", since),
     ]);
-    const failure = [accounts, registrations, assignments, audits].find((result) => result.error);
+    const failure = [accounts, registrations, assignments, audits].find(
+      (result) => result.error,
+    );
     if (failure?.error) throw new Error(failure.error.message);
     return {
       activeAccounts: accounts.count ?? 0,
@@ -1651,118 +2875,300 @@ export const adminService = {
   },
   async listUserAccounts(): Promise<UserAccountRecord[]> {
     const supabase = createClient();
-    const [profilesResult, assignmentsResult, studentsResult, staffResult, representativesResult] = await Promise.all([
-      supabase.from("profiles").select("id,email,first_name,middle_name,last_name,preferred_name,account_status").is("deleted_at", null).order("last_name").order("first_name"),
-      supabase.from("role_assignments").select("user_id,starts_at,ends_at,roles(code,name)").is("deleted_at", null),
-      supabase.from("student_profiles").select("user_id,student_number").is("deleted_at", null),
-      supabase.from("staff_profiles").select("user_id,employee_number").is("deleted_at", null),
-      supabase.from("hte_representatives").select("user_id,starts_on,ends_on,hte_organizations(name,trade_name)").is("deleted_at", null),
+    const [
+      profilesResult,
+      assignmentsResult,
+      studentsResult,
+      staffResult,
+      registrationsResult,
+    ] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select(
+          "id,email,first_name,middle_name,last_name,preferred_name,account_status",
+        )
+        .is("deleted_at", null)
+        .order("last_name")
+        .order("first_name"),
+      supabase
+        .from("role_assignments")
+        .select("user_id,starts_at,ends_at,roles(code,name)")
+        .is("deleted_at", null),
+      supabase
+        .from("student_profiles")
+        .select("user_id,student_number")
+        .is("deleted_at", null),
+      supabase
+        .from("staff_profiles")
+        .select("user_id,employee_number")
+        .is("deleted_at", null),
+      supabase
+        .from("registration_applications")
+        .select("requester_user_id,reference_no,status")
+        .eq("status", "approved")
+        .is("deleted_at", null),
     ]);
-    const failed = [profilesResult, assignmentsResult, studentsResult, staffResult, representativesResult].find((result) => result.error);
+    const failed = [
+      profilesResult,
+      assignmentsResult,
+      studentsResult,
+      staffResult,
+      registrationsResult,
+    ].find((result) => result.error);
     if (failed?.error) throw new Error(failed.error.message);
 
-    type ProfileRow = { id: string; email: string; first_name: string; middle_name: string | null; last_name: string; preferred_name: string | null; account_status: string };
-    type AssignmentRow = { user_id: string; starts_at: string; ends_at: string | null; roles?: { code: string; name: string } | Array<{ code: string; name: string }> | null };
+    type ProfileRow = {
+      id: string;
+      email: string;
+      first_name: string;
+      middle_name: string | null;
+      last_name: string;
+      preferred_name: string | null;
+      account_status: string;
+    };
+    type AssignmentRow = {
+      user_id: string;
+      starts_at: string;
+      ends_at: string | null;
+      roles?:
+        | { code: string; name: string }
+        | Array<{ code: string; name: string }>
+        | null;
+    };
     type StudentRow = { user_id: string; student_number: string };
     type StaffRow = { user_id: string; employee_number: string };
-    type RepresentativeRow = { user_id: string; starts_on: string | null; ends_on: string | null; hte_organizations?: { name: string; trade_name: string | null } | Array<{ name: string; trade_name: string | null }> | null };
+    type RegistrationReferenceRow = {
+      requester_user_id: string | null;
+      reference_no: string | null;
+      status: string;
+    };
     const now = Date.now();
     const rolesByUser = new Map<string, string[]>();
-    for (const assignment of (assignmentsResult.data ?? []) as unknown as AssignmentRow[]) {
-      if (new Date(assignment.starts_at).getTime() > now || (assignment.ends_at && new Date(assignment.ends_at).getTime() <= now)) continue;
+    for (const assignment of (assignmentsResult.data ??
+      []) as unknown as AssignmentRow[]) {
+      if (
+        new Date(assignment.starts_at).getTime() > now ||
+        (assignment.ends_at && new Date(assignment.ends_at).getTime() <= now)
+      )
+        continue;
       const role = joinedOne(assignment.roles);
       if (!role) continue;
-      rolesByUser.set(assignment.user_id, [...(rolesByUser.get(assignment.user_id) ?? []), role.name]);
+      rolesByUser.set(assignment.user_id, [
+        ...(rolesByUser.get(assignment.user_id) ?? []),
+        role.name,
+      ]);
     }
-    const studentNumbers = new Map(((studentsResult.data ?? []) as StudentRow[]).map((row) => [row.user_id, row.student_number]));
-    const employeeNumbers = new Map(((staffResult.data ?? []) as StaffRow[]).map((row) => [row.user_id, row.employee_number]));
-    const hteReferences = new Map<string, string>();
-    const today = new Date().toISOString().slice(0, 10);
-    for (const representative of (representativesResult.data ?? []) as unknown as RepresentativeRow[]) {
-      if ((representative.starts_on && representative.starts_on > today) || (representative.ends_on && representative.ends_on < today)) continue;
-      const hte = joinedOne(representative.hte_organizations);
-      if (hte) hteReferences.set(representative.user_id, hte.trade_name ?? hte.name);
-    }
-    const displayStatus = (status: string) => status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ");
-    return ((profilesResult.data ?? []) as ProfileRow[]).map((profile) => ({
-      id: profile.id,
-      name: [profile.preferred_name?.trim(), [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ").trim()].find(value => value && !value.includes("@")) || "Name not recorded",
-      email: profile.email,
-      role: rolesByUser.get(profile.id)?.join(", ") || "No active role",
-      reference: studentNumbers.get(profile.id) ?? employeeNumbers.get(profile.id) ?? hteReferences.get(profile.id) ?? profile.email,
-      status: displayStatus(profile.account_status),
-    }));
+    const studentNumbers = new Map(
+      ((studentsResult.data ?? []) as StudentRow[]).map((row) => [
+        row.user_id,
+        row.student_number,
+      ]),
+    );
+    const employeeNumbers = new Map(
+      ((staffResult.data ?? []) as StaffRow[]).map((row) => [
+        row.user_id,
+        row.employee_number,
+      ]),
+    );
+    const approvedReferences = new Map(
+      ((registrationsResult.data ?? []) as RegistrationReferenceRow[])
+        .filter(
+          (row) =>
+            Boolean(row.requester_user_id) && Boolean(row.reference_no?.trim()),
+        )
+        .map((row) => [row.requester_user_id as string, row.reference_no!.trim()]),
+    );
+    const displayStatus = (status: string) =>
+      status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ");
+    return ((profilesResult.data ?? []) as ProfileRow[]).map((profile) => {
+      const activeRoles = rolesByUser.get(profile.id) ?? [];
+      return {
+        id: profile.id,
+        name:
+          [
+            profile.preferred_name?.trim(),
+            [profile.first_name, profile.middle_name, profile.last_name]
+              .filter(Boolean)
+              .join(" ")
+              .trim(),
+          ].find((value) => value && !value.includes("@")) || "Name not recorded",
+        email: profile.email,
+        role: activeRoles.join(", ") || "No active role",
+        reference:
+          studentNumbers.get(profile.id) ??
+          employeeNumbers.get(profile.id) ??
+          approvedReferences.get(profile.id) ??
+          "—",
+        status: activeRoles.length
+          ? displayStatus(profile.account_status)
+          : "Disabled",
+      };
+    });
   },
   async sendPasswordReset(email: string): Promise<void> {
-    const fallbackOrigin = typeof window === "undefined" ? "http://localhost:3000" : window.location.origin;
+    const fallbackOrigin =
+      typeof window === "undefined"
+        ? "http://localhost:3000"
+        : window.location.origin;
     const redirectTo = `${getSiteOrigin(fallbackOrigin)}/reset-password`;
-    const { error } = await createClient().auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo });
+    const { error } = await createClient().auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+      { redirectTo },
+    );
     if (error) throw new Error(error.message);
   },
   async listRolePolicies(): Promise<RolePolicyRecord[]> {
     const supabase = createClient();
     const [rolesResult, assignmentsResult] = await Promise.all([
-      supabase.from("roles").select("id,code,name,description,is_active,allows_global_scope,role_permissions(permissions(code,description))").in("code", [...supportedRoleCodes]).order("name"),
-      supabase.from("role_assignments").select("role_id").is("deleted_at", null)
+      supabase
+        .from("roles")
+        .select(
+          "id,code,name,description,is_active,allows_global_scope,role_permissions(permissions(code,description))",
+        )
+        .in("code", [...supportedRoleCodes])
+        .order("name"),
+      supabase
+        .from("role_assignments")
+        .select("role_id")
+        .is("deleted_at", null)
         .or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`)
         .or(`ends_at.is.null,ends_at.gt.${new Date().toISOString()}`),
     ]);
     if (rolesResult.error) throw new Error(rolesResult.error.message);
-    if (assignmentsResult.error) throw new Error(assignmentsResult.error.message);
+    if (assignmentsResult.error)
+      throw new Error(assignmentsResult.error.message);
     const counts = new Map<string, number>();
-    for (const row of (assignmentsResult.data ?? []) as Array<{ role_id: string }>) counts.set(row.role_id, (counts.get(row.role_id) ?? 0) + 1);
-    type RoleRow = { id: string; code: string; name: string; description: string | null; is_active: boolean; allows_global_scope: boolean; role_permissions?: Array<{ permissions?: { code: string; description: string | null } | Array<{ code: string; description: string | null }> | null }> | null };
+    for (const row of (assignmentsResult.data ?? []) as Array<{
+      role_id: string;
+    }>)
+      counts.set(row.role_id, (counts.get(row.role_id) ?? 0) + 1);
+    type RoleRow = {
+      id: string;
+      code: string;
+      name: string;
+      description: string | null;
+      is_active: boolean;
+      allows_global_scope: boolean;
+      role_permissions?: Array<{
+        permissions?:
+          | { code: string; description: string | null }
+          | Array<{ code: string; description: string | null }>
+          | null;
+      }> | null;
+    };
     return ((rolesResult.data ?? []) as unknown as RoleRow[]).map((role) => ({
       id: role.id,
-      name: isSupportedRoleCode(role.code) ? supportedRoleNames[role.code] : role.name,
-      description: role.description ?? "No policy description has been configured.",
-      scope: role.allows_global_scope ? "Global when explicitly assigned" : role.code === "student_intern" ? "Own internship record" : role.code === "hte_supervisor" ? "Assigned HTE and interns" : "Authorized organization/program scope",
+      name: isSupportedRoleCode(role.code)
+        ? supportedRoleNames[role.code]
+        : role.name,
+      description:
+        role.description ?? "No policy description has been configured.",
+      scope: role.allows_global_scope
+        ? "Global when explicitly assigned"
+        : role.code === "student_intern"
+          ? "Own internship record"
+          : role.code === "hte_supervisor"
+            ? "Assigned HTE and interns"
+            : "Authorized organization/program scope",
       accounts: counts.get(role.id) ?? 0,
       active: role.is_active,
-      permissions: (role.role_permissions ?? []).flatMap((item) => {
-        const permission = joinedOne(item.permissions);
-        return permission ? [{ code: permission.code, description: permission.description ?? "" }] : [];
-      }).sort((left, right) => left.code.localeCompare(right.code)),
+      permissions: (role.role_permissions ?? [])
+        .flatMap((item) => {
+          const permission = joinedOne(item.permissions);
+          return permission
+            ? [
+                {
+                  code: permission.code,
+                  description: permission.description ?? "",
+                },
+              ]
+            : [];
+        })
+        .sort((left, right) => left.code.localeCompare(right.code)),
     }));
   },
   async listAuditLogs(): Promise<AuditLogRecord[]> {
-    const { data, error } = await createClient().from("audit_logs")
-      .select("id,actor_user_id,action,entity_schema,entity_type,entity_id,metadata,occurred_at")
-      .order("occurred_at", { ascending: false }).limit(500);
+    const { data, error } = await createClient()
+      .from("audit_logs")
+      .select(
+        "id,actor_user_id,action,entity_schema,entity_type,entity_id,metadata,occurred_at",
+      )
+      .order("occurred_at", { ascending: false })
+      .limit(500);
     if (error) throw new Error(error.message);
-    type AuditRow = { id: string; actor_user_id: string | null; action: string; entity_schema: string; entity_type: string; entity_id: string | null; metadata: Record<string, unknown> | null; occurred_at: string };
+    type AuditRow = {
+      id: string;
+      actor_user_id: string | null;
+      action: string;
+      entity_schema: string;
+      entity_type: string;
+      entity_id: string | null;
+      metadata: Record<string, unknown> | null;
+      occurred_at: string;
+    };
     const rows = (data ?? []) as AuditRow[];
-    const names = await namesForUsers(rows.flatMap((row) => row.actor_user_id ? [row.actor_user_id] : []));
+    const names = await namesForUsers(
+      rows.flatMap((row) => (row.actor_user_id ? [row.actor_user_id] : [])),
+    );
     return rows.map((row) => ({
       id: row.id,
-      action: row.action.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
-      actor: row.actor_user_id ? names.get(row.actor_user_id) ?? "Authorized user" : "System",
+      action: row.action
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      actor: row.actor_user_id
+        ? (names.get(row.actor_user_id) ?? "Authorized user")
+        : "System",
       entity: `${row.entity_schema}.${row.entity_type}${row.entity_id ? ` · ${row.entity_id.slice(0, 8)}` : ""}`,
       occurredAt: row.occurred_at,
       metadata: row.metadata ?? {},
     }));
   },
   async listContactMessages(): Promise<ContactMessageRecord[]> {
-    const { data, error } = await createClient().from("contact_messages")
+    const { data, error } = await createClient()
+      .from("contact_messages")
       .select("id,sender_name,sender_email,subject,message,status,received_at")
-      .order("received_at", { ascending: false }).limit(500);
+      .order("received_at", { ascending: false })
+      .limit(500);
     if (error) throw new Error(error.message);
-    type ContactRow = { id: string; sender_name: string; sender_email: string; subject: string; message: string; status: "new" | "read" | "resolved"; received_at: string };
+    type ContactRow = {
+      id: string;
+      sender_name: string;
+      sender_email: string;
+      subject: string;
+      message: string;
+      status: "new" | "read" | "resolved";
+      received_at: string;
+    };
     return ((data ?? []) as ContactRow[]).map((row) => ({
       id: row.id,
       senderName: row.sender_name,
       senderEmail: row.sender_email,
       subject: row.subject,
       message: row.message,
-      status: row.status === "resolved" ? "Resolved" : row.status === "read" ? "Read" : "New",
+      status:
+        row.status === "resolved"
+          ? "Resolved"
+          : row.status === "read"
+            ? "Read"
+            : "New",
       receivedAt: row.received_at,
     }));
   },
-  async updateContactMessageStatus(messageId: string, status: "read" | "resolved"): Promise<void> {
-    const { error } = await createClient().from("contact_messages").update({ status }).eq("id", messageId);
+  async updateContactMessageStatus(
+    messageId: string,
+    status: "read" | "resolved",
+  ): Promise<void> {
+    const { error } = await createClient()
+      .from("contact_messages")
+      .update({ status })
+      .eq("id", messageId);
     if (error) throw new Error(error.message);
   },
-  async reviewHteOrganization(hteId: string, decision: "verified" | "rejected", notes: string): Promise<void> {
+  async reviewHteOrganization(
+    hteId: string,
+    decision: "verified" | "rejected",
+    notes: string,
+  ): Promise<void> {
     const { error } = await createClient().rpc("review_hte_organization", {
       p_hte_id: hteId,
       p_decision: decision,
@@ -1772,66 +3178,259 @@ export const adminService = {
   },
 };
 
+export const hteWorkSetupService = {
+  async list(): Promise<HteDailyHourConfig[]> {
+    const { data, error } = await createClient().rpc(
+      "list_hte_daily_hour_configs_v22",
+    );
+    if (error) throw new Error(error.message);
+    type Row = {
+      id: string;
+      hte_id: string;
+      academic_term_id: string | null;
+      daily_required_hours: number | string;
+      effective_from: string;
+      effective_to: string | null;
+      status: "active" | "retired";
+      correction_reason: string | null;
+      hte_name: string;
+      term_label: string;
+      configured_by: string;
+      updated_at: string;
+    };
+    return ((data ?? []) as unknown as Row[]).map((row) => ({
+        id: row.id,
+        hteId: row.hte_id,
+        hteName: row.hte_name || "Authorized HTE",
+        academicTermId: row.academic_term_id,
+        termLabel: row.term_label || "All terms in effective period",
+        dailyRequiredHours: Number(row.daily_required_hours),
+        effectiveFrom: row.effective_from,
+        effectiveTo: row.effective_to,
+        status: row.status === "active" ? "Active" : "Retired",
+        correctionReason: row.correction_reason ?? "",
+        configuredBy: row.configured_by || "Authorized user",
+        updatedAt: row.updated_at,
+      }));
+  },
+  async getMyHteId(): Promise<string> {
+    const userId = await currentUserId();
+    const { data, error } = await createClient()
+      .from("hte_representatives")
+      .select("hte_id")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .order("is_primary", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data?.hte_id)
+      throw new Error(
+        error?.message ?? "Your HTE organization could not be resolved.",
+      );
+    return data.hte_id as string;
+  },
+  async save(input: {
+    hteId: string;
+    academicTermId?: string;
+    dailyRequiredHours: number;
+    effectiveFrom: string;
+    effectiveTo?: string;
+    correctionReason?: string;
+    applyToActiveAssignments?: boolean;
+  }): Promise<void> {
+    const { error } = await createClient().rpc("save_hte_daily_hour_config", {
+      p_hte_id: input.hteId,
+      p_academic_term_id: input.academicTermId || null,
+      p_daily_required_hours: input.dailyRequiredHours,
+      p_effective_from: input.effectiveFrom,
+      p_effective_to: input.effectiveTo || null,
+      p_correction_reason: input.correctionReason || null,
+      p_apply_to_active_assignments: Boolean(input.applyToActiveAssignments),
+    });
+    if (error) throw new Error(error.message);
+  },
+};
+
 export const coordinatorService = {
-  async getScope(): Promise<Array<{ id: string; code: string; name: string; campus: string }>> {
+  async getScope(): Promise<
+    Array<{ id: string; code: string; name: string; campus: string }>
+  > {
     const supabase = createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) throw new Error("Sign in to load your coordinator scope.");
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user)
+      throw new Error("Sign in to load your coordinator scope.");
     // Identity comes from Auth. Fetch only the user's active trusted assignments;
     // never populate this control from the university-wide program catalog.
     const now = new Date().toISOString();
-    const { data: assignments, error } = await supabase.from("role_assignments")
+    const { data: assignments, error } = await supabase
+      .from("role_assignments")
       .select("scope_academic_program_id,roles!inner(code,is_active)")
-      .eq("user_id", user.id).eq("roles.code", "internship_coordinator").eq("roles.is_active", true)
-      .is("deleted_at", null).lte("starts_at", now).or(`ends_at.is.null,ends_at.gt.${now}`);
+      .eq("user_id", user.id)
+      .eq("roles.code", "internship_coordinator")
+      .eq("roles.is_active", true)
+      .is("deleted_at", null)
+      .lte("starts_at", now)
+      .or(`ends_at.is.null,ends_at.gt.${now}`);
     if (error) throw new Error(error.message);
-    const ids = [...new Set(((assignments ?? []) as Array<{ scope_academic_program_id: string | null }>).map(row => row.scope_academic_program_id).filter((id): id is string => typeof id === "string"))];
-    if (!ids.length) throw new Error("Your coordinator program scope is not configured. Please contact the administrator.");
-    const { data: programs, error: programError } = await supabase.from("academic_programs")
-      .select("id,code,name,owning_org_unit_id").in("id", ids).eq("is_active", true).is("deleted_at", null).order("code");
+    const ids = [
+      ...new Set(
+        (
+          (assignments ?? []) as Array<{
+            scope_academic_program_id: string | null;
+          }>
+        )
+          .map((row) => row.scope_academic_program_id)
+          .filter((id): id is string => typeof id === "string"),
+      ),
+    ];
+    if (!ids.length)
+      throw new Error(
+        "Your coordinator program scope is not configured. Please contact the administrator.",
+      );
+    const { data: programs, error: programError } = await supabase
+      .from("academic_programs")
+      .select("id,code,name,owning_org_unit_id")
+      .in("id", ids)
+      .eq("is_active", true)
+      .is("deleted_at", null)
+      .order("code");
     if (programError) throw new Error(programError.message);
-    return Promise.all(((programs ?? []) as Array<{ id: string; code: string; name: string; owning_org_unit_id: string }>).map(async program => {
-      let unitId: string | null = program.owning_org_unit_id;
-      for (let depth = 0; unitId && depth < 8; depth += 1) {
-        const { data: unit, error: unitError }: { data: { unit_type: string; name: string; short_name: string | null; parent_id: string | null } | null; error: { message: string } | null } = await supabase.from("org_units")
-          .select("unit_type,name,short_name,parent_id").eq("id", unitId).is("deleted_at", null).maybeSingle();
-        if (unitError) throw new Error(unitError.message);
-        if (!unit) break;
-        if (unit.unit_type === "campus") return { id: program.id, code: program.code, name: program.name, campus: unit.short_name || unit.name };
-        unitId = unit.parent_id;
-      }
-      throw new Error("Your program campus could not be verified. Please contact the administrator.");
-    }));
+    return Promise.all(
+      (
+        (programs ?? []) as Array<{
+          id: string;
+          code: string;
+          name: string;
+          owning_org_unit_id: string;
+        }>
+      ).map(async (program) => {
+        let unitId: string | null = program.owning_org_unit_id;
+        for (let depth = 0; unitId && depth < 8; depth += 1) {
+          const {
+            data: unit,
+            error: unitError,
+          }: {
+            data: {
+              unit_type: string;
+              name: string;
+              short_name: string | null;
+              parent_id: string | null;
+            } | null;
+            error: { message: string } | null;
+          } = await supabase
+            .from("org_units")
+            .select("unit_type,name,short_name,parent_id")
+            .eq("id", unitId)
+            .is("deleted_at", null)
+            .maybeSingle();
+          if (unitError) throw new Error(unitError.message);
+          if (!unit) break;
+          if (unit.unit_type === "campus")
+            return {
+              id: program.id,
+              code: program.code,
+              name: program.name,
+              campus: unit.short_name || unit.name,
+            };
+          unitId = unit.parent_id;
+        }
+        throw new Error(
+          "Your program campus could not be verified. Please contact the administrator.",
+        );
+      }),
+    );
   },
   async listPartnerHtes(): Promise<PartnerHteRecord[]> {
     const supabase = createClient();
     const [hteResult, assignmentResult] = await Promise.all([
-      supabase.from("hte_organizations").select("id,name,trade_name,industry,city_municipality,province,verification_status,hte_representatives(user_id,is_primary,starts_on,ends_on,deleted_at)").is("deleted_at", null).order("name"),
-      supabase.from("internship_assignments").select("hte_id").is("deleted_at", null).not("status", "in", "(draft,cancelled)"),
+      supabase
+        .from("hte_organizations")
+        .select(
+          "id,name,trade_name,industry,city_municipality,province,verification_status,hte_representatives(user_id,is_primary,starts_on,ends_on,deleted_at)",
+        )
+        .is("deleted_at", null)
+        .order("name"),
+      supabase
+        .from("internship_assignments")
+        .select("hte_id")
+        .is("deleted_at", null)
+        .not("status", "in", "(draft,cancelled)"),
     ]);
     if (hteResult.error) throw new Error(hteResult.error.message);
     if (assignmentResult.error) throw new Error(assignmentResult.error.message);
-    type HteRow = { id: string; name: string; trade_name: string | null; industry: string | null; city_municipality: string | null; province: string | null; verification_status: string; hte_representatives?: Array<{ user_id: string; is_primary: boolean; starts_on: string | null; ends_on: string | null; deleted_at: string | null }> | null };
+    type HteRow = {
+      id: string;
+      name: string;
+      trade_name: string | null;
+      industry: string | null;
+      city_municipality: string | null;
+      province: string | null;
+      verification_status: string;
+      hte_representatives?: Array<{
+        user_id: string;
+        is_primary: boolean;
+        starts_on: string | null;
+        ends_on: string | null;
+        deleted_at: string | null;
+      }> | null;
+    };
     const hteRows = (hteResult.data ?? []) as unknown as HteRow[];
     const today = new Date().toISOString().slice(0, 10);
-    const representatives = hteRows.flatMap((hte) => (hte.hte_representatives ?? []).filter((row) => !row.deleted_at && (!row.starts_on || row.starts_on <= today) && (!row.ends_on || row.ends_on >= today)));
-    const names = await namesForUsers(representatives.map((row) => row.user_id));
+    const representatives = hteRows.flatMap((hte) =>
+      (hte.hte_representatives ?? []).filter(
+        (row) =>
+          !row.deleted_at &&
+          (!row.starts_on || row.starts_on <= today) &&
+          (!row.ends_on || row.ends_on >= today),
+      ),
+    );
+    const names = await namesForUsers(
+      representatives.map((row) => row.user_id),
+    );
     const counts = new Map<string, number>();
-    for (const row of (assignmentResult.data ?? []) as Array<{ hte_id: string }>) counts.set(row.hte_id, (counts.get(row.hte_id) ?? 0) + 1);
+    for (const row of (assignmentResult.data ?? []) as Array<{
+      hte_id: string;
+    }>)
+      counts.set(row.hte_id, (counts.get(row.hte_id) ?? 0) + 1);
     return hteRows.map((hte) => {
-      const representative = [...(hte.hte_representatives ?? [])].filter((row) => !row.deleted_at && (!row.starts_on || row.starts_on <= today) && (!row.ends_on || row.ends_on >= today)).sort((a, b) => Number(b.is_primary) - Number(a.is_primary))[0];
+      const representative = [...(hte.hte_representatives ?? [])]
+        .filter(
+          (row) =>
+            !row.deleted_at &&
+            (!row.starts_on || row.starts_on <= today) &&
+            (!row.ends_on || row.ends_on >= today),
+        )
+        .sort((a, b) => Number(b.is_primary) - Number(a.is_primary))[0];
       return {
         id: hte.id,
         name: hte.trade_name ?? hte.name,
-        representative: representative ? names.get(representative.user_id) ?? "Authorized representative" : "Not assigned",
+        representative: representative
+          ? (names.get(representative.user_id) ?? "Authorized representative")
+          : "Not assigned",
         assignedInterns: counts.get(hte.id) ?? 0,
-        status: hte.verification_status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
+        status: hte.verification_status
+          .replaceAll("_", " ")
+          .replace(/\b\w/g, (letter) => letter.toUpperCase()),
         industry: hte.industry ?? "Not specified",
-        location: [hte.city_municipality, hte.province].filter(Boolean).join(", ") || "Not specified",
+        location:
+          [hte.city_municipality, hte.province].filter(Boolean).join(", ") ||
+          "Not specified",
       };
     });
   },
-  async createPartnerHte(input: { name: string; registrationNumber: string; industry: string; address: string; city: string; province: string; email: string; phone: string }): Promise<void> {
+  async createPartnerHte(input: {
+    name: string;
+    registrationNumber: string;
+    industry: string;
+    address: string;
+    city: string;
+    province: string;
+    email: string;
+    phone: string;
+  }): Promise<void> {
     const { error } = await createClient().rpc("create_partner_hte", {
       p_name: input.name,
       p_registration_number: input.registrationNumber || null,
@@ -1852,76 +3451,223 @@ export const coordinatorService = {
     ]);
     if (error) throw new Error(error.message);
     if (roster.error) throw new Error(roster.error.message);
-    const payload = (data ?? {}) as { students?: AssignmentOption[]; htes?: AssignmentOption[]; terms?: Array<AssignmentOption & { startsOn: string; endsOn: string }> };
-    const identities = new Map(((roster.data ?? []) as Array<{ student_user_id: string; full_name: string; student_number: string; academic_program_id: string; section: string | null }>).map(row => [row.student_user_id, row]));
+    const payload = (data ?? {}) as {
+      students?: AssignmentOption[];
+      htes?: AssignmentOption[];
+      terms?: Array<AssignmentOption & { startsOn: string; endsOn: string }>;
+    };
+    const identities = new Map(
+      (
+        (roster.data ?? []) as Array<{
+          student_user_id: string;
+          full_name: string;
+          student_number: string;
+          academic_program_id: string;
+          section: string | null;
+        }>
+      ).map((row) => [row.student_user_id, row]),
+    );
     // Intersect the two secured RPC results. Never parse a name/ID from a label.
-    const students = (payload.students ?? []).flatMap(option => {
+    const students = (payload.students ?? []).flatMap((option) => {
       const identity = identities.get(option.id);
-      return identity ? [{ id: option.id, label: identity.full_name, studentNumber: identity.student_number, programId: identity.academic_program_id, section: identity.section ?? undefined }] : [];
+      return identity
+        ? [
+            {
+              id: option.id,
+              label: identity.full_name,
+              studentNumber: identity.student_number,
+              programId: identity.academic_program_id,
+              section: identity.section ?? undefined,
+            },
+          ]
+        : [];
     });
     return { students, htes: payload.htes ?? [], terms: payload.terms ?? [] };
   },
   async createAssignment(input: CreateAssignmentInput): Promise<void> {
-    const { error } = await createClient().rpc("create_coordinator_assignment", {
-      p_student_user_id: input.studentUserId,
-      p_hte_id: input.hteId,
-      p_academic_term_id: input.academicTermId,
-      p_required_hours: input.requiredHours,
-      p_start_date: input.startDate,
-      p_expected_end_date: input.expectedEndDate,
-      p_submit_for_approval: input.submitForApproval,
-    });
+    const { error } = await createClient().rpc(
+      "create_coordinator_assignment",
+      {
+        p_student_user_id: input.studentUserId,
+        p_hte_id: input.hteId,
+        p_academic_term_id: input.academicTermId,
+        p_required_hours: input.requiredHours,
+        p_start_date: input.startDate,
+        p_expected_end_date: input.expectedEndDate,
+        p_submit_for_approval: input.submitForApproval,
+      },
+    );
     if (error) throw new Error(error.message);
   },
-  async getRequirementConfig(studentUserId: string, academicTermId: string): Promise<number | null> {
-    const { data, error } = await createClient().rpc("get_internship_requirement_config", { p_student_user_id: studentUserId, p_academic_term_id: academicTermId });
+  async createAssignmentsBulk(inputs: CreateAssignmentInput[]): Promise<{ createdCount: number }> {
+    if (inputs.length < 2) throw new Error("Select at least two Student Interns for bulk assignment.");
+    const { data, error } = await createClient().rpc(
+      "create_coordinator_assignments_bulk",
+      {
+        p_assignments: inputs.map((input) => ({
+          studentUserId: input.studentUserId,
+          hteId: input.hteId,
+          academicTermId: input.academicTermId,
+          requiredHours: input.requiredHours,
+          startDate: input.startDate,
+          expectedEndDate: input.expectedEndDate,
+          submitForApproval: input.submitForApproval,
+        })),
+      },
+    );
     if (error) throw new Error(error.message);
-    const row = Array.isArray(data) ? data[0] as { required_hours?: number | null } | undefined : undefined;
+    return { createdCount: Number((data as { createdCount?: number } | null)?.createdCount ?? 0) };
+  },
+  async getRequirementConfig(
+    studentUserId: string,
+    academicTermId: string,
+  ): Promise<number | null> {
+    const { data, error } = await createClient().rpc(
+      "get_internship_requirement_config",
+      { p_student_user_id: studentUserId, p_academic_term_id: academicTermId },
+    );
+    if (error) throw new Error(error.message);
+    const row = Array.isArray(data)
+      ? (data[0] as { required_hours?: number | null } | undefined)
+      : undefined;
     return row?.required_hours == null ? null : Number(row.required_hours);
   },
-  async saveRequirementConfig(studentUserId: string, academicTermId: string, requiredHours: number): Promise<void> {
-    const { error } = await createClient().rpc("save_internship_requirement_config", { p_student_user_id: studentUserId, p_academic_term_id: academicTermId, p_required_hours: requiredHours });
+  async saveRequirementConfig(
+    studentUserId: string,
+    academicTermId: string,
+    requiredHours: number,
+  ): Promise<void> {
+    const { error } = await createClient().rpc(
+      "save_internship_requirement_config",
+      {
+        p_student_user_id: studentUserId,
+        p_academic_term_id: academicTermId,
+        p_required_hours: requiredHours,
+      },
+    );
     if (error) throw new Error(error.message);
   },
   async listRequirementConfigs(): Promise<RequirementConfigRecord[]> {
-    const { data, error } = await createClient().rpc("list_internship_requirement_configs");
+    const { data, error } = await createClient().rpc(
+      "list_internship_requirement_configs",
+    );
     if (error) throw new Error(error.message);
-    return ((data ?? []) as Array<{ id: string; academic_term_id: string; term_label: string; academic_program_id: string; program_label: string; section: string | null; required_hours: number; updated_at: string }>).map(row => ({ id: row.id, academicTermId: row.academic_term_id, termLabel: row.term_label, academicProgramId: row.academic_program_id, programLabel: row.program_label, section: row.section ?? undefined, requiredHours: Number(row.required_hours), updatedAt: row.updated_at }));
+    return (
+      (data ?? []) as Array<{
+        id: string;
+        academic_term_id: string;
+        term_label: string;
+        academic_program_id: string;
+        program_label: string;
+        section: string | null;
+        required_hours: number;
+        updated_at: string;
+      }>
+    ).map((row) => ({
+      id: row.id,
+      academicTermId: row.academic_term_id,
+      termLabel: row.term_label,
+      academicProgramId: row.academic_program_id,
+      programLabel: row.program_label,
+      section: row.section ?? undefined,
+      requiredHours: Number(row.required_hours),
+      updatedAt: row.updated_at,
+    }));
   },
-  async saveRequirementScope(input: { academicTermId: string; academicProgramId: string; section?: string; requiredHours: number }): Promise<void> {
-    const { error } = await createClient().rpc("save_internship_requirement_scope", { p_academic_term_id: input.academicTermId, p_academic_program_id: input.academicProgramId, p_section: input.section || null, p_required_hours: input.requiredHours });
+  async saveRequirementScope(input: {
+    academicTermId: string;
+    academicProgramId: string;
+    section?: string;
+    requiredHours: number;
+    applyToCurrentAssignments: boolean;
+  }): Promise<{ configurationId: string; updatedAssignments: number }> {
+    const { data, error } = await createClient().rpc(
+      "save_internship_requirement_scope_v22",
+      {
+        p_academic_term_id: input.academicTermId,
+        p_academic_program_id: input.academicProgramId,
+        p_section: input.section || null,
+        p_required_hours: input.requiredHours,
+        p_apply_to_current_assignments: input.applyToCurrentAssignments,
+      },
+    );
     if (error) throw new Error(error.message);
+    const row = (
+      data as
+        | Array<{
+            configuration_id: string;
+            updated_assignments: number;
+          }>
+        | null
+    )?.[0];
+    if (!row) throw new Error("The requirement update returned no result.");
+    return {
+      configurationId: row.configuration_id,
+      updatedAssignments: Number(row.updated_assignments ?? 0),
+    };
   },
 };
 
 export const feedbackService = {
   async listLive(): Promise<FeedbackRecord[]> {
-    const { data, error } = await createClient().from("internship_feedback")
-      .select("id,internship_assignment_id,author_user_id,author_role,subject,message,status,created_at,recipient_read_at,internship_assignments(student_user_id)")
-      .is("deleted_at", null).order("created_at", { ascending: false });
+    const { data, error } = await createClient()
+      .from("internship_feedback")
+      .select(
+        "id,internship_assignment_id,author_user_id,author_role,subject,message,status,created_at,recipient_read_at,internship_assignments(student_user_id)",
+      )
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    type Row = { id: string; internship_assignment_id: string; author_user_id: string; author_role: string; subject: string; message: string; status: string; created_at: string; recipient_read_at: string | null; internship_assignments?: { student_user_id: string } | Array<{ student_user_id: string }> | null };
+    type Row = {
+      id: string;
+      internship_assignment_id: string;
+      author_user_id: string;
+      author_role: string;
+      subject: string;
+      message: string;
+      status: string;
+      created_at: string;
+      recipient_read_at: string | null;
+      internship_assignments?:
+        { student_user_id: string } | Array<{ student_user_id: string }> | null;
+    };
     const rows = (data ?? []) as unknown as Row[];
-    const userIds = rows.flatMap((row) => [row.author_user_id, ...(joinedOne(row.internship_assignments)?.student_user_id ? [joinedOne(row.internship_assignments)!.student_user_id] : [])]);
+    const userIds = rows.flatMap((row) => [
+      row.author_user_id,
+      ...(joinedOne(row.internship_assignments)?.student_user_id
+        ? [joinedOne(row.internship_assignments)!.student_user_id]
+        : []),
+    ]);
     const names = await namesForUsers(userIds);
     return rows.map((row) => {
       const studentId = joinedOne(row.internship_assignments)?.student_user_id;
       return {
         id: row.id,
         assignmentId: row.internship_assignment_id,
-        studentName: studentId ? names.get(studentId) ?? "Assigned intern" : "Assigned intern",
+        studentName: studentId
+          ? (names.get(studentId) ?? "Assigned intern")
+          : "Assigned intern",
         subject: row.subject,
         message: row.message,
         authorName: names.get(row.author_user_id) ?? "Authorized user",
         authorRole: row.author_role,
         createdAt: row.created_at,
-        status: row.status === "resolved" ? "Resolved" : row.status === "in_progress" ? "In Progress" : "Open",
+        status:
+          row.status === "resolved"
+            ? "Resolved"
+            : row.status === "in_progress"
+              ? "In Progress"
+              : "Open",
         readAt: row.recipient_read_at,
         readStatus: row.recipient_read_at ? "Read" : "Unread",
       };
     });
   },
-  async create(input: { assignmentId: string; subject: string; message: string }): Promise<void> {
+  async create(input: {
+    assignmentId: string;
+    subject: string;
+    message: string;
+  }): Promise<void> {
     const { error } = await createClient().rpc("create_internship_feedback", {
       p_assignment_id: input.assignmentId,
       p_subject: input.subject,
@@ -1930,7 +3676,10 @@ export const feedbackService = {
     if (error) throw new Error(error.message);
   },
   async markRead(feedbackId: string): Promise<void> {
-    const { error } = await createClient().rpc('mark_internship_feedback_read', { p_feedback_id: feedbackId });
+    const { error } = await createClient().rpc(
+      "mark_internship_feedback_read",
+      { p_feedback_id: feedbackId },
+    );
     if (error) throw new Error(error.message);
   },
 };
@@ -1941,10 +3690,13 @@ export const registrationService = {
   async listLive(includeReviewed = true): Promise<RegistrationRecord[]> {
     let query = createClient()
       .from("registration_applications")
-      .select("id,email,reference_no,academic_program_id,submitted_data,status,created_at,requester_user_id,roles(code)")
+      .select(
+        "id,email,reference_no,academic_program_id,submitted_data,status,created_at,requester_user_id,roles(code)",
+      )
       .is("deleted_at", null)
       .order("created_at", { ascending: true });
-    if (!includeReviewed) query = query.in("status", ["pending", "under_review"]);
+    if (!includeReviewed)
+      query = query.in("status", ["pending", "under_review"]);
     const { data, error } = await query;
     if (error) throw new Error(error.message);
     const roleNames: Record<string, string> = {
@@ -1952,37 +3704,122 @@ export const registrationService = {
       internship_coordinator: "Internship Coordinator",
       hte_supervisor: "HTE Representative",
     };
-    const rows = (data ?? []) as unknown as Array<{ id: string; email: string; reference_no: string | null; academic_program_id: string | null; requester_user_id: string | null; submitted_data: Record<string, unknown>; status: string; created_at: string; roles?: { code: string } | Array<{ code: string }> | null }>;
-    const programIdsFor = (row: typeof rows[number]): string[] => {
+    const rows = (data ?? []) as unknown as Array<{
+      id: string;
+      email: string;
+      reference_no: string | null;
+      academic_program_id: string | null;
+      requester_user_id: string | null;
+      submitted_data: Record<string, unknown>;
+      status: string;
+      created_at: string;
+      roles?: { code: string } | Array<{ code: string }> | null;
+    }>;
+    const programIdsFor = (row: (typeof rows)[number]): string[] => {
       let requested: unknown = row.submitted_data?.program_ids;
-      if (typeof requested === "string") { try { requested = JSON.parse(requested); } catch { requested = []; } }
-      return [...new Set([row.academic_program_id, ...(Array.isArray(requested) ? requested : [])]
-        .filter((id): id is string => typeof id === "string" && /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(id)))];
+      if (typeof requested === "string") {
+        try {
+          requested = JSON.parse(requested);
+        } catch {
+          requested = [];
+        }
+      }
+      return [
+        ...new Set(
+          [
+            row.academic_program_id,
+            ...(Array.isArray(requested) ? requested : []),
+          ].filter(
+            (id): id is string =>
+              typeof id === "string" &&
+              /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(id),
+          ),
+        ),
+      ];
     };
     const programIds = [...new Set(rows.flatMap(programIdsFor))];
     const { data: programs, error: programError } = programIds.length
-      ? await createClient().from("academic_programs").select("id,code,name").in("id", programIds)
+      ? await createClient()
+          .from("academic_programs")
+          .select("id,code,name")
+          .in("id", programIds)
       : { data: [], error: null };
-    if (programError) throw new Error("Requested program names could not be verified. Please reload before reviewing.");
-    const programNames = new Map((programs ?? []).map((program: { id: string; code: string; name: string }) => [program.id, `${program.code} — ${program.name}`]));
-    const requesterIds = [...new Set(rows.map((row) => row.requester_user_id).filter((id): id is string => Boolean(id)))];
-    const { data: requesterProfiles, error: requesterProfilesError } = requesterIds.length
-      ? await createClient().from("profiles").select("id,first_name,middle_name,last_name,preferred_name").in("id", requesterIds)
-      : { data: [], error: null };
-    if (requesterProfilesError) throw new Error("Applicant names could not be verified. Please reload before reviewing.");
-    const requesterNames = new Map<string, string>((requesterProfiles ?? []).map((profile: { id: string; first_name: string | null; middle_name: string | null; last_name: string | null; preferred_name: string | null }) => {
-      const name = [profile.preferred_name?.trim(), [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ").trim()]
-        .find((value) => value && !value.includes("@")) ?? "";
-      return [profile.id, name] as const;
-    }));
+    if (programError)
+      throw new Error(
+        "Requested program names could not be verified. Please reload before reviewing.",
+      );
+    const programNames = new Map(
+      (programs ?? []).map(
+        (program: { id: string; code: string; name: string }) => [
+          program.id,
+          `${program.code} — ${program.name}`,
+        ],
+      ),
+    );
+    const requesterIds = [
+      ...new Set(
+        rows
+          .map((row) => row.requester_user_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const { data: requesterProfiles, error: requesterProfilesError } =
+      requesterIds.length
+        ? await createClient()
+            .from("profiles")
+            .select("id,first_name,middle_name,last_name,preferred_name")
+            .in("id", requesterIds)
+        : { data: [], error: null };
+    if (requesterProfilesError)
+      throw new Error(
+        "Applicant names could not be verified. Please reload before reviewing.",
+      );
+    const requesterNames = new Map<string, string>(
+      (requesterProfiles ?? []).map(
+        (profile: {
+          id: string;
+          first_name: string | null;
+          middle_name: string | null;
+          last_name: string | null;
+          preferred_name: string | null;
+        }) => {
+          const name =
+            [
+              profile.preferred_name?.trim(),
+              [profile.first_name, profile.middle_name, profile.last_name]
+                .filter(Boolean)
+                .join(" ")
+                .trim(),
+            ].find((value) => value && !value.includes("@")) ?? "";
+          return [profile.id, name] as const;
+        },
+      ),
+    );
     return rows.map((row) => {
-      const details = Object.fromEntries(Object.entries(row.submitted_data ?? {}).filter(([, value]) => typeof value === "string").map(([key, value]) => [key, String(value)]));
+      const details = Object.fromEntries(
+        Object.entries(row.submitted_data ?? {})
+          .filter(([, value]) => typeof value === "string")
+          .map(([key, value]) => [key, String(value)]),
+      );
       // Never use client-supplied program display names in the approval screen.
       if (joinedOne(row.roles)?.code === "internship_coordinator") {
-        details.program_names = JSON.stringify(programIdsFor(row).map((id) => programNames.get(id) || `Unavailable program (${id})`));
+        details.program_names = JSON.stringify(
+          programIdsFor(row).map(
+            (id) => programNames.get(id) || `Unavailable program (${id})`,
+          ),
+        );
       }
-      const personName = requesterNames.get(row.requester_user_id ?? "")
-        || [details.preferred_name, details.first_name, details.middle_name, details.last_name].filter(Boolean).join(" ").trim();
+      const personName =
+        requesterNames.get(row.requester_user_id ?? "") ||
+        [
+          details.preferred_name,
+          details.first_name,
+          details.middle_name,
+          details.last_name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
       const requestedRole = joinedOne(row.roles)?.code ?? "unknown";
       return {
         id: row.id,
@@ -1990,13 +3827,31 @@ export const registrationService = {
         email: row.email,
         role: roleNames[requestedRole] ?? requestedRole,
         reference: row.reference_no ?? "Reference not assigned",
-        submitted: new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(new Date(row.created_at)),
-        status: ({ pending: "Pending", under_review: "Under Review", approved: "Approved", rejected: "Rejected", withdrawn: "Withdrawn" } as Record<string, string>)[row.status] ?? row.status,
+        submitted: new Intl.DateTimeFormat("en-PH", {
+          timeZone: "Asia/Manila",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }).format(new Date(row.created_at)),
+        status:
+          (
+            {
+              pending: "Pending",
+              under_review: "Under Review",
+              approved: "Approved",
+              rejected: "Rejected",
+              withdrawn: "Withdrawn",
+            } as Record<string, string>
+          )[row.status] ?? row.status,
         details,
       };
     });
   },
-  async review(applicationId: string, decision: "approved" | "rejected", notes: string): Promise<void> {
+  async review(
+    applicationId: string,
+    decision: "approved" | "rejected",
+    notes: string,
+  ): Promise<void> {
     const { error } = await createClient().rpc("review_registration", {
       p_application_id: applicationId,
       p_decision: decision,

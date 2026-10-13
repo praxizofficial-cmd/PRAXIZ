@@ -1,80 +1,451 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Eye, Plus, Trash2 } from 'lucide-react';
-import { useAuth } from '../auth/supabase-auth';
-import { hasPermission } from '../permissions';
-import { evaluationService, type EvaluationRecord, type EvaluationCriterionRecord, type EvaluationAssignment } from '../services/praxiz-services';
-import type { EvaluationFormMetadata } from '../../lib/evaluation-report';
-import type { RoleId } from '../types';
-import { userError } from '../../lib/user-error';
-import { Dialog } from './Dialog';
-import { EvaluationPdfDownload } from './EvaluationPdfDownload';
-import { RatingPeriodField } from './RatingPeriodField';
-import { StatusBadge } from './StatusBadge';
-import { formatRatingPeriod, parseRatingPeriod, ratingRangeError, type RatingRange } from '../../lib/rating-period';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Eye, Plus, Search, Trash2 } from "lucide-react";
+import { useAuth } from "../auth/supabase-auth";
+import { hasPermission } from "../permissions";
+import {
+  evaluationService,
+  type EvaluationRecord,
+  type EvaluationCriterionRecord,
+  type EvaluationAssignment,
+} from "../services/praxiz-services";
+import type { EvaluationFormMetadata } from "../../lib/evaluation-report";
+import type { RoleId } from "../types";
+import { userError } from "../../lib/user-error";
+import { Dialog } from "./Dialog";
+import { EvaluationPdfDownload } from "./EvaluationPdfDownload";
+import { RatingPeriodField } from "./RatingPeriodField";
+import { StatusBadge } from "./StatusBadge";
+import {
+  formatRatingPeriod,
+  parseRatingPeriod,
+  ratingRangeError,
+  type RatingRange,
+} from "../../lib/rating-period";
 
-type Template = { id: string; name: string; criteria: EvaluationCriterionRecord[]; metadata: EvaluationFormMetadata | null };
+type Template = {
+  id: string;
+  name: string;
+  criteria: EvaluationCriterionRecord[];
+  metadata: EvaluationFormMetadata | null;
+};
 
-function RatingSections({ criteria, metadata, onChange }: { criteria: EvaluationCriterionRecord[]; metadata: EvaluationFormMetadata | null; onChange?: (id: string, score: number) => void }) {
-  const sections = [...new Set(criteria.map(item => item.section || 'Evaluation criteria'))];
-  return <>{sections.map(section => <section className="evaluation-section" key={section}><h3>{section}</h3>
-    {[...new Set(criteria.filter(item => (item.section || 'Evaluation criteria') === section).map(item => item.group || ''))].map(group => <div key={group}>
-      {group && <h4>{group}</h4>}
-      {criteria.filter(item => (item.section || 'Evaluation criteria') === section && (item.group || '') === group).map(criterion => <div className="rating-row" key={criterion.id}>
-        <div><strong id={`${onChange ? "edit" : "view"}-criterion-${criterion.id}`}>{criterion.label}</strong>{criterion.description && <p>{criterion.description}</p>}</div>
-        {onChange ? <fieldset className="rating-options" aria-labelledby={`edit-criterion-${criterion.id}`}><legend className="sr-only">Choose a rating</legend>
-          {metadata?.scoringMethod === 'individual' ? Array.from({ length: criterion.maximumScore - criterion.minimumScore + 1 }, (_, i) => criterion.maximumScore - i).map(score => <label className={criterion.score === score ? 'rating-selected' : ''} key={score} title={metadata?.scale[String(score)] || String(score)}>
-            <input type="radio" name={`rating-${criterion.id}`} value={score} checked={criterion.score === score} onChange={() => onChange(criterion.id, score)} aria-label={`${score}${metadata?.scale[String(score)] ? ` — ${metadata.scale[String(score)]}` : ''}`} /><span>{score}</span>
-          </label>) : <input aria-label={`Rating for ${criterion.label}`} type="number" step="any" min={criterion.minimumScore} max={criterion.maximumScore} value={Number.isFinite(criterion.score) ? criterion.score : ''} onChange={event => onChange(criterion.id, event.target.value === '' ? Number.NaN : Number(event.target.value))} />}<small>{Number.isFinite(criterion.score) ? metadata?.scale[String(criterion.score)] || `${criterion.score} selected` : 'Not rated'}</small></fieldset>
-          : <p className="rating-result">{Number.isFinite(criterion.score) ? <><strong>{criterion.score} / {criterion.maximumScore}</strong><span>{metadata?.scale[String(criterion.score)]}</span></> : 'Not rated'}</p>}
-      </div>)}
-    </div>)}
-  </section>)}</>;
+function RatingSections({
+  criteria,
+  metadata,
+  onChange,
+}: {
+  criteria: EvaluationCriterionRecord[];
+  metadata: EvaluationFormMetadata | null;
+  onChange?: (id: string, score: number) => void;
+}) {
+  const sections = [
+    ...new Set(criteria.map((item) => item.section || "Evaluation criteria")),
+  ];
+  return (
+    <>
+      {sections.map((section) => (
+        <section className="evaluation-section" key={section}>
+          <h3>{section}</h3>
+          {[
+            ...new Set(
+              criteria
+                .filter(
+                  (item) => (item.section || "Evaluation criteria") === section,
+                )
+                .map((item) => item.group || ""),
+            ),
+          ].map((group) => (
+            <div key={group}>
+              {group && <h4>{group}</h4>}
+              {criteria
+                .filter(
+                  (item) =>
+                    (item.section || "Evaluation criteria") === section &&
+                    (item.group || "") === group,
+                )
+                .map((criterion) => (
+                  <div className="rating-row" key={criterion.id}>
+                    <div>
+                      <strong
+                        id={`${onChange ? "edit" : "view"}-criterion-${criterion.id}`}
+                      >
+                        {criterion.label}
+                      </strong>
+                      {criterion.description && <p>{criterion.description}</p>}
+                    </div>
+                    {onChange ? (
+                      <fieldset
+                        className="rating-options"
+                        aria-labelledby={`edit-criterion-${criterion.id}`}
+                      >
+                        <legend className="sr-only">Choose a rating</legend>
+                        {metadata?.scoringMethod === "individual" ? (
+                          Array.from(
+                            {
+                              length:
+                                criterion.maximumScore -
+                                criterion.minimumScore +
+                                1,
+                            },
+                            (_, i) => criterion.maximumScore - i,
+                          ).map((score) => (
+                            <label
+                              className={
+                                criterion.score === score
+                                  ? "rating-selected"
+                                  : ""
+                              }
+                              key={score}
+                              title={
+                                metadata?.scale[String(score)] || String(score)
+                              }
+                            >
+                              <input
+                                type="radio"
+                                name={`rating-${criterion.id}`}
+                                value={score}
+                                checked={criterion.score === score}
+                                onChange={() => onChange(criterion.id, score)}
+                                aria-label={`${score}${metadata?.scale[String(score)] ? ` — ${metadata.scale[String(score)]}` : ""}`}
+                              />
+                              <span>{score}</span>
+                            </label>
+                          ))
+                        ) : (
+                          <input
+                            aria-label={`Rating for ${criterion.label}`}
+                            type="number"
+                            step="any"
+                            min={criterion.minimumScore}
+                            max={criterion.maximumScore}
+                            value={
+                              Number.isFinite(criterion.score)
+                                ? criterion.score
+                                : ""
+                            }
+                            onChange={(event) =>
+                              onChange(
+                                criterion.id,
+                                event.target.value === ""
+                                  ? Number.NaN
+                                  : Number(event.target.value),
+                              )
+                            }
+                          />
+                        )}
+                        <small>
+                          {Number.isFinite(criterion.score)
+                            ? metadata?.scale[String(criterion.score)] ||
+                              `${criterion.score} selected`
+                            : "Not rated"}
+                        </small>
+                      </fieldset>
+                    ) : (
+                      <p className="rating-result">
+                        {Number.isFinite(criterion.score) ? (
+                          <>
+                            <strong>
+                              {criterion.score} / {criterion.maximumScore}
+                            </strong>
+                            <span>
+                              {metadata?.scale[String(criterion.score)]}
+                            </span>
+                          </>
+                        ) : (
+                          "Not rated"
+                        )}
+                      </p>
+                    )}
+                  </div>
+                ))}
+            </div>
+          ))}
+        </section>
+      ))}
+    </>
+  );
 }
 
-function EvaluationEditor({ record, template, assignments, onClose, onSaved }: { record: EvaluationRecord | null; template: Template; assignments: EvaluationAssignment[]; onClose: () => void; onSaved: (message: string) => void }) {
-  const [criteria, setCriteria] = useState(record?.criteria ?? template.criteria);
-  const [assignmentId, setAssignmentId] = useState(record?.assignmentId ?? '');
+function EvaluationEditor({
+  record,
+  template,
+  assignments,
+  onClose,
+  onSaved,
+}: {
+  record: EvaluationRecord | null;
+  template: Template;
+  assignments: EvaluationAssignment[];
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const [criteria, setCriteria] = useState(
+    record?.criteria ?? template.criteria,
+  );
+  const [assignmentId, setAssignmentId] = useState(record?.assignmentId ?? "");
   const [context, setContext] = useState(record?.context ?? {});
-  const [ratingRange, setRatingRange] = useState<RatingRange>(() => parseRatingPeriod(record?.context.ratingPeriod || '') ?? { start: '', end: '' });
+  const [ratingRange, setRatingRange] = useState<RatingRange>(
+    () =>
+      parseRatingPeriod(record?.context.ratingPeriod || "") ?? {
+        start: "",
+        end: "",
+      },
+  );
   const [periodChanged, setPeriodChanged] = useState(false);
-  const [remarks, setRemarks] = useState(record?.overallRemarks ?? '');
-  const [strengths, setStrengths] = useState(record?.strengths ?? '');
-  const [areas, setAreas] = useState(record?.areasForImprovement ?? '');
+  const [remarks, setRemarks] = useState(record?.overallRemarks ?? "");
+  const [strengths, setStrengths] = useState(record?.strengths ?? "");
+  const [areas, setAreas] = useState(record?.areasForImprovement ?? "");
   const [busy, setBusy] = useState(false);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const lock = useRef(false);
   const metadata = record?.metadata ?? template.metadata;
-  const legacyPeriod = !periodChanged && !!record?.context.ratingPeriod && !parseRatingPeriod(record.context.ratingPeriod);
-  const periodError = legacyPeriod ? '' : ratingRangeError(ratingRange, !!metadata);
-  const complete = !!assignmentId && criteria.length > 0 && criteria.every(c => Number.isFinite(c.score) && (metadata?.scoringMethod !== 'individual' || Number.isInteger(c.score)) && c.score >= c.minimumScore && c.score <= c.maximumScore) && !periodError;
+  const legacyPeriod =
+    !periodChanged &&
+    !!record?.context.ratingPeriod &&
+    !parseRatingPeriod(record.context.ratingPeriod);
+  const periodError = legacyPeriod
+    ? ""
+    : ratingRangeError(ratingRange, !!metadata);
+  const complete =
+    !!assignmentId &&
+    criteria.length > 0 &&
+    criteria.every(
+      (c) =>
+        Number.isFinite(c.score) &&
+        (metadata?.scoringMethod !== "individual" ||
+          Number.isInteger(c.score)) &&
+        c.score >= c.minimumScore &&
+        c.score <= c.maximumScore,
+    ) &&
+    !periodError;
   async function save(submit: boolean) {
     if (lock.current || !assignmentId || (submit && !complete)) return;
-    if (!legacyPeriod && (ratingRange.start || ratingRange.end) && periodError) { setError(periodError); return; }
-    lock.current = true; setBusy(true); setError('');
+    if (
+      !legacyPeriod &&
+      (ratingRange.start || ratingRange.end) &&
+      periodError
+    ) {
+      setError(periodError);
+      return;
+    }
+    lock.current = true;
+    setBusy(true);
+    setError("");
     try {
-      await evaluationService.save({ id: record?.id, templateId: record?.templateId ?? template.id, assignmentId, criteria, context, strengths, areasForImprovement: areas, overallRemarks: remarks, submit });
-      onSaved(submit ? 'Evaluation submitted for coordinator review.' : 'Evaluation draft saved.');
-    } catch (reason) { setError(userError(reason)); } finally { lock.current = false; setBusy(false); setConfirmSubmit(false); }
+      await evaluationService.save({
+        id: record?.id,
+        templateId: record?.templateId ?? template.id,
+        assignmentId,
+        criteria,
+        context,
+        strengths,
+        areasForImprovement: areas,
+        overallRemarks: remarks,
+        submit,
+      });
+      onSaved(
+        submit
+          ? "Evaluation submitted for coordinator review."
+          : "Evaluation draft saved.",
+      );
+    } catch (reason) {
+      setError(userError(reason));
+    } finally {
+      lock.current = false;
+      setBusy(false);
+      setConfirmSubmit(false);
+    }
   }
-  return <Dialog title={record ? 'Edit evaluation' : 'Evaluate intern'} onClose={onClose} busy={busy} wide className="evaluation-dialog">
-    <div className="evaluation-editor-content">
-    <header className="official-form-heading"><h3>{record?.templateName ?? template.name}</h3>{metadata && <p>{metadata.formCode} · Rev. No. {metadata.revision} · Effective {metadata.effectivityDate}</p>}</header>
-    {record?.status === 'Returned' && <div className="evaluation-feedback"><strong>Returned for revision</strong><p>{record.reviewFeedback}</p></div>}
-    <div className="two-fields"><label className="field"><span>Student intern</span><select value={assignmentId} disabled={!!record || busy} onChange={e => setAssignmentId(e.target.value)}><option value="">Select your assigned intern</option>{record && !assignments.some(a => a.id === record.assignmentId) && <option value={record.assignmentId}>{record.studentName}</option>}{assignments.map(a => <option value={a.id} key={a.id}>{a.studentName}</option>)}</select></label>
-      </div><RatingPeriodField range={ratingRange} required={!!metadata} disabled={busy} legacyValue={legacyPeriod ? record?.context.ratingPeriod : undefined} onChange={range => { setPeriodChanged(true); setRatingRange(range); setContext(previous => ({ ...previous, ratingPeriod: formatRatingPeriod(range) })); }} />
-    {metadata && <div className="rating-guide"><p>{metadata.direction}</p><dl>{[5,4,3,2,1].map(n => <div key={n}><dt>{n}</dt><dd>{metadata.scale[String(n)]}</dd></div>)}</dl></div>}
-    <RatingSections criteria={criteria} metadata={metadata} onChange={(id, score) => setCriteria(previous => previous.map(c => c.id === id ? { ...c, score } : c))} />
-    <label className="field"><span>Remarks</span><textarea maxLength={10000} value={remarks} onChange={e => setRemarks(e.target.value)} /></label>
-    {!metadata && <div className="two-fields"><label className="field"><span>Strengths</span><textarea value={strengths} onChange={e => setStrengths(e.target.value)} /></label><label className="field"><span>Areas for improvement</span><textarea value={areas} onChange={e => setAreas(e.target.value)} /></label></div>}
-    <div className="two-fields"><label className="field"><span>Rater designation (optional)</span><input maxLength={160} value={context.designation ?? ''} onChange={e => setContext({ ...context, designation: e.target.value })} /></label><label className="field"><span>Office (optional)</span><input maxLength={250} value={context.office ?? ''} onChange={e => setContext({ ...context, office: e.target.value })} /></label></div>
-    <p className="muted-note">{criteria.filter(c => Number.isFinite(c.score)).length} of {criteria.length} criteria rated. Drafts remain private to authorized reviewers.</p>
-    {error && <p className="form-error" role="alert">{error}</p>}
-    </div>
-    <div className="modal-actions evaluation-actions"><button className="button button-secondary" disabled={busy || !assignmentId} onClick={() => void save(false)}>Save draft</button><button className="button button-primary" disabled={busy || !complete} onClick={() => setConfirmSubmit(true)}>{busy ? 'Saving…' : 'Submit evaluation'}</button></div>
-    {confirmSubmit && <Dialog title="Submit evaluation?" busy={busy} onClose={() => setConfirmSubmit(false)}><p>Your answers will be locked while the coordinator reviews this version.</p><div className="modal-actions"><button className="button button-secondary" disabled={busy} onClick={() => setConfirmSubmit(false)}>Cancel</button><button className="button button-primary" disabled={busy} onClick={() => void save(true)}>Confirm submission</button></div></Dialog>}
-  </Dialog>;
+  return (
+    <Dialog
+      title={record ? "Edit evaluation" : "Evaluate intern"}
+      onClose={onClose}
+      busy={busy}
+      wide
+      className="evaluation-dialog"
+    >
+      <div className="evaluation-editor-content">
+        <header className="official-form-heading">
+          <h3>{record?.templateName ?? template.name}</h3>
+          {metadata && (
+            <p>
+              {metadata.formCode} · Rev. No. {metadata.revision} · Effective{" "}
+              {metadata.effectivityDate}
+            </p>
+          )}
+        </header>
+        {record?.status === "Returned" && (
+          <div className="evaluation-feedback">
+            <strong>Returned for revision</strong>
+            <p>{record.reviewFeedback}</p>
+          </div>
+        )}
+        <div className="two-fields">
+          <label className="field">
+            <span>Student intern</span>
+            <select
+              value={assignmentId}
+              disabled={!!record || busy}
+              onChange={(e) => setAssignmentId(e.target.value)}
+            >
+              <option value="">Select your assigned intern</option>
+              {record &&
+                !assignments.some((a) => a.id === record.assignmentId) && (
+                  <option value={record.assignmentId}>
+                    {record.studentName}
+                  </option>
+                )}
+              {assignments.map((a) => (
+                <option value={a.id} key={a.id}>
+                  {a.studentName}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <RatingPeriodField
+          range={ratingRange}
+          required={!!metadata}
+          disabled={busy}
+          legacyValue={legacyPeriod ? record?.context.ratingPeriod : undefined}
+          onChange={(range) => {
+            setPeriodChanged(true);
+            setRatingRange(range);
+            setContext((previous) => ({
+              ...previous,
+              ratingPeriod: formatRatingPeriod(range),
+            }));
+          }}
+        />
+        {metadata && (
+          <div className="rating-guide">
+            <p>{metadata.direction}</p>
+            <dl>
+              {[5, 4, 3, 2, 1].map((n) => (
+                <div key={n}>
+                  <dt>{n}</dt>
+                  <dd>{metadata.scale[String(n)]}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
+        <RatingSections
+          criteria={criteria}
+          metadata={metadata}
+          onChange={(id, score) =>
+            setCriteria((previous) =>
+              previous.map((c) => (c.id === id ? { ...c, score } : c)),
+            )
+          }
+        />
+        <label className="field">
+          <span>Remarks</span>
+          <textarea
+            maxLength={10000}
+            value={remarks}
+            onChange={(e) => setRemarks(e.target.value)}
+          />
+        </label>
+        {!metadata && (
+          <div className="two-fields">
+            <label className="field">
+              <span>Strengths</span>
+              <textarea
+                value={strengths}
+                onChange={(e) => setStrengths(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>Areas for improvement</span>
+              <textarea
+                value={areas}
+                onChange={(e) => setAreas(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
+        <div className="two-fields">
+          <label className="field">
+            <span>Rater designation (optional)</span>
+            <input
+              maxLength={160}
+              value={context.designation ?? ""}
+              onChange={(e) =>
+                setContext({ ...context, designation: e.target.value })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Office (optional)</span>
+            <input
+              maxLength={250}
+              value={context.office ?? ""}
+              onChange={(e) =>
+                setContext({ ...context, office: e.target.value })
+              }
+            />
+          </label>
+        </div>
+        <p className="muted-note">
+          {criteria.filter((c) => Number.isFinite(c.score)).length} of{" "}
+          {criteria.length} criteria rated. Drafts remain private to authorized
+          reviewers.
+        </p>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="modal-actions evaluation-actions">
+        <button
+          className="button button-secondary"
+          disabled={busy || !assignmentId}
+          onClick={() => void save(false)}
+        >
+          Save draft
+        </button>
+        <button
+          className="button button-primary"
+          disabled={busy || !complete}
+          onClick={() => setConfirmSubmit(true)}
+        >
+          {busy ? "Saving…" : "Submit evaluation"}
+        </button>
+      </div>
+      {confirmSubmit && (
+        <Dialog
+          title="Submit evaluation?"
+          busy={busy}
+          onClose={() => setConfirmSubmit(false)}
+        >
+          <p>
+            Your answers will be locked while the coordinator reviews this
+            version.
+          </p>
+          <div className="modal-actions">
+            <button
+              className="button button-secondary"
+              disabled={busy}
+              onClick={() => setConfirmSubmit(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className="button button-primary"
+              disabled={busy}
+              onClick={() => void save(true)}
+            >
+              Confirm submission
+            </button>
+          </div>
+        </Dialog>
+      )}
+    </Dialog>
+  );
 }
 
 export function EvaluationWorkspace({ role }: { role: RoleId }) {
@@ -83,42 +454,500 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
   const [assignments, setAssignments] = useState<EvaluationAssignment[]>([]);
   const [template, setTemplate] = useState<Template | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [details, setDetails] = useState<string>('');
+  const [details, setDetails] = useState<string>("");
   const [editor, setEditor] = useState<EvaluationRecord | null | undefined>();
-  const [action, setAction] = useState<{ record: EvaluationRecord; kind: 'delete' | 'finalized' | 'returned' } | null>(null);
-  const [feedback, setFeedback] = useState('');
-  const [error, setError] = useState(''); const [notice, setNotice] = useState('');
-  const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false);
-  const lock = useRef(false); const student = role === 'student';
+  const [action, setAction] = useState<{
+    record: EvaluationRecord;
+    kind: "delete" | "finalized" | "returned";
+  } | null>(null);
+  const [feedback, setFeedback] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("All");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  const student = role === "student";
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const rows = await evaluationService.listLive(); setRecords(student ? rows.filter(r => r.status === 'Finalized') : rows);
-      if (!student && hasPermission(role, 'evaluations:score')) {
+      const rows = await evaluationService.listLive();
+      setRecords(student ? rows.filter((r) => r.status === "Finalized") : rows);
+      if (!student && hasPermission(role, "evaluations:score")) {
         setAssignments(await evaluationService.listAssignments());
         const options = await evaluationService.listActiveTemplates();
-        setTemplates(options); setTemplate(options[0] ?? null);
+        setTemplates(options);
+        setTemplate(options[0] ?? null);
       }
-    } catch (reason) { setError(userError(reason)); } finally { setLoading(false); }
+    } catch (reason) {
+      setError(userError(reason));
+    } finally {
+      setLoading(false);
+    }
   }, [student, role]);
-  useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  useEffect(() => {
+    void Promise.resolve().then(load);
+  }, [load]);
+  const visibleRecords = records.filter((record) => {
+    const matchesStatus =
+      status === "All" ||
+      (status === "Needs Review"
+        ? record.status === "Submitted"
+        : record.status === status);
+    const query = search.trim().toLowerCase();
+    return (
+      matchesStatus &&
+      (!query ||
+        `${record.studentName} ${record.evaluatorName} ${record.templateName}`
+          .toLowerCase()
+          .includes(query))
+    );
+  });
   async function act() {
-    if (!action || lock.current || (action.kind === 'returned' && !feedback.trim())) return;
-    lock.current = true; setBusy(true); setError('');
+    if (
+      !action ||
+      lock.current ||
+      (action.kind === "returned" && !feedback.trim())
+    )
+      return;
+    lock.current = true;
+    setBusy(true);
+    setError("");
     try {
-      if (action.kind === 'delete') await evaluationService.deleteDraft(action.record.id);
-      else await evaluationService.review(action.record.id, action.kind, feedback);
-      setNotice(action.kind === 'delete' ? 'Draft deleted. Its audit history is retained.' : action.kind === 'finalized' ? 'HTE evaluation finalized. The student can now view the official report.' : 'HTE evaluation returned to the representative with your feedback.');
-      setAction(null); setFeedback(''); await load();
-    } catch (reason) { setError(userError(reason)); } finally { lock.current = false; setBusy(false); }
+      if (action.kind === "delete")
+        await evaluationService.deleteDraft(action.record.id);
+      else
+        await evaluationService.review(action.record.id, action.kind, feedback);
+      setNotice(
+        action.kind === "delete"
+          ? "Draft deleted. Its audit history is retained."
+          : action.kind === "finalized"
+            ? "HTE evaluation finalized. The student can now view the official report."
+            : "HTE evaluation returned to the representative with your feedback.",
+      );
+      setAction(null);
+      setFeedback("");
+      await load();
+    } catch (reason) {
+      setError(userError(reason));
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   }
-  return <><div className="page-heading"><div><h1>{student ? 'Finalized evaluation reports' : role === 'hte' ? 'HTE evaluations' : 'HTE evaluation review'}</h1><p>{student ? 'View and download evaluation reports released after coordinator finalization.' : role === 'hte' ? 'Complete and submit evaluations for Student Interns assigned to your HTE.' : 'Review submitted HTE evaluations and finalize complete reports within your authorized scope.'}</p></div>{role === 'hte' && template && assignments.length > 0 && <button className="button button-primary" onClick={() => setEditor(null)}><Plus size={18} />Complete HTE evaluation</button>}</div>
-    {error && <p className="form-error" role="alert">{error}</p>}{notice && <p className="inline-success" role="status">{notice}</p>}
-    {role === 'hte' && templates.length > 1 && <label className="field"><span>HTE evaluation form</span><select value={template?.id || ''} onChange={e => setTemplate(templates.find(t => t.id === e.target.value) ?? null)}>{templates.map(t => <option key={t.id} value={t.id}>{t.name}{t.metadata ? ' · Official PSU form' : ''}</option>)}</select></label>}
-    {role === 'hte' && !loading && !template && <p className="muted-note">No active HTE evaluation template is available. Existing records remain available below.</p>}
-    {loading ? <div className="card page-skeleton" role="status" aria-label="Loading evaluations"><span /><span /><span /></div> : !records.length ? <section className="card empty-action"><h2>{student ? 'No finalized evaluation report yet' : role === 'hte' ? 'No HTE evaluations yet' : 'No HTE evaluations awaiting review'}</h2><p>{student ? 'Your PDF will appear after coordinator finalization.' : role === 'hte' ? 'Evaluations for your assigned interns will appear here.' : 'Submitted HTE evaluations within your authorized scope will appear here.'}</p></section> : <section className="card table-card"><div className="table-scroll"><table className="data-table"><thead><tr><th>Student</th><th>HTE evaluation</th><th>HTE evaluator</th><th>Status</th><th>Actions</th></tr></thead><tbody>{records.map(r => <tr key={r.id}><td>{r.studentName}</td><td>{r.templateName}</td><td>{r.evaluatorName}</td><td><StatusBadge status={r.status} /></td><td><div className="inline-actions">{!student && <button className="table-link" onClick={() => setDetails(r.id)}><Eye size={16} />{role === 'coordinator' && r.status === 'Submitted' ? 'Review HTE evaluation' : 'View details'}</button>}{r.status === 'Finalized' && <EvaluationPdfDownload id={r.id} studentName={r.studentName} />}{role === 'hte' && r.evaluatorId === user?.id && ['Draft','Returned'].includes(r.status) && <button className="table-link" onClick={() => setEditor(r)}>Edit</button>}{role === 'hte' && r.evaluatorId === user?.id && r.status === 'Draft' && <button className="table-link" title="Delete your draft" onClick={() => setAction({ record: r, kind: 'delete' })}><Trash2 size={16} />Delete</button>}</div></td></tr>)}</tbody></table></div></section>}
-    {details && (() => { const record = records.find(item => item.id === details); return record ? <Dialog title={role === 'coordinator' ? 'Review HTE evaluation' : 'HTE evaluation details'} protectChanges={false} wide onClose={() => setDetails('')}><dl className="info-list"><div><dt>Student</dt><dd>{record.studentName}</dd></div><div><dt>Form</dt><dd>{record.metadata?.formCode ?? record.templateName}</dd></div><div><dt>Status</dt><dd><StatusBadge status={record.status} /></dd></div><div><dt>Rating period</dt><dd>{record.context.ratingPeriod || 'Not recorded'}</dd></div><div><dt>HTE evaluator</dt><dd>{record.evaluatorName}</dd></div></dl><RatingSections criteria={record.criteria} metadata={record.metadata} />{role === 'hte' && record.evaluatorId === user?.id && ['Draft','Returned'].includes(record.status) && <div className="modal-actions"><button className="button button-primary" onClick={() => { setDetails(''); setEditor(record); }}>Edit HTE evaluation</button></div>}{role === 'coordinator' && hasPermission(role, 'evaluations:finalize') && record.status === 'Submitted' && <div className="modal-actions"><button className="button button-secondary" onClick={() => { setDetails(''); setAction({ record, kind: 'returned' }); }}>Return to HTE representative</button><button className="button button-primary" onClick={() => { setDetails(''); setAction({ record, kind: 'finalized' }); }}>Finalize HTE evaluation</button></div>}<p className="muted-note">{record.status === 'Finalized' ? 'This official record is finalized and read-only.' : role === 'coordinator' ? 'Review does not change the HTE scores; finalization releases the read-only report.' : 'Only the authorized HTE evaluator may change this draft.'}</p></Dialog> : null; })()}
-    {editor !== undefined && <EvaluationEditor record={editor} template={editor ? { id: editor.templateId, name: editor.templateName, metadata: editor.metadata, criteria: editor.criteria } : template!} assignments={assignments} onClose={() => setEditor(undefined)} onSaved={message => { setNotice(message); setEditor(undefined); void load(); }} />}
-    {action && <Dialog title={action.kind === 'delete' ? 'Delete draft HTE evaluation?' : action.kind === 'finalized' ? 'Finalize HTE evaluation?' : 'Return HTE evaluation for revision'} onClose={() => setAction(null)} busy={busy}><p>{action.kind === 'delete' ? 'This draft HTE evaluation will be removed from active records and cannot be restored. Its audit history will be retained.' : action.kind === 'finalized' ? 'The HTE scores and remarks will become read-only and the official report will be available to the student. Finalized evaluations cannot be edited or deleted.' : 'Explain the revisions the HTE representative needs to make.'}</p>{action.kind === 'returned' && <label className="field"><span>Feedback (required)</span><textarea value={feedback} onChange={e => setFeedback(e.target.value)} /></label>}{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button className="button button-secondary" disabled={busy} onClick={() => setAction(null)}>Cancel</button><button className={`button ${action.kind === 'delete' ? 'button-danger' : 'button-primary'}`} disabled={busy || (action.kind === 'returned' && !feedback.trim())} onClick={() => void act()}>{busy ? 'Saving…' : action.kind === 'delete' ? 'Delete draft' : action.kind === 'finalized' ? 'Finalize HTE evaluation' : 'Return for revision'}</button></div></Dialog>}
-  </>;
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <h1>
+            {student
+              ? "Finalized evaluation reports"
+              : role === "hte"
+                ? "HTE evaluations"
+                : "HTE evaluation review"}
+          </h1>
+          <p>
+            {student
+              ? "View and download evaluation reports released after coordinator finalization."
+              : role === "hte"
+                ? "Complete and submit evaluations for Student Interns assigned to your HTE."
+                : "Review submitted HTE evaluations and finalize complete reports within your authorized scope."}
+          </p>
+        </div>
+        {role === "hte" && template && assignments.length > 0 && (
+          <button
+            className="button button-primary"
+            onClick={() => setEditor(null)}
+          >
+            <Plus size={18} />
+            Complete HTE evaluation
+          </button>
+        )}
+      </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="inline-success" role="status">
+          {notice}
+        </p>
+      )}
+      {role === "hte" && templates.length > 1 && (
+        <label className="field">
+          <span>HTE evaluation form</span>
+          <select
+            value={template?.id || ""}
+            onChange={(e) =>
+              setTemplate(
+                templates.find((t) => t.id === e.target.value) ?? null,
+              )
+            }
+          >
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+                {t.metadata ? " · Official PSU form" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {role === "hte" && !loading && !template && (
+        <p className="muted-note">
+          No active HTE evaluation template is available. Existing records
+          remain available below.
+        </p>
+      )}
+      {!student && !loading && (
+        <div className="evaluation-filters">
+          <label className="table-search">
+            <Search size={17} />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search student, evaluator, or form…"
+            />
+          </label>
+          <label className="field field-compact">
+            <span>Status</span>
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+            >
+              <option>All</option>
+              <option>Needs Review</option>
+              <option>Finalized</option>
+              <option>Draft</option>
+              <option>Returned</option>
+            </select>
+          </label>
+        </div>
+      )}
+      {loading ? (
+        <div
+          className="card page-skeleton"
+          role="status"
+          aria-label="Loading evaluations"
+        >
+          <span />
+          <span />
+          <span />
+        </div>
+      ) : !records.length ? (
+        <section className="card empty-action">
+          <h2>
+            {student
+              ? "No finalized evaluation report yet"
+              : role === "hte"
+                ? "No HTE evaluations yet"
+                : "No HTE evaluations awaiting review"}
+          </h2>
+          <p>
+            {student
+              ? "Your PDF will appear after coordinator finalization."
+              : role === "hte"
+                ? "Evaluations for your assigned interns will appear here."
+                : "Submitted HTE evaluations within your authorized scope will appear here."}
+          </p>
+        </section>
+      ) : (
+        <section className="card table-card evaluation-review-card">
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Evaluation</th>
+                  <th>Evaluator</th>
+                  <th>Submitted</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRecords.map((r) => (
+                  <tr key={r.id}>
+                    <td>
+                      <b>{r.studentName}</b>
+                    </td>
+                    <td>{r.templateName}</td>
+                    <td>{r.evaluatorName}</td>
+                    <td>{r.submittedAt}</td>
+                    <td>
+                      <StatusBadge status={r.status} />
+                    </td>
+                    <td>
+                      <div className="inline-actions">
+                        {!student && (
+                          <button
+                            className="table-link"
+                            onClick={() => setDetails(r.id)}
+                          >
+                            <Eye size={16} />
+                            View details
+                          </button>
+                        )}
+                        {r.status === "Finalized" && (
+                          <EvaluationPdfDownload
+                            id={r.id}
+                            studentName={r.studentName}
+                          />
+                        )}
+                        {role === "hte" &&
+                          r.evaluatorId === user?.id &&
+                          ["Draft", "Returned"].includes(r.status) && (
+                            <button
+                              className="table-link"
+                              onClick={() => setEditor(r)}
+                            >
+                              Edit
+                            </button>
+                          )}
+                        {role === "hte" &&
+                          r.evaluatorId === user?.id &&
+                          r.status === "Draft" && (
+                            <button
+                              className="table-link"
+                              title="Delete your draft"
+                              onClick={() =>
+                                setAction({ record: r, kind: "delete" })
+                              }
+                            >
+                              <Trash2 size={16} />
+                              Delete
+                            </button>
+                          )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {visibleRecords.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="table-empty">
+                      No evaluations match these filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="evaluation-mobile-list">
+            {visibleRecords.map((r) => (
+              <article className="evaluation-mobile-card" key={r.id}>
+                <header>
+                  <div>
+                    <strong>{r.studentName}</strong>
+                    <small>{r.templateName}</small>
+                  </div>
+                  <StatusBadge status={r.status} />
+                </header>
+                <dl>
+                  <div>
+                    <dt>Evaluator</dt>
+                    <dd>{r.evaluatorName}</dd>
+                  </div>
+                  <div>
+                    <dt>Submitted</dt>
+                    <dd>{r.submittedAt}</dd>
+                  </div>
+                </dl>
+                <div className="inline-actions">
+                  {!student && (
+                    <button
+                      className="table-link"
+                      onClick={() => setDetails(r.id)}
+                    >
+                      <Eye size={16} />
+                      View details
+                    </button>
+                  )}
+                  {r.status === "Finalized" && (
+                    <EvaluationPdfDownload
+                      id={r.id}
+                      studentName={r.studentName}
+                    />
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+      {details &&
+        (() => {
+          const record = records.find((item) => item.id === details);
+          return record ? (
+            <Dialog
+              title={
+                role === "coordinator"
+                  ? "Review HTE evaluation"
+                  : "HTE evaluation details"
+              }
+              protectChanges={false}
+              wide
+              onClose={() => setDetails("")}
+            >
+              <dl className="info-list">
+                <div>
+                  <dt>Student</dt>
+                  <dd>{record.studentName}</dd>
+                </div>
+                <div>
+                  <dt>Form</dt>
+                  <dd>{record.metadata?.formCode ?? record.templateName}</dd>
+                </div>
+                <div>
+                  <dt>Status</dt>
+                  <dd>
+                    <StatusBadge status={record.status} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>Rating period</dt>
+                  <dd>{record.context.ratingPeriod || "Not recorded"}</dd>
+                </div>
+                <div>
+                  <dt>HTE evaluator</dt>
+                  <dd>{record.evaluatorName}</dd>
+                </div>
+              </dl>
+              <RatingSections
+                criteria={record.criteria}
+                metadata={record.metadata}
+              />
+              {role === "hte" &&
+                record.evaluatorId === user?.id &&
+                ["Draft", "Returned"].includes(record.status) && (
+                  <div className="modal-actions">
+                    <button
+                      className="button button-primary"
+                      onClick={() => {
+                        setDetails("");
+                        setEditor(record);
+                      }}
+                    >
+                      Edit HTE evaluation
+                    </button>
+                  </div>
+                )}
+              {role === "coordinator" &&
+                hasPermission(role, "evaluations:finalize") &&
+                record.status === "Submitted" && (
+                  <div className="modal-actions">
+                    <button
+                      className="button button-secondary"
+                      onClick={() => {
+                        setDetails("");
+                        setAction({ record, kind: "returned" });
+                      }}
+                    >
+                      Return to HTE representative
+                    </button>
+                    <button
+                      className="button button-primary"
+                      onClick={() => {
+                        setDetails("");
+                        setAction({ record, kind: "finalized" });
+                      }}
+                    >
+                      Finalize HTE evaluation
+                    </button>
+                  </div>
+                )}
+              <p className="muted-note">
+                {record.status === "Finalized"
+                  ? "This official record is finalized and read-only."
+                  : role === "coordinator"
+                    ? "Review does not change the HTE scores; finalization releases the read-only report."
+                    : "Only the authorized HTE evaluator may change this draft."}
+              </p>
+            </Dialog>
+          ) : null;
+        })()}
+      {editor !== undefined && (
+        <EvaluationEditor
+          record={editor}
+          template={
+            editor
+              ? {
+                  id: editor.templateId,
+                  name: editor.templateName,
+                  metadata: editor.metadata,
+                  criteria: editor.criteria,
+                }
+              : template!
+          }
+          assignments={assignments}
+          onClose={() => setEditor(undefined)}
+          onSaved={(message) => {
+            setNotice(message);
+            setEditor(undefined);
+            void load();
+          }}
+        />
+      )}
+      {action && (
+        <Dialog
+          title={
+            action.kind === "delete"
+              ? "Delete draft HTE evaluation?"
+              : action.kind === "finalized"
+                ? "Finalize HTE evaluation?"
+                : "Return HTE evaluation for revision"
+          }
+          onClose={() => setAction(null)}
+          busy={busy}
+        >
+          <p>
+            {action.kind === "delete"
+              ? "This draft HTE evaluation will be removed from active records and cannot be restored. Its audit history will be retained."
+              : action.kind === "finalized"
+                ? "The HTE scores and remarks will become read-only and the official report will be available to the student. Finalized evaluations cannot be edited or deleted."
+                : "Explain the revisions the HTE representative needs to make."}
+          </p>
+          {action.kind === "returned" && (
+            <label className="field">
+              <span>Feedback (required)</span>
+              <textarea
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+              />
+            </label>
+          )}
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="modal-actions">
+            <button
+              className="button button-secondary"
+              disabled={busy}
+              onClick={() => setAction(null)}
+            >
+              Cancel
+            </button>
+            <button
+              className={`button ${action.kind === "delete" ? "button-danger" : "button-primary"}`}
+              disabled={
+                busy || (action.kind === "returned" && !feedback.trim())
+              }
+              onClick={() => void act()}
+            >
+              {busy
+                ? "Saving…"
+                : action.kind === "delete"
+                  ? "Delete draft"
+                  : action.kind === "finalized"
+                    ? "Finalize HTE evaluation"
+                    : "Return for revision"}
+            </button>
+          </div>
+        </Dialog>
+      )}
+    </>
+  );
 }

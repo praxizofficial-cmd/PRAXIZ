@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '../../../lib/supabase/server';
-import { ollamaGenerateUrl, ollamaHeaders } from '../../../lib/ollama';
+import { generateWithOllama, ollamaErrorResponse } from '../../../lib/ollama';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -11,6 +11,7 @@ const roleGuidance: Record<string, string> = {
   student_intern: 'Help with the signed-in student’s own attendance, Weekly Logs, document submissions, evaluations, and assignment workflow. Never instruct them to review or alter another user’s records.',
   internship_coordinator: 'Help with coordinator workflows within authorized campus, college, program, HTE, and student scope. Never imply university-wide access or autonomous academic decisions.',
   hte_supervisor: 'Help with assigned-intern attendance confirmation, Weekly Log review, feedback, and evaluations for the representative’s own HTE. Never imply access to another HTE or university-wide records.',
+  placement_head: 'Help with institution-wide placement oversight, compliance, required file formats, student placements, and advisory analytics. Never claim to approve or alter records on the user’s behalf.',
   system_admin: 'Help with registration review, institutional setup, HTE verification, role governance, and account recovery. Never reveal secrets, bypass approval, or claim that a record was changed.',
 };
 
@@ -46,9 +47,6 @@ export async function POST(request: Request) {
     if (!messages.length || messages.at(-1)?.role !== 'user') return NextResponse.json({ error: 'A user message is required.' }, { status: 400 });
     if (messages.reduce((sum, item) => sum + item.content.length, 0) > 12000) return NextResponse.json({ error: 'The conversation is too long. Start a new chat and try again.' }, { status: 400 });
 
-    const apiKey = process.env.OLLAMA_API_KEY?.trim();
-    const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || (apiKey ? 'https://ollama.com' : 'http://localhost:11434');
-    const model = process.env.OLLAMA_MODEL || 'llama3.2';
     const transcript = messages.map(item => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`).join('\n\n');
     const systemPrompt = `You are the conversational assistant integrated into PRAXIZ, Partido State University's internship monitoring platform.
 
@@ -65,22 +63,14 @@ Rules:
 - Explain when a request requires an authorized human or a specific PRAXIZ screen.
 - The assistant cannot approve records, finalize evaluations, assign grades, or change official data.`;
 
-    const ollamaResponse = await fetch(ollamaGenerateUrl(ollamaBaseUrl), {
-      method: 'POST',
-      headers: ollamaHeaders(apiKey),
-      body: JSON.stringify({ model, stream: false, prompt: `${systemPrompt}\n\nConversation:\n${transcript}\n\nAssistant:` }),
-      signal: AbortSignal.timeout(55_000),
+    const result = await generateWithOllama({
+      prompt: `${systemPrompt}\n\nConversation:\n${transcript}\n\nAssistant:`,
+      context: 'general-assistant',
     });
-    if (!ollamaResponse.ok) {
-      console.error('Ollama request failed:', ollamaResponse.status, (await ollamaResponse.text()).slice(0, 500));
-      return NextResponse.json({ error: 'PRAXIZ AI is currently unavailable.' }, { status: 502 });
-    }
-    const result = await ollamaResponse.json() as { response?: unknown };
-    const response = typeof result.response === 'string' ? result.response.trim() : '';
-    if (!response) return NextResponse.json({ error: 'PRAXIZ AI did not return a usable response.' }, { status: 502 });
-    return NextResponse.json({ response, model }, { headers: { 'Cache-Control': 'private, no-store, max-age=0' } });
+    return NextResponse.json(result, { headers: { 'Cache-Control': 'private, no-store, max-age=0' } });
   } catch (error) {
-    console.error('PRAXIZ AI route failed:', error instanceof Error ? error.message : error);
-    return NextResponse.json({ error: 'Unable to process the AI request.' }, { status: 500 });
+    console.error('PRAXIZ AI route failed', { category: error instanceof Error ? error.name : 'UnknownError' });
+    const failure = ollamaErrorResponse(error);
+    return NextResponse.json(failure.body, { status: failure.status });
   }
 }

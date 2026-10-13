@@ -1,7 +1,20 @@
 "use client";
 
-import type { AnchorHTMLAttributes, ChangeEvent, CSSProperties, FormEvent, ReactNode } from "react";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import type {
+  AnchorHTMLAttributes,
+  ChangeEvent,
+  CSSProperties,
+  FormEvent,
+  ReactNode,
+} from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import {
@@ -19,7 +32,6 @@ import {
   Clock3,
   Download,
   Eye,
-  EyeOff,
   ExternalLink,
   FileCheck2,
   FileText,
@@ -33,6 +45,8 @@ import {
   LockKeyhole,
   LogOut,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Ellipsis,
   MessageSquareText,
   Plus,
@@ -40,6 +54,7 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  Sparkles,
   Star,
   Upload,
   UserCheck,
@@ -60,6 +75,11 @@ import { InfoCallout } from "./components/InfoCallout";
 import { PublicSectionLink } from "./components/PublicSectionLink";
 import { PolicyPage } from "./components/PolicyPage";
 import { StatusBadge } from "./components/StatusBadge";
+import { PasswordInput } from "./components/PasswordInput";
+import { PlacementWorkspace } from "./components/PlacementWorkspace";
+import { SearchInput } from "./components/SearchInput";
+import { MonthlyDtrWorkspace } from "./components/MonthlyDtrWorkspace";
+import { PraxizLoaderMark } from "./components/PraxizLoaderMark";
 import { userError } from "../lib/user-error";
 import { createClient as createSupabaseBrowserClient } from "../lib/supabase/client";
 import { summarizeCompliance } from "../lib/compliance-summary";
@@ -73,6 +93,7 @@ import {
   documentService,
   evaluationService,
   coordinatorService,
+  hteWorkSetupService,
   feedbackService,
   internshipService,
   institutionalService,
@@ -95,20 +116,56 @@ import {
   type PartnerHteRecord,
   type RegistrationRecord,
   type RequirementConfigRecord,
+  type HteDailyHourConfig,
   type RolePolicyRecord,
   type StudentProgressSummary,
   type UserAccountRecord,
 } from "./services/praxiz-services";
-import { programsForCollege, unitsForCampus } from "./services/institutional-stabilization";
-import { attendanceDecisionBlock, resolveAttendancePair } from "./services/attendance-stabilization";
+import {
+  programsForCollege,
+  unitsForCampus,
+} from "./services/institutional-stabilization";
+import {
+  attendanceDecisionBlock,
+  resolveAttendancePair,
+} from "./services/attendance-stabilization";
 import { inboxLinkForEmail } from "./services/registration-success";
-import { normalizeEvaluationCode, type EvaluationTemplateCriterionInput, type EvaluationTemplateStage } from "./services/evaluation-template-stabilization";
-import { mimeTypesForPreset, type DocumentTemplateMimePreset, type DocumentTemplatePhase } from "./services/workflow-template-stabilization";
-import { STUDENT_SECTION_OPTIONS, STUDENT_YEAR_LEVEL_OPTIONS, mergeAcademicOptionValues } from "./academic-options";
-import { roleIds, type AcademicTerm, type AttendanceSession, type Campus, type College, type Intern, type RoleId } from "./types";
+import { validateInstitutionalEmail } from "./services/institutional-email";
+import {
+  normalizeEvaluationCode,
+  type EvaluationTemplateCriterionInput,
+  type EvaluationTemplateStage,
+} from "./services/evaluation-template-stabilization";
+import {
+  mimeTypesForPreset,
+  type DocumentTemplateMimePreset,
+  type DocumentTemplatePhase,
+} from "./services/workflow-template-stabilization";
+import {
+  STUDENT_SECTION_OPTIONS,
+  STUDENT_YEAR_LEVEL_OPTIONS,
+  mergeAcademicOptionValues,
+} from "./academic-options";
+import {
+  roleIds,
+  type AcademicTerm,
+  type AttendanceSession,
+  type Campus,
+  type College,
+  type Intern,
+  type RoleId,
+} from "./types";
 
-function Link({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
-  return <a href={href} {...props}>{children}</a>;
+function Link({
+  href,
+  children,
+  ...props
+}: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
+  return (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  );
 }
 
 const attendanceRecords = attendanceService.listHistory();
@@ -146,24 +203,48 @@ function LocalAttendanceClock() {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
-  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(now);
-  const date = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(now);
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(now);
+  const date = new Intl.DateTimeFormat(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(now);
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return <div className="attendance-live-clock" aria-label={`Current local time ${time}, ${date}`}>
-    <Clock3 size={28} aria-hidden="true" />
-    <time dateTime={now.toISOString()} suppressHydrationWarning>{time}</time>
-    <span suppressHydrationWarning>{date}</span>
-    <small>{zone || "Local device time"}</small>
-  </div>;
+  return (
+    <div
+      className="attendance-live-clock"
+      aria-label={`Current local time ${time}, ${date}`}
+    >
+      <Clock3 size={28} aria-hidden="true" />
+      <time dateTime={now.toISOString()} suppressHydrationWarning>
+        {time}
+      </time>
+      <span suppressHydrationWarning>{date}</span>
+      <small>{zone || "Local device time"}</small>
+    </div>
+  );
 }
 
-function downloadCsv(filename: string, headers: string[], rows: Array<Array<string | number>>): void {
+function downloadCsv(
+  filename: string,
+  headers: string[],
+  rows: Array<Array<string | number>>,
+): void {
   const escape = (input: string | number) => {
     const value = String(input ?? "");
-    return `"${(/^[=+\-@]/.test(value) ? "'" : "")}${value.replaceAll('"', '""')}"`;
+    return `"${/^[=+\-@]/.test(value) ? "'" : ""}${value.replaceAll('"', '""')}"`;
   };
-  const content = [headers, ...rows].map((row) => row.map(escape).join(",")).join("\r\n");
-  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }));
+  const content = [headers, ...rows]
+    .map((row) => row.map(escape).join(","))
+    .join("\r\n");
+  const url = URL.createObjectURL(
+    new Blob([content], { type: "text/csv;charset=utf-8" }),
+  );
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
@@ -174,13 +255,37 @@ function downloadCsv(filename: string, headers: string[], rows: Array<Array<stri
 }
 
 function Logo({ compact = false }: { compact?: boolean }) {
-  return <div className={`brand official-brand ${compact ? "brand-compact" : ""}`}>
-    <Image unoptimized className="praxiz-symbol" src="/branding/praxiz-symbol.png" alt="" width={52} height={52} priority />
-    {!compact && <span className="brand-lockup"><strong>PRAXIZ</strong><small>Partido State University</small></span>}
-  </div>;
+  return (
+    <div className={`brand official-brand ${compact ? "brand-compact" : ""}`}>
+      <Image
+        unoptimized
+        className="praxiz-symbol"
+        src="/branding/praxiz-symbol.png"
+        alt=""
+        width={52}
+        height={52}
+        priority
+      />
+      {!compact && (
+        <span className="brand-lockup">
+          <strong>PRAXIZ</strong>
+          <small>Partido State University</small>
+        </span>
+      )}
+    </div>
+  );
 }
 
-function ActionButton({ children, variant = "primary", size = "default", icon: Icon, onClick, type = "button", disabled = false, loading = false }: {
+function ActionButton({
+  children,
+  variant = "primary",
+  size = "default",
+  icon: Icon,
+  onClick,
+  type = "button",
+  disabled = false,
+  loading = false,
+}: {
   children: ReactNode;
   variant?: "primary" | "secondary" | "ghost" | "danger";
   size?: "small" | "default" | "large";
@@ -190,14 +295,49 @@ function ActionButton({ children, variant = "primary", size = "default", icon: I
   disabled?: boolean;
   loading?: boolean;
 }) {
-  return <button type={type} disabled={disabled || loading} aria-busy={loading || undefined} className={`button button-${variant} button-${size}`} onClick={onClick}>{loading ? <LoaderCircle className="button-spinner" size={18} aria-hidden="true" /> : Icon && <Icon size={18} />}{children}</button>;
+  return (
+    <button
+      type={type}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      className={`button button-${variant} button-${size}`}
+      onClick={onClick}
+    >
+      {loading ? (
+        <LoaderCircle className="button-spinner" size={18} aria-hidden="true" />
+      ) : (
+        Icon && <Icon size={18} />
+      )}
+      {children}
+    </button>
+  );
 }
 
-function ProgressBar({ value, tone = "blue" }: { value: number; tone?: "blue" | "green" | "orange" }) {
-  return <div className="progress-track" aria-label={`${value}% complete`}><span className={`progress-fill ${tone}`} style={{ width: `${Math.min(100, value)}%` }} /></div>;
+function ProgressBar({
+  value,
+  tone = "blue",
+}: {
+  value: number;
+  tone?: "blue" | "green" | "orange";
+}) {
+  return (
+    <div className="progress-track" aria-label={`${value}% complete`}>
+      <span
+        className={`progress-fill ${tone}`}
+        style={{ width: `${Math.min(100, value)}%` }}
+      />
+    </div>
+  );
 }
 
-function StatCard({ label, value, detail, icon: Icon, tone = "blue", progress }: {
+function StatCard({
+  label,
+  value,
+  detail,
+  icon: Icon,
+  tone = "blue",
+  progress,
+}: {
   label: string;
   value: string;
   detail?: string;
@@ -207,84 +347,272 @@ function StatCard({ label, value, detail, icon: Icon, tone = "blue", progress }:
 }) {
   return (
     <article className="stat-card">
-      <div className="stat-heading"><p>{label}</p><div className={`stat-icon stat-${tone}`}><Icon size={22} aria-hidden="true" /></div></div>
+      <div className="stat-heading">
+        <p>{label}</p>
+        <div className={`stat-icon stat-${tone}`}>
+          <Icon size={22} aria-hidden="true" />
+        </div>
+      </div>
       <strong className="stat-number">{value}</strong>
       <p className="stat-caption">{detail}</p>
-      {typeof progress === "number" && <ProgressBar value={progress} tone={tone === "green" ? "green" : tone === "orange" ? "orange" : "blue"} />}
+      {typeof progress === "number" && (
+        <ProgressBar
+          value={progress}
+          tone={
+            tone === "green" ? "green" : tone === "orange" ? "orange" : "blue"
+          }
+        />
+      )}
     </article>
   );
 }
 
 function PublicHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
-  return <header className="public-header">
-    <Link className="public-header-brand" href="/" aria-label="PRAXIZ home"><Logo /></Link>
-    <nav id="public-navigation" className={menuOpen ? "public-navigation-open" : ""} aria-label="Public navigation">
-      <div className="public-nav-links">
-        <PublicSectionLink href="/#about" className="public-link" onClick={() => setMenuOpen(false)}>About</PublicSectionLink>
-        <PublicSectionLink href="/#journey" className="public-link" onClick={() => setMenuOpen(false)}>Journey</PublicSectionLink>
-        <PublicSectionLink href="/#analytics" className="public-link" onClick={() => setMenuOpen(false)}>Analytics</PublicSectionLink>
-        <PublicSectionLink href="/#sdgs" className="public-link" onClick={() => setMenuOpen(false)}>SDGs</PublicSectionLink>
-        <PublicSectionLink href="/#contact" className="public-link" onClick={() => setMenuOpen(false)}>Contact</PublicSectionLink>
+  return (
+    <header className="public-header">
+      <Link className="public-header-brand" href="/" aria-label="PRAXIZ home">
+        <Logo />
+      </Link>
+      <nav
+        id="public-navigation"
+        className={menuOpen ? "public-navigation-open" : ""}
+        aria-label="Public navigation"
+      >
+        <div className="public-nav-links">
+          <PublicSectionLink
+            href="/#about"
+            className="public-link"
+            onClick={() => setMenuOpen(false)}
+          >
+            About
+          </PublicSectionLink>
+          <PublicSectionLink
+            href="/#journey"
+            className="public-link"
+            onClick={() => setMenuOpen(false)}
+          >
+            Journey
+          </PublicSectionLink>
+          <PublicSectionLink
+            href="/#analytics"
+            className="public-link"
+            onClick={() => setMenuOpen(false)}
+          >
+            Analytics
+          </PublicSectionLink>
+          <PublicSectionLink
+            href="/#sdgs"
+            className="public-link"
+            onClick={() => setMenuOpen(false)}
+          >
+            SDGs
+          </PublicSectionLink>
+          <PublicSectionLink
+            href="/#contact"
+            className="public-link"
+            onClick={() => setMenuOpen(false)}
+          >
+            Contact
+          </PublicSectionLink>
+        </div>
+        <div className="public-nav-actions">
+          <Link href="/signin" className="button button-secondary">
+            Sign in
+          </Link>
+          <Link href="/register" className="button button-primary">
+            Create account
+          </Link>
+        </div>
+      </nav>
+      <div className="public-header-actions">
+        <ThemeControls compact />
+        <button
+          className="icon-button public-menu-toggle"
+          aria-expanded={menuOpen}
+          aria-controls="public-navigation"
+          aria-label={menuOpen ? "Close navigation" : "Open navigation"}
+          onClick={() => setMenuOpen(!menuOpen)}
+        >
+          {menuOpen ? <X /> : <Menu />}
+        </button>
       </div>
-      <div className="public-nav-actions">
-        <Link href="/signin" className="button button-secondary">Sign in</Link>
-        <Link href="/register" className="button button-primary">Create account</Link>
-      </div>
-    </nav>
-    <div className="public-header-actions">
-      <ThemeControls compact />
-      <button className="icon-button public-menu-toggle" aria-expanded={menuOpen} aria-controls="public-navigation" aria-label={menuOpen ? "Close navigation" : "Open navigation"} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
-    </div>
-  </header>;
+    </header>
+  );
 }
 
 function ContactMessageForm() {
-  const [form, setForm] = useState({ name: '', email: '', subject: '', message: '' });
-  const [notice, setNotice] = useState('');
-  const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    subject: "",
+    message: "",
+  });
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (sending) return;
-    setSending(true); setNotice(''); setError('');
+    setSending(true);
+    setNotice("");
+    setError("");
     try {
-      const response = await fetch('/api/contact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-      const result = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) throw new Error(result.error || 'Unable to send your message. Please try again.');
-      setForm({ name: '', email: '', subject: '', message: '' });
-      setNotice('Message sent to PRAXIZ support.');
+      const response = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok)
+        throw new Error(
+          result.error || "Unable to send your message. Please try again.",
+        );
+      setForm({ name: "", email: "", subject: "", message: "" });
+      setNotice("Message sent to PRAXIZ support.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Unable to send your message. Please try again.');
-    } finally { setSending(false); }
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to send your message. Please try again.",
+      );
+    } finally {
+      setSending(false);
+    }
   }
-  return <form className="contact-form" onSubmit={submit}>
-    <h3>Send us a message</h3>
-    <div className="contact-form-grid">
-      <label className="field"><span>Your name</span><input required maxLength={120} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Enter name here…" /></label>
-      <label className="field"><span>Email address</span><input required type="email" maxLength={160} value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} placeholder="Email address" /></label>
-    </div>
-    <label className="field"><span>Subject</span><input required maxLength={160} value={form.subject} onChange={event => setForm({ ...form, subject: event.target.value })} placeholder="Subject" /></label>
-    <label className="field"><span>Message</span><textarea required minLength={10} maxLength={5000} value={form.message} onChange={event => setForm({ ...form, message: event.target.value })} placeholder="How can we help?" /></label>
-    {notice && <p className="form-success" role="status">{notice}</p>}
-    {error && <p className="form-error" role="alert"><AlertTriangle size={16} />{error}</p>}
-    <button className="button button-primary contact-submit" type="submit" disabled={sending}>{sending ? 'Sending…' : 'Send message'} <Send size={17} /></button>
-    <small className="contact-form-note">Messages are delivered securely to the protected PRAXIZ support inbox.</small>
-  </form>;
+  return (
+    <form className="contact-form" onSubmit={submit}>
+      <h3>Send us a message</h3>
+      <div className="contact-form-grid">
+        <label className="field">
+          <span>Your name</span>
+          <input
+            required
+            maxLength={120}
+            value={form.name}
+            onChange={(event) => setForm({ ...form, name: event.target.value })}
+            placeholder="Enter name here…"
+          />
+        </label>
+        <label className="field">
+          <span>Email address</span>
+          <input
+            required
+            type="email"
+            maxLength={160}
+            value={form.email}
+            onChange={(event) =>
+              setForm({ ...form, email: event.target.value })
+            }
+            placeholder="Email address"
+          />
+        </label>
+      </div>
+      <label className="field">
+        <span>Subject</span>
+        <input
+          required
+          maxLength={160}
+          value={form.subject}
+          onChange={(event) =>
+            setForm({ ...form, subject: event.target.value })
+          }
+          placeholder="Subject"
+        />
+      </label>
+      <label className="field">
+        <span>Message</span>
+        <textarea
+          required
+          minLength={10}
+          maxLength={5000}
+          value={form.message}
+          onChange={(event) =>
+            setForm({ ...form, message: event.target.value })
+          }
+          placeholder="How can we help?"
+        />
+      </label>
+      {notice && (
+        <p className="form-success" role="status">
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          <AlertTriangle size={16} />
+          {error}
+        </p>
+      )}
+      <button
+        className="button button-primary contact-submit"
+        type="submit"
+        disabled={sending}
+      >
+        {sending ? "Sending…" : "Send message"} <Send size={17} />
+      </button>
+      <small className="contact-form-note">
+        Messages are delivered securely to the protected PRAXIZ support inbox.
+      </small>
+    </form>
+  );
 }
 
 function ContactSection() {
-  return <section className="landing-contact" id="contact">
-    <div className="contact-heading"><span className="eyebrow">Contact us</span><h2>Get in touch with PRAXIZ.</h2><p>Have questions, feedback, or access concerns? Send a message and the PRAXIZ team will get back to you.</p></div>
-    <div className="contact-content">
-      <div className="contact-details"><Logo /><h3>Contact information</h3><a className="contact-email" href="mailto:praxiz.official@gmail.com">praxiz.official@gmail.com</a><p>Partido State University<br />PRAXIZ Internship Monitoring Platform</p><Link className="button button-light" href="/forgot-password">Recover access</Link></div>
-      <ContactMessageForm />
-    </div>
-  </section>;
+  return (
+    <section className="landing-contact" id="contact">
+      <div className="contact-heading">
+        <span className="eyebrow">Contact us</span>
+        <h2>Get in touch with PRAXIZ.</h2>
+        <p>
+          Have questions, feedback, or access concerns? Send a message and the
+          PRAXIZ team will get back to you.
+        </p>
+      </div>
+      <div className="contact-content">
+        <div className="contact-details">
+          <Logo />
+          <h3>Contact information</h3>
+          <a className="contact-email" href="mailto:praxiz.official@gmail.com">
+            praxiz.official@gmail.com
+          </a>
+          <p>
+            Partido State University
+            <br />
+            PRAXIZ Internship Monitoring Platform
+          </p>
+          <Link className="button button-light" href="/forgot-password">
+            Recover access
+          </Link>
+        </div>
+        <ContactMessageForm />
+      </div>
+    </section>
+  );
 }
 
 function PublicFooter() {
-  return <footer className="landing-footer"><div className="landing-footer-placeholder"><span className="landing-footer-credit">© 2026 Partido State University · PRAXIZ. All rights reserved.</span><nav aria-label="Footer navigation"><PublicSectionLink href="/#about">About</PublicSectionLink><PublicSectionLink href="/#journey">Journey</PublicSectionLink><PublicSectionLink href="/#analytics">Analytics</PublicSectionLink><PublicSectionLink href="/#sdgs">SDGs</PublicSectionLink><PublicSectionLink href="/#contact">Contact</PublicSectionLink><Link href="/privacy">Privacy Policy</Link><Link href="/terms">Terms of Service</Link><Link href="/signin">Sign in</Link></nav></div></footer>;
+  return (
+    <footer className="landing-footer">
+      <div className="landing-footer-placeholder">
+        <span className="landing-footer-credit">
+          © 2026 Partido State University · PRAXIZ. All rights reserved.
+        </span>
+        <nav aria-label="Footer navigation">
+          <PublicSectionLink href="/#about">About</PublicSectionLink>
+          <PublicSectionLink href="/#journey">Journey</PublicSectionLink>
+          <PublicSectionLink href="/#analytics">Analytics</PublicSectionLink>
+          <PublicSectionLink href="/#sdgs">SDGs</PublicSectionLink>
+          <PublicSectionLink href="/#contact">Contact</PublicSectionLink>
+          <Link href="/privacy">Privacy Policy</Link>
+          <Link href="/terms">Terms of Service</Link>
+          <Link href="/signin">Sign in</Link>
+        </nav>
+      </div>
+    </footer>
+  );
 }
 
 function LandingPage() {
@@ -572,10 +900,15 @@ function LandingPage() {
                   className={`analytics-source-line source-${index}`}
                   pathLength="1"
                   key={y}
-                  d={`M 0 ${y} C 45 ${y}, 52 120, 100 120`}
-                  markerEnd="url(#analytics-arrow)"
+                  d={`M 0 ${y} C 38 ${y}, 48 120, 78 120`}
                 />
               ))}
+              <path
+                className="analytics-final-line"
+                pathLength="1"
+                d="M 78 120 L 100 120"
+                markerEnd="url(#analytics-arrow)"
+              />
             </svg>
             <div className="analytics-interpretation">
               <ChartNoAxesCombined size={28} />
@@ -626,9 +959,7 @@ function LandingPage() {
             </p>
           </div>
           <div className="sdg-grid">
-            <article
-              className="sdg-four"
-            >
+            <article className="sdg-four">
               <Image
                 unoptimized
                 src="/sdgs/sdg-4.png"
@@ -644,9 +975,7 @@ function LandingPage() {
                 </p>
               </div>
             </article>
-            <article
-              className="sdg-nine"
-            >
+            <article className="sdg-nine">
               <Image
                 unoptimized
                 src="/sdgs/sdg-9.png"
@@ -662,9 +991,7 @@ function LandingPage() {
                 </p>
               </div>
             </article>
-            <article
-              className="sdg-seventeen"
-            >
+            <article className="sdg-seventeen">
               <Image
                 unoptimized
                 src="/sdgs/sdg-17.png"
@@ -703,6 +1030,16 @@ function LandingPage() {
               <strong>HTE Representative</strong>
               <p>Reviews assigned interns and evaluates performance.</p>
             </article>
+            <article>
+              <ShieldCheck />
+              <strong>Placement Head</strong>
+              <p>Oversees placements, compliance, and institutional insight.</p>
+            </article>
+            <article>
+              <Settings />
+              <strong>System Administrator</strong>
+              <p>Maintains authorized accounts, terms, and platform policy.</p>
+            </article>
           </div>
         </section>
         <ContactSection />
@@ -713,36 +1050,90 @@ function LandingPage() {
 }
 
 function ContactPage() {
-  return <div className="landing contact-page"><PublicHeader /><main><ContactSection /></main><PublicFooter /></div>;
+  return (
+    <div className="landing contact-page">
+      <PublicHeader />
+      <main>
+        <ContactSection />
+      </main>
+      <PublicFooter />
+    </div>
+  );
 }
 
-function AuthAside({ title, copy, children }: { title: string; copy: string; children?: ReactNode }) {
+function AuthAside({
+  title,
+  copy,
+  children,
+}: {
+  title: string;
+  copy: string;
+  children?: ReactNode;
+}) {
   return (
     <aside className="auth-aside">
       <ThemeControls compact />
-      <Link href="/" className="back-link"><ArrowLeft size={17} /> Back to welcome</Link>
+      <Link href="/" className="back-link">
+        <ArrowLeft size={17} /> Back to welcome
+      </Link>
       <Logo />
-      <div className="auth-aside-copy"><h1>{title}</h1><p>{copy}</p>{children}</div>
-      <div className="security-notes"><span><LockKeyhole size={16} /> Secure PSU authentication</span><span><ShieldCheck size={16} /> Role-based dashboard access</span><span><Activity size={16} /> Verified-data analytics foundation</span></div>
+      <div className="auth-aside-copy">
+        <h1>{title}</h1>
+        <p>{copy}</p>
+        {children}
+      </div>
+      <div className="security-notes">
+        <span>
+          <LockKeyhole size={16} /> Secure PSU authentication
+        </span>
+        <span>
+          <ShieldCheck size={16} /> Role-based dashboard access
+        </span>
+        <span>
+          <Activity size={16} /> Verified-data analytics foundation
+        </span>
+      </div>
     </aside>
   );
 }
 
-function CompactAuthPage({ children, cardClassName = "" }: { children: ReactNode; cardClassName?: string }) {
-  return <div className="auth-page auth-page-compact">
-    <div className="auth-compact-header"><Link href="/" aria-label="PRAXIZ home"><Logo /></Link><ThemeControls compact /></div>
-    <main className="auth-main auth-compact-main">
-      <div className={`auth-form-wrap auth-card ${cardClassName}`.trim()}>{children}</div>
-    </main>
-  </div>;
+function CompactAuthPage({
+  children,
+  cardClassName = "",
+}: {
+  children: ReactNode;
+  cardClassName?: string;
+}) {
+  return (
+    <div className="auth-page auth-page-compact">
+      <div className="auth-compact-header">
+        <Link href="/" aria-label="PRAXIZ home">
+          <Logo />
+        </Link>
+        <ThemeControls compact />
+      </div>
+      <main className="auth-main auth-compact-main">
+        <div className={`auth-form-wrap auth-card ${cardClassName}`.trim()}>
+          {children}
+        </div>
+      </main>
+    </div>
+  );
 }
 
 function SignInPage() {
   const { signIn } = useAuth();
-  const [email, setEmail] = useState(() => typeof window === "undefined" ? "" : localStorage.getItem("praxiz-remembered-email") ?? "");
-  const [rememberEmail, setRememberEmail] = useState(() => typeof window !== "undefined" && Boolean(localStorage.getItem("praxiz-remembered-email")));
+  const [email, setEmail] = useState(() =>
+    typeof window === "undefined"
+      ? ""
+      : (localStorage.getItem("praxiz-remembered-email") ?? ""),
+  );
+  const [rememberEmail, setRememberEmail] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      Boolean(localStorage.getItem("praxiz-remembered-email")),
+  );
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -755,7 +1146,11 @@ function SignInPage() {
     setLoading(true);
     setError("");
     try {
-      if (rememberEmail) localStorage.setItem("praxiz-remembered-email", email.trim().toLowerCase());
+      if (rememberEmail)
+        localStorage.setItem(
+          "praxiz-remembered-email",
+          email.trim().toLowerCase(),
+        );
       else localStorage.removeItem("praxiz-remembered-email");
       const account = await signIn(email, password);
       window.location.href = `/${account.role}/dashboard`;
@@ -767,18 +1162,70 @@ function SignInPage() {
 
   return (
     <CompactAuthPage>
-          <Link href="/" className="auth-card-back"><ArrowLeft size={17} /> Back to PRAXIZ</Link>
-          <span className="eyebrow dark">Secure access</span>
-          <div className="auth-title-row"><h2>Sign in</h2></div><p className="form-intro">Enter your credentials. PRAXIZ will identify your active role and open the correct workspace automatically.</p>
-          <form onSubmit={submit} noValidate>
-            <label className="field"><span>Email address</span><input name="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Enter your registered email" /></label>
-            <label className="field"><span>Password <Link href="/forgot-password">Forgot password?</Link></span><span className="password-input"><input name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" /><button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={19} /> : <Eye size={19} />}</button></span></label>
-            <label className="remember-row"><input type="checkbox" checked={rememberEmail} onChange={(event) => setRememberEmail(event.target.checked)} /> <span>Remember my email on this device</span></label>
-            {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-            <ActionButton type="submit" loading={loading}>{loading ? "Recognizing account…" : "Sign in to PRAXIZ"}</ActionButton>
-          </form>
-          <div className="auth-help-group"><p className="auth-switch">Eligible Student Intern? <Link href="/register">Create account</Link></p>
-          <p className="secure-form-note"><ShieldCheck size={16} aria-hidden="true" /><span>Authentication and role access are verified by Supabase.</span></p></div>
+      <Link href="/" className="auth-card-back">
+        <ArrowLeft size={17} /> Back to PRAXIZ
+      </Link>
+      <span className="eyebrow dark">Secure access</span>
+      <div className="auth-title-row">
+        <h2>Sign in</h2>
+      </div>
+      <p className="form-intro">
+        Enter your credentials. PRAXIZ will identify your active role and open
+        the correct workspace automatically.
+      </p>
+      <form onSubmit={submit} noValidate>
+        <label className="field">
+          <span>Email address</span>
+          <input
+            name="email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="Enter your registered email"
+          />
+        </label>
+        <div className="field">
+          <span>
+            <label htmlFor="signin-password">Password</label>{" "}
+            <Link href="/forgot-password">Forgot password?</Link>
+          </span>
+          <PasswordInput
+            id="signin-password"
+            name="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Enter your password"
+          />
+        </div>
+        <label className="remember-row">
+          <input
+            aria-label="Remember my email on this device"
+            type="checkbox"
+            checked={rememberEmail}
+            onChange={(event) => setRememberEmail(event.target.checked)}
+          />{" "}
+          <span>Remember my email on this device</span>
+        </label>
+        {error && (
+          <p className="form-error">
+            <AlertTriangle size={16} /> {error}
+          </p>
+        )}
+        <ActionButton type="submit" loading={loading}>
+          {loading ? "Recognizing account…" : "Sign in to PRAXIZ"}
+        </ActionButton>
+      </form>
+      <div className="auth-help-group">
+        <p className="auth-switch">
+          Eligible Student Intern? <Link href="/register">Create account</Link>
+        </p>
+        <p className="secure-form-note">
+          <ShieldCheck size={16} aria-hidden="true" />
+          <span>Your credentials and authorized role are verified securely.</span>
+        </p>
+      </div>
     </CompactAuthPage>
   );
 }
@@ -802,25 +1249,86 @@ function ForgotPasswordPage() {
       setLoading(false);
     }
   }
-  return <CompactAuthPage cardClassName="auth-card-recovery">
-    <Link href="/" className="auth-card-back"><ArrowLeft size={17} /> Back to PRAXIZ</Link>
-    <span className="eyebrow dark">Account recovery</span>
-    <h2>Forgot password</h2>
-    <p className="form-intro">Enter your registered email address and we&apos;ll send you a secure password reset link if the account exists.</p>
-    {submitted ? <div className="inline-success" role="status"><CheckCircle2 /><div><strong>Check your email</strong><p>If the address is registered, its secure password-reset link is on the way.</p></div></div> : <form onSubmit={submit}><label className="field"><span>Email address</span><input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Enter your registered email" /></label>{error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}<ActionButton type="submit" loading={loading}>{loading ? "Sending…" : "Request reset link"}</ActionButton></form>}
-    <p className="auth-switch"><Link href="/signin">Return to sign in</Link></p>
-    <p className="secure-form-note"><ShieldCheck size={16} aria-hidden="true" /><span>Reset requests use secure Supabase authentication.</span></p>
-  </CompactAuthPage>;
+  return (
+    <CompactAuthPage cardClassName="auth-card-recovery">
+      <Link href="/" className="auth-card-back">
+        <ArrowLeft size={17} /> Back to PRAXIZ
+      </Link>
+      <span className="eyebrow dark">Account recovery</span>
+      <h2>Forgot password</h2>
+      <p className="form-intro">
+        Enter your registered email address and we&apos;ll send you a secure
+        password reset link if the account exists.
+      </p>
+      {submitted ? (
+        <div className="inline-success" role="status">
+          <CheckCircle2 />
+          <div>
+            <strong>Open your email inbox</strong>
+            <p>
+              If the address is registered, its secure password-reset link is on
+              the way.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={submit}>
+          <label className="field">
+            <span>Email address</span>
+            <input
+              required
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="Enter your registered email"
+            />
+          </label>
+          {error && (
+            <p className="form-error" role="alert">
+              <AlertTriangle size={16} /> {error}
+            </p>
+          )}
+          <ActionButton type="submit" loading={loading}>
+            {loading ? "Sending…" : "Request reset link"}
+          </ActionButton>
+        </form>
+      )}
+      <p className="auth-switch">
+        <Link href="/signin">Return to sign in</Link>
+      </p>
+      <p className="secure-form-note">
+        <ShieldCheck size={16} aria-hidden="true" />
+        <span>Password recovery links are securely verified before use.</span>
+      </p>
+    </CompactAuthPage>
+  );
 }
 
 function ResetPasswordPage() {
-  const { updatePassword } = useAuth();
+  const { updatePassword, validatePasswordRecovery } = useAuth();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [complete, setComplete] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [recoveryState, setRecoveryState] = useState<"checking" | "ready" | "invalid">("checking");
+
+  useEffect(() => {
+    let active = true;
+    void validatePasswordRecovery()
+      .then(() => {
+        if (active) setRecoveryState("ready");
+      })
+      .catch((reason) => {
+        if (!active) return;
+        setError(userError(reason, "This password link cannot be used."));
+        setRecoveryState("invalid");
+      });
+    return () => {
+      active = false;
+    };
+  }, [validatePasswordRecovery]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -846,25 +1354,79 @@ function ResetPasswordPage() {
 
   return (
     <div className="auth-page">
-      <AuthAside title="Choose a new password." copy="Finish recovering your verified PRAXIZ account securely." />
+      <AuthAside
+        title="Choose a new password."
+        copy="Finish recovering your verified PRAXIZ account securely."
+      />
       <main className="auth-main">
         <div className="auth-form-wrap">
           <span className="eyebrow dark">Account recovery</span>
           <h2>Set new password</h2>
-          {complete ? (
+          {recoveryState === "checking" ? (
+            <div className="workspace-loading-content" role="status" aria-live="polite">
+              <PraxizLoaderMark />
+              <p>Verifying your secure password link…</p>
+            </div>
+          ) : recoveryState === "invalid" ? (
+            <div className="auth-recovery-invalid" role="alert">
+              <AlertTriangle aria-hidden="true" />
+              <div>
+                <strong>This password link cannot be used</strong>
+                <p>{error}</p>
+                <Link className="button button-primary" href="/forgot-password">Request a new link</Link>
+              </div>
+            </div>
+          ) : complete ? (
             <>
-              <div className="inline-success"><CheckCircle2 /><div><strong>Password updated</strong><p>You can now sign in using your new password.</p></div></div>
-              <Link className="button button-primary" href="/signin">Continue to sign in</Link>
+              <div className="inline-success">
+                <CheckCircle2 />
+                <div>
+                  <strong>Password updated</strong>
+                  <p>You can now sign in using your new password.</p>
+                </div>
+              </div>
+              <Link className="button button-primary" href="/signin">
+                Continue to sign in
+              </Link>
             </>
           ) : (
             <form onSubmit={submit} noValidate>
-              <label className="field"><span>New password</span><span className="password-input"><input required minLength={8} type={showPassword ? "text" : "password"} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter at least 8 characters" /><button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={19} /> : <Eye size={19} />}</button></span></label>
-              <label className="field"><span>Confirm new password</span><input required minLength={8} type={showPassword ? "text" : "password"} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Re-enter your new password" /></label>
-              {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-              <ActionButton type="submit" disabled={loading}>{loading ? "Updating…" : "Update password"}</ActionButton>
+              <PasswordInput
+                label="New password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Enter at least 8 characters"
+                showPolicy
+              />
+              <PasswordInput
+                label="Confirm new password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                placeholder="Re-enter your new password"
+                matchValue={password}
+                showPolicy
+              />
+              {error && (
+                <p className="form-error">
+                  <AlertTriangle size={16} /> {error}
+                </p>
+              )}
+              <ActionButton type="submit" disabled={loading}>
+                {loading ? "Updating…" : "Update password"}
+              </ActionButton>
             </form>
           )}
-          {!complete && <p className="auth-switch"><Link href="/forgot-password">Request another reset link</Link></p>}
+          {!complete && recoveryState === "ready" && (
+            <p className="auth-switch">
+              <Link href="/forgot-password">Request another reset link</Link>
+            </p>
+          )}
         </div>
       </main>
     </div>
@@ -873,7 +1435,15 @@ function ResetPasswordPage() {
 
 type ProgramChoice = { id: string; code: string; name: string };
 
-function ProgramMultiSelect({ options, value, onChange }: { options: ProgramChoice[]; value: string[]; onChange: (value: string[]) => void }) {
+function ProgramMultiSelect({
+  options,
+  value,
+  onChange,
+}: {
+  options: ProgramChoice[];
+  value: string[];
+  onChange: (value: string[]) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const root = useRef<HTMLDivElement>(null);
@@ -882,32 +1452,182 @@ function ProgramMultiSelect({ options, value, onChange }: { options: ProgramChoi
   useEffect(() => {
     if (!open) return;
     searchInput.current?.focus();
-    const dismiss = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const dismiss = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && root.current?.contains(document.activeElement)) {
-        event.preventDefault(); setOpen(false); trigger.current?.focus();
+      if (
+        event.key === "Escape" &&
+        root.current?.contains(document.activeElement)
+      ) {
+        event.preventDefault();
+        setOpen(false);
+        trigger.current?.focus();
       }
     };
     document.addEventListener("pointerdown", dismiss);
     document.addEventListener("keydown", escape);
-    return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", escape); };
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", escape);
+    };
   }, [open]);
-  function close() { setOpen(false); trigger.current?.focus(); }
+  function close() {
+    setOpen(false);
+    trigger.current?.focus();
+  }
   const selected = options.filter((option) => value.includes(option.id));
-  const visible = options.filter((option) => `${option.code} ${option.name}`.toLowerCase().includes(search.trim().toLowerCase()));
-  function toggle(id: string) { onChange(value.includes(id) ? value.filter((item) => item !== id) : [...value, id]); }
-  return <div ref={root} className="program-multiselect">
-    <div className="program-selection" role="group" aria-label="Selected programs">
-      {selected.length ? selected.map((program) => <span className="program-chip" key={program.id}>{program.code} — {program.name}<button type="button" aria-label={`Remove ${program.code}`} onClick={() => { toggle(program.id); trigger.current?.focus(); }}><X size={13} /></button></span>) : <span className="program-placeholder">Select one or more programs…</span>}
-      <button ref={trigger} type="button" disabled={!options.length} className="program-picker-trigger" aria-controls="program-picker-options" aria-expanded={open} onClick={() => setOpen((current) => !current)}>{selected.length ? `${selected.length} program${selected.length === 1 ? "" : "s"} selected` : "Choose programs"}</button>
+  const visible = options.filter((option) =>
+    `${option.code} ${option.name}`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase()),
+  );
+  function toggle(id: string) {
+    onChange(
+      value.includes(id) ? value.filter((item) => item !== id) : [...value, id],
+    );
+  }
+  return (
+    <div ref={root} className="program-multiselect">
+      <div
+        className="program-selection"
+        role="group"
+        aria-label="Selected programs"
+      >
+        {selected.length ? (
+          selected.map((program) => (
+            <span className="program-chip" key={program.id}>
+              {program.code} — {program.name}
+              <button
+                type="button"
+                aria-label={`Remove ${program.code}`}
+                onClick={() => {
+                  toggle(program.id);
+                  trigger.current?.focus();
+                }}
+              >
+                <X size={13} />
+              </button>
+            </span>
+          ))
+        ) : (
+          <span className="program-placeholder">
+            Select one or more programs…
+          </span>
+        )}
+        <button
+          ref={trigger}
+          type="button"
+          disabled={!options.length}
+          className="program-picker-trigger"
+          aria-controls="program-picker-options"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+        >
+          {selected.length
+            ? `${selected.length} program${selected.length === 1 ? "" : "s"} selected`
+            : "Choose programs"}
+        </button>
+      </div>
+      {open && (
+        <div
+          id="program-picker-options"
+          className="program-picker"
+          role="group"
+          aria-label="Choose programs"
+        >
+          <label className="program-search" htmlFor="program-search-input">
+            <Search size={16} aria-hidden="true" />
+            <span className="sr-only">Search programs</span>
+            <input
+              ref={searchInput}
+              id="program-search-input"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search programs…"
+            />
+          </label>
+          <div className="program-options">
+            {visible.map((program) => (
+              <label className="program-option" key={program.id}>
+                <input
+                  aria-label={`${program.code} ${program.name}`}
+                  type="checkbox"
+                  checked={value.includes(program.id)}
+                  onChange={() => toggle(program.id)}
+                />
+                <span>
+                  <strong>{program.code}</strong>
+                  <small>{program.name}</small>
+                </span>
+              </label>
+            ))}
+            {visible.length === 0 && (
+              <p className="table-empty" role="status">
+                No programs match this search.
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            className="button button-secondary program-picker-done"
+            onClick={close}
+          >
+            Done
+          </button>
+        </div>
+      )}
+      {value.map((id) => (
+        <input type="hidden" name="program_ids" value={id} key={id} />
+      ))}
+      <input
+        type="hidden"
+        name="program_names"
+        value={JSON.stringify(
+          selected.map((program) => `${program.code} — ${program.name}`),
+        )}
+      />
     </div>
-    {open && <div id="program-picker-options" className="program-picker" role="group" aria-label="Choose programs"><label className="program-search" htmlFor="program-search-input"><Search size={16} aria-hidden="true" /><span className="sr-only">Search programs</span><input ref={searchInput} id="program-search-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search programs…" /></label><div className="program-options">{visible.map((program) => <label className="program-option" key={program.id}><input aria-label={`${program.code} ${program.name}`} type="checkbox" checked={value.includes(program.id)} onChange={() => toggle(program.id)} /><span><strong>{program.code}</strong><small>{program.name}</small></span></label>)}{visible.length === 0 && <p className="table-empty" role="status">No programs match this search.</p>}</div><button type="button" className="button button-secondary program-picker-done" onClick={close}>Done</button></div>}
-    {value.map((id) => <input type="hidden" name="program_ids" value={id} key={id} />)}
-    <input type="hidden" name="program_names" value={JSON.stringify(selected.map((program) => `${program.code} — ${program.name}`))} />
-  </div>;
+  );
 }
 
-function RegistrationFields({ accountRole }: { accountRole: RoleId }) {
+type StudentRegistrationSummary = {
+  studentNumber: string;
+  program: string;
+  yearSection: string;
+  academicTerm: string;
+  email: string;
+};
+
+function RegistrationSectionHeader({
+  number,
+  title,
+  description,
+}: {
+  number: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="registration-section-heading">
+      <span aria-hidden="true">{number}</span>
+      <div>
+        <h3>{title}</h3>
+        <small>{description}</small>
+      </div>
+    </div>
+  );
+}
+
+function RegistrationFields({
+  accountRole,
+  onValidityChange,
+  onSummaryChange,
+}: {
+  accountRole: RoleId;
+  onValidityChange?: (valid: boolean, reason: string) => void;
+  onSummaryChange?: (summary: StudentRegistrationSummary) => void;
+}) {
   const isHte = accountRole === "hte";
   const isStudent = accountRole === "student";
   const hasProgramScope = isStudent || accountRole === "coordinator";
@@ -915,41 +1635,543 @@ function RegistrationFields({ accountRole }: { accountRole: RoleId }) {
   const [collegeId, setCollegeId] = useState("");
   const [programId, setProgramId] = useState("");
   const [programIds, setProgramIds] = useState<string[]>([]);
-  const [registrationOptions, setRegistrationOptions] = useState<Awaited<ReturnType<typeof institutionalService.loadRegistrationInstitutionalOptions>> | null>(null);
+  const [fullName, setFullName] = useState("");
+  const [studentNumber, setStudentNumber] = useState("");
+  const [institutionalEmail, setInstitutionalEmail] = useState("");
+  const [yearLevel, setYearLevel] = useState("");
+  const [section, setSection] = useState("");
+  const [academicTermId, setAcademicTermId] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [registrationOptions, setRegistrationOptions] = useState<Awaited<
+    ReturnType<typeof institutionalService.loadRegistrationInstitutionalOptions>
+  > | null>(null);
   const [institutionalError, setInstitutionalError] = useState("");
 
   useEffect(() => {
     let active = true;
-    void institutionalService.loadRegistrationInstitutionalOptions().then((items) => {
-      if (active) setRegistrationOptions(items);
-    }).catch(() => {
-      if (active) setInstitutionalError("Institutional options could not be loaded. Please try again.");
-    });
-    return () => { active = false; };
+    void institutionalService
+      .loadRegistrationInstitutionalOptions()
+      .then((items) => {
+        if (active) setRegistrationOptions(items);
+      })
+      .catch(() => {
+        if (active)
+          setInstitutionalError(
+            "Institutional options could not be loaded. Please try again.",
+          );
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const campusOptions = registrationOptions?.campuses ?? [];
-  const collegeOptions = registrationOptions ? unitsForCampus(registrationOptions.units, campusId).map((unit) => ({ id: unit.id, campusId, name: unit.name, shortName: unit.shortName ?? unit.name })) : [];
-  const programOptions = registrationOptions ? programsForCollege(registrationOptions.units, registrationOptions.programs, collegeId).map((program) => ({ id: program.id, collegeId: program.owningOrgUnitId, code: program.code, name: program.name })) : [];
+  const collegeOptions = useMemo(
+    () =>
+      registrationOptions
+        ? unitsForCampus(registrationOptions.units, campusId).map((unit) => ({
+            id: unit.id,
+            campusId,
+            name: unit.name,
+            shortName: unit.shortName ?? unit.name,
+          }))
+        : [],
+    [campusId, registrationOptions],
+  );
+  const programOptions = useMemo(
+    () =>
+      registrationOptions
+        ? programsForCollege(
+            registrationOptions.units,
+            registrationOptions.programs,
+            collegeId,
+          ).map((program) => ({
+            id: program.id,
+            collegeId: program.owningOrgUnitId,
+            code: program.code,
+            name: program.name,
+          }))
+        : [],
+    [collegeId, registrationOptions],
+  );
+  const emailValidation = validateInstitutionalEmail(
+    institutionalEmail,
+    studentNumber,
+  );
+  const selectedProgram = programOptions.find(
+    (program) => program.id === programId,
+  );
+  const selectedTerm = registrationOptions?.terms.find(
+    (term) => term.id === academicTermId,
+  );
+  const studentFormValid = Boolean(
+    fullName.trim().length >= 3 &&
+      studentNumber.trim() &&
+      emailValidation.valid &&
+      campusId &&
+      collegeId &&
+      programId &&
+      ["3", "4"].includes(yearLevel) &&
+      section &&
+      academicTermId &&
+      password.length >= 8 &&
+      password === confirmPassword,
+  );
+  const registrationYearLevels = STUDENT_YEAR_LEVEL_OPTIONS.filter(
+    (year) => year === 3 || year === 4,
+  );
 
-  return <>
-    <div className="two-fields"><label className="field"><span>{isHte ? "Organization / company name" : "Full name"} *</span><input required name={isHte ? "organizationName" : "fullName"} placeholder={isHte ? "e.g. TechSouth Philippines, Inc." : "e.g. Maria B. Santos"} /></label><label className="field"><span>{isStudent ? "Student number" : isHte ? "Representative full name" : "Employee number"} *</span><input required name={isStudent ? "studentNumber" : isHte ? "representativeName" : "employeeNumber"} placeholder={isStudent ? "e.g. 2023-00123" : isHte ? "e.g. Allan D. Maraña" : "Enter official identifier"} /></label></div>
-    {isHte && <div className="two-fields"><label className="field"><span>Position / title *</span><input required name="position" placeholder="e.g. OJT Supervisor" /></label><label className="field"><span>Contact number *</span><input required name="contactNumber" inputMode="tel" placeholder="e.g. +63 9XX XXX XXXX" /></label></div>}
-    <label className="field"><span>{isStudent ? "Institutional email" : "Official email address"} *</span><input required name="email" type="email" autoComplete="email" placeholder={isStudent ? "studentid.pbox@parsu.edu.ph" : "name@organization.edu.ph"} /></label>
-    {!isHte && <><div className="two-fields"><label className="field"><span>Campus *</span><select required name="campusId" value={campusId} disabled={!registrationOptions} onChange={(event) => { setCampusId(event.target.value); setCollegeId(""); setProgramId(""); setProgramIds([]); }}><option value="" disabled>{registrationOptions ? "Select campus" : "Loading institutional options..."}</option>{campusOptions.map((campus) => <option key={campus.id} value={campus.id}>{campus.shortName}</option>)}</select></label><label className="field"><span>College / academic unit *</span><select required name="collegeId" value={collegeId} disabled={!campusId} onChange={(event) => { setCollegeId(event.target.value); setProgramId(""); setProgramIds([]); }}><option value="" disabled>Select college or unit</option>{collegeOptions.map((college) => <option key={college.id} value={college.id}>{college.name}</option>)}</select></label></div>{hasProgramScope && <><div className={isStudent ? "two-fields" : "coordinator-program-field"}><div className="field"><span id="registration-program-label">{isStudent ? "Program / course" : "Programs handled"} *</span>{isStudent ? <select aria-labelledby="registration-program-label" required name="programId" value={programId} disabled={!collegeId} onChange={(event) => setProgramId(event.target.value)}><option value="" disabled>Select program</option>{programOptions.map((program) => <option key={program.id} value={program.id}>{program.code} — {program.name}</option>)}</select> : <ProgramMultiSelect options={programOptions} value={programIds} onChange={setProgramIds} />}</div></div>{isStudent && <><div className="two-fields"><label className="field"><span>Year level *</span><select required name="yearLevel" defaultValue=""><option value="" disabled>Select year level</option>{STUDENT_YEAR_LEVEL_OPTIONS.map((year) => <option key={year} value={year}>Year {year}</option>)}</select></label><label className="field"><span>Section *</span><select required name="section" defaultValue=""><option value="" disabled>Select section</option>{STUDENT_SECTION_OPTIONS.map((section) => <option key={section} value={section}>Section {section}</option>)}</select></label></div><label className="field"><span>Academic term *</span><select required name="academicTermId" defaultValue="" disabled={!registrationOptions?.terms.length}><option value="" disabled>{registrationOptions?.terms.length ? "Select academic term" : "No academic term is available"}</option>{registrationOptions?.terms.map((term) => <option key={term.id} value={term.id}>{term.academicYear} · {term.term}</option>)}</select></label></>}</>}{institutionalError && <p className="form-error"><AlertTriangle size={16} /> {institutionalError}</p>}</>}
-    {isHte && <><label className="field"><span>Office address *</span><textarea required name="officeAddress" placeholder="Enter the official business address" /></label><label className="field"><span>Available internship slots *</span><input required name="availableSlots" type="number" min="1" placeholder="e.g. 5" /></label></>}
-    <div className="two-fields"><label className="field"><span>Password *</span><input required name="password" type="password" minLength={8} autoComplete="new-password" placeholder="Create a password" /></label><label className="field"><span>Confirm password *</span><input required name="confirmPassword" type="password" minLength={8} autoComplete="new-password" placeholder="Re-enter password" /></label></div>
-  </>;
+  useEffect(() => {
+    if (!isStudent) return;
+    const reason = !fullName.trim()
+      ? "Enter your full name."
+      : !studentNumber.trim()
+        ? "Enter your Student Number."
+        : !emailValidation.valid
+          ? emailValidation.error
+          : !campusId || !collegeId || !programId
+            ? "Complete Campus, College, and Program."
+            : !yearLevel || !section
+              ? "Select your Year Level and Section."
+              : !academicTermId
+                ? "No active registration term is available."
+                : password.length < 8
+                  ? "Use at least 8 characters for the password."
+                  : password !== confirmPassword
+                    ? "The passwords do not match."
+                    : "";
+    onValidityChange?.(studentFormValid, reason);
+    onSummaryChange?.({
+      studentNumber: studentNumber.trim(),
+      program: selectedProgram
+        ? `${selectedProgram.code} — ${selectedProgram.name}`
+        : "Not selected",
+      yearSection:
+        yearLevel && section ? `${yearLevel}th Year · ${section}` : "Not selected",
+      academicTerm: selectedTerm
+        ? `${selectedTerm.academicYear} · ${selectedTerm.term}`
+        : "Not available",
+      email: emailValidation.normalizedEmail,
+    });
+  }, [
+    academicTermId,
+    campusId,
+    collegeId,
+    confirmPassword,
+    emailValidation.error,
+    emailValidation.normalizedEmail,
+    emailValidation.valid,
+    fullName,
+    isStudent,
+    onSummaryChange,
+    onValidityChange,
+    password,
+    programId,
+    section,
+    selectedProgram,
+    selectedTerm,
+    studentFormValid,
+    studentNumber,
+    yearLevel,
+  ]);
+
+  useEffect(() => {
+    if (!registrationOptions?.terms.length || academicTermId) return;
+    queueMicrotask(() => setAcademicTermId(registrationOptions.terms[0].id));
+  }, [academicTermId, registrationOptions]);
+
+  return (
+    <>
+      {isStudent && (
+        <RegistrationSectionHeader
+          number="01"
+          title="Identity"
+          description="Your official student identity and PSU email"
+        />
+      )}
+      <div className="two-fields">
+        <label className="field">
+          <span>{isHte ? "Organization / company name" : "Full name"} *</span>
+          <input
+            required
+            name={isHte ? "organizationName" : "fullName"}
+            value={isStudent ? fullName : undefined}
+            onChange={
+              isStudent ? (event) => setFullName(event.target.value) : undefined
+            }
+            placeholder={
+              isHte
+                ? "e.g. TechSouth Philippines, Inc."
+                : "e.g. Maria B. Santos"
+            }
+          />
+        </label>
+        <label className="field">
+          <span>
+            {isStudent
+              ? "Student number"
+              : isHte
+                ? "Representative full name"
+                : "Employee number"}{" "}
+            *
+          </span>
+          <input
+            required
+            name={
+              isStudent
+                ? "studentNumber"
+                : isHte
+                  ? "representativeName"
+                  : "employeeNumber"
+            }
+            value={isStudent ? studentNumber : undefined}
+            onChange={
+              isStudent
+                ? (event) => setStudentNumber(event.target.value)
+                : undefined
+            }
+            placeholder={
+              isStudent
+                ? "e.g. 2023-00123"
+                : isHte
+                  ? "e.g. Allan D. Maraña"
+                  : "Enter official identifier"
+            }
+          />
+        </label>
+      </div>
+      {isHte && (
+        <div className="two-fields">
+          <label className="field">
+            <span>Position / title *</span>
+            <input required name="position" placeholder="e.g. OJT Supervisor" />
+          </label>
+          <label className="field">
+            <span>Contact number *</span>
+            <input
+              required
+              name="contactNumber"
+              inputMode="tel"
+              placeholder="e.g. +63 9XX XXX XXXX"
+            />
+          </label>
+        </div>
+      )}
+      <label className="field">
+        <span>
+          {isStudent ? "Institutional email" : "Official email address"} *
+        </span>
+        <input
+          required
+          name="email"
+          type="email"
+          autoComplete="email"
+          value={isStudent ? institutionalEmail : undefined}
+          onChange={
+            isStudent
+              ? (event) => setInstitutionalEmail(event.target.value)
+              : undefined
+          }
+          aria-invalid={
+            isStudent && institutionalEmail ? !emailValidation.valid : undefined
+          }
+          placeholder={
+            isStudent
+              ? "studentid.pbox@parsu.edu.ph"
+              : "name@organization.edu.ph"
+          }
+        />
+        {isStudent && institutionalEmail && (
+          <small
+            className={emailValidation.valid ? "field-success" : "field-error"}
+            role={emailValidation.valid ? "status" : "alert"}
+          >
+            {emailValidation.valid
+              ? "Institutional format recognized. Email ownership verification is still required."
+              : emailValidation.error}
+          </small>
+        )}
+      </label>
+      {!isHte && (
+        <>
+          {isStudent && (
+            <RegistrationSectionHeader
+              number="02"
+              title="Academic information"
+              description="Choose your academic information from the institutional hierarchy"
+            />
+          )}
+          <div className="two-fields">
+            <label className="field">
+              <span>Campus *</span>
+              <select
+                required
+                name="campusId"
+                value={campusId}
+                disabled={!registrationOptions}
+                onChange={(event) => {
+                  setCampusId(event.target.value);
+                  setCollegeId("");
+                  setProgramId("");
+                  setProgramIds([]);
+                }}
+              >
+                <option value="" disabled>
+                  {registrationOptions
+                    ? "Select campus"
+                    : "Loading institutional options..."}
+                </option>
+                {campusOptions.map((campus) => (
+                  <option key={campus.id} value={campus.id}>
+                    {campus.shortName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>College / academic unit *</span>
+              <select
+                required
+                name="collegeId"
+                value={collegeId}
+                disabled={!campusId}
+                onChange={(event) => {
+                  setCollegeId(event.target.value);
+                  setProgramId("");
+                  setProgramIds([]);
+                }}
+              >
+                <option value="" disabled>
+                  Select college or unit
+                </option>
+                {collegeOptions.map((college) => (
+                  <option key={college.id} value={college.id}>
+                    {college.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {hasProgramScope && (
+            <>
+              <div
+                className={
+                  isStudent ? "two-fields" : "coordinator-program-field"
+                }
+              >
+                <div className="field">
+                  <span id="registration-program-label">
+                    {isStudent ? "Program / course" : "Programs handled"} *
+                  </span>
+                  {isStudent ? (
+                    <select
+                      aria-labelledby="registration-program-label"
+                      required
+                      name="programId"
+                      value={programId}
+                      disabled={!collegeId}
+                      onChange={(event) => setProgramId(event.target.value)}
+                    >
+                      <option value="" disabled>
+                        Select program
+                      </option>
+                      {programOptions.map((program) => (
+                        <option key={program.id} value={program.id}>
+                          {program.code} — {program.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <ProgramMultiSelect
+                      options={programOptions}
+                      value={programIds}
+                      onChange={setProgramIds}
+                    />
+                  )}
+                </div>
+              </div>
+              {isStudent && (
+                <>
+                  <div className="two-fields">
+                    <label className="field">
+                      <span>Year level *</span>
+                      <select
+                        required
+                        name="yearLevel"
+                        value={yearLevel}
+                        onChange={(event) => setYearLevel(event.target.value)}
+                      >
+                        <option value="" disabled>
+                          Select year level
+                        </option>
+                        {registrationYearLevels.map((year) => (
+                          <option key={year} value={year}>
+                            Year {year}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Section *</span>
+                      <select
+                        required
+                        name="section"
+                        value={section}
+                        onChange={(event) => setSection(event.target.value)}
+                      >
+                        <option value="" disabled>
+                          Select section
+                        </option>
+                        {STUDENT_SECTION_OPTIONS.map((section) => (
+                          <option key={section} value={section}>
+                            Section {section}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <label className="field registration-term-field">
+                    <span>Academic term *</span>
+                    {registrationOptions?.terms.length === 1 ? (
+                      <>
+                        <input
+                          readOnly
+                          value={`${registrationOptions.terms[0].academicYear} · ${registrationOptions.terms[0].term}`}
+                        />
+                        <input
+                          type="hidden"
+                          name="academicTermId"
+                          value={academicTermId}
+                        />
+                        <small>Current active term</small>
+                      </>
+                    ) : (
+                      <select
+                        required
+                        name="academicTermId"
+                        value={academicTermId}
+                        disabled={!registrationOptions?.terms.length}
+                        onChange={(event) =>
+                          setAcademicTermId(event.target.value)
+                        }
+                      >
+                        <option value="" disabled>
+                          {registrationOptions?.terms.length
+                            ? "Select active academic term"
+                            : "No active academic term is available"}
+                        </option>
+                        {registrationOptions?.terms.map((term) => (
+                          <option key={term.id} value={term.id}>
+                            {term.academicYear} · {term.term}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </label>
+                </>
+              )}
+            </>
+          )}
+          {institutionalError && (
+            <p className="form-error">
+              <AlertTriangle size={16} /> {institutionalError}
+            </p>
+          )}
+        </>
+      )}
+      {isHte && (
+        <>
+          <label className="field">
+            <span>Office address *</span>
+            <textarea
+              required
+              name="officeAddress"
+              placeholder="Enter the official business address"
+            />
+          </label>
+          <label className="field">
+            <span>Available internship slots *</span>
+            <input
+              required
+              name="availableSlots"
+              type="number"
+              min="1"
+              placeholder="e.g. 5"
+            />
+          </label>
+        </>
+      )}
+      {isStudent && (
+        <RegistrationSectionHeader
+          number="03"
+          title="Account security"
+          description="Create the password used after email verification and account approval"
+        />
+      )}
+      <div className="two-fields">
+        <PasswordInput
+          label="Password *"
+          required
+          name="password"
+          minLength={8}
+          autoComplete="new-password"
+          placeholder="Create a password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          showPolicy
+        />
+        <PasswordInput
+          label="Confirm password *"
+          required
+          name="confirmPassword"
+          minLength={8}
+          autoComplete="new-password"
+          placeholder="Re-enter password"
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          matchValue={password}
+          showPolicy
+        />
+      </div>
+    </>
+  );
 }
 
 function RegisterPage() {
   const { register } = useAuth();
   const [agree, setAgree] = useState(false);
+  const [fieldsValid, setFieldsValid] = useState(false);
+  const [invalidReason, setInvalidReason] = useState("Complete the required fields.");
+  const [summary, setSummary] = useState<StudentRegistrationSummary>({
+    studentNumber: "",
+    program: "Not selected",
+    yearSection: "Not selected",
+    academicTerm: "Not available",
+    email: "",
+  });
+  const [pendingRegistration, setPendingRegistration] = useState<{
+    email: string;
+    password: string;
+    fullName: string;
+    fields: Record<string, string>;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  const handleValidity = useCallback((valid: boolean, reason: string) => {
+    setFieldsValid(valid);
+    setInvalidReason(reason);
+  }, []);
+  const handleSummary = useCallback((next: StudentRegistrationSummary) => {
+    setSummary(next);
+  }, []);
+
+  function prepareSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!agree) return;
+    if (!agree || !fieldsValid) {
+      setError(!agree ? "Confirm the consent statement to continue." : invalidReason);
+      return;
+    }
     const formData = new FormData(event.currentTarget);
     const password = String(formData.get("password") ?? "");
     const confirmPassword = String(formData.get("confirmPassword") ?? "");
@@ -960,59 +2182,299 @@ function RegisterPage() {
     const rawFields = Object.fromEntries(
       [...formData.entries()]
         .filter(([key]) => key !== "password" && key !== "confirmPassword")
-        .map(([key, value]) => [key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`), String(value)]),
+        .map(([key, value]) => [
+          key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
+          String(value),
+        ]),
     );
     const fullName = String(formData.get("fullName") ?? "");
+    const emailCheck = validateInstitutionalEmail(
+      String(formData.get("email") ?? ""),
+      String(formData.get("studentNumber") ?? ""),
+    );
+    if (!emailCheck.valid) {
+      setError(emailCheck.error);
+      return;
+    }
+    setError("");
+    setPendingRegistration({
+      email: emailCheck.normalizedEmail,
+      password,
+      fullName,
+      fields: rawFields,
+    });
+  }
+
+  async function submitRegistration() {
+    if (!pendingRegistration) return;
     setLoading(true);
     setError("");
     try {
-      const registrationEmail = String(formData.get("email") ?? "").trim().toLowerCase();
       await register({
-        role: 'student',
-        email: registrationEmail,
-        password,
-        fullName,
-        fields: rawFields,
+        role: "student",
+        ...pendingRegistration,
       });
-      sessionStorage.setItem("praxiz-registration-email", registrationEmail);
+      sessionStorage.setItem(
+        "praxiz-registration-email",
+        pendingRegistration.email,
+      );
       window.location.href = "/register/success";
     } catch (reason) {
       setError(userError(reason, "Registration could not be submitted."));
       setLoading(false);
+      setPendingRegistration(null);
     }
   }
   return (
     <div className="auth-page auth-page-compact registration-page">
-      <div className="auth-compact-header"><Link href="/" aria-label="PRAXIZ home"><Logo /></Link><ThemeControls compact /></div>
+      <div className="auth-compact-header">
+        <Link href="/" aria-label="PRAXIZ home">
+          <Logo />
+        </Link>
+        <ThemeControls compact />
+      </div>
       <main className="auth-main auth-compact-main registration-main">
         <div className="registration-wrap auth-card registration-card">
-          <Link href="/" className="auth-card-back"><ArrowLeft size={17} /> Back to PRAXIZ</Link>
-          <span className="eyebrow dark">Account verification</span><h2>Create Student Intern account</h2><p className="form-intro">Enter your verified institutional identity and internship program information.</p>
-          <form className="registration-form" onSubmit={submit}><div className="form-card-heading"><span className="role-dot role-student">SI</span><span><strong>Student Intern registration</strong><small>Fields marked * are required for verification</small></span></div><RegistrationFields accountRole="student" /><div className="consent"><input id="registration-consent" type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /><label htmlFor="registration-consent">I confirm the information is accurate and agree to PRAXIZ’s <Link href="/terms" target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>Terms of Service<span className="sr-only"> (opens in a new tab)</span></Link> and <Link href="/privacy" target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>Privacy Policy<span className="sr-only"> (opens in a new tab)</span></Link>.</label></div>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<ActionButton type="submit" disabled={!agree} loading={loading}>{loading ? "Creating secure account…" : "Submit Student Intern registration"}</ActionButton></form>
-          <p className="auth-switch">Already have an account? <Link href="/signin">Sign in here</Link></p>
+          <Link href="/" className="auth-card-back">
+            <ArrowLeft size={17} /> Back to PRAXIZ
+          </Link>
+          <span className="eyebrow dark">Account verification</span>
+          <h2>Create Student Intern account</h2>
+          <p className="form-intro">
+            Enter your verified institutional identity and internship program
+            information.
+          </p>
+          <form className="registration-form" onSubmit={prepareSubmit} noValidate>
+            <div className="form-card-heading">
+              <span className="role-dot role-student">SI</span>
+              <span>
+                <strong>Student Intern registration</strong>
+                <small>Fields marked * are required for verification</small>
+              </span>
+            </div>
+            <RegistrationFields
+              accountRole="student"
+              onValidityChange={handleValidity}
+              onSummaryChange={handleSummary}
+            />
+            <div className="consent">
+              <input
+                id="registration-consent"
+                type="checkbox"
+                checked={agree}
+                onChange={(e) => setAgree(e.target.checked)}
+              />
+              <label htmlFor="registration-consent">
+                I confirm the information is accurate and agree to PRAXIZ’s{" "}
+                <Link
+                  href="/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  Terms of Service
+                  <span className="sr-only"> (opens in a new tab)</span>
+                </Link>{" "}
+                and{" "}
+                <Link
+                  href="/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  Privacy Policy
+                  <span className="sr-only"> (opens in a new tab)</span>
+                </Link>
+                .
+              </label>
+            </div>
+            {error && (
+              <p className="form-error">
+                <AlertTriangle size={16} /> {error}
+              </p>
+            )}
+            {(!fieldsValid || !agree) && (
+              <p className="form-hint registration-submit-hint" role="status">
+                {!agree
+                  ? "Confirm the consent statement to enable submission."
+                  : invalidReason}
+              </p>
+            )}
+            <ActionButton
+              type="submit"
+              disabled={!agree || !fieldsValid || loading}
+              loading={loading}
+            >
+              {loading ? "Submitting…" : "Submit registration"}
+            </ActionButton>
+          </form>
+          <p className="auth-switch">
+            Already have an account? <Link href="/signin">Sign in here</Link>
+          </p>
         </div>
       </main>
+      {pendingRegistration && (
+        <Dialog
+          title="Submit registration?"
+          onClose={() => setPendingRegistration(null)}
+          protectChanges={false}
+          busy={loading}
+        >
+          <dl className="info-list registration-confirmation">
+            <div>
+              <dt>Student Number</dt>
+              <dd>{summary.studentNumber}</dd>
+            </div>
+            <div>
+              <dt>Program</dt>
+              <dd>{summary.program}</dd>
+            </div>
+            <div>
+              <dt>Year / Section</dt>
+              <dd>{summary.yearSection}</dd>
+            </div>
+            <div>
+              <dt>Academic Term</dt>
+              <dd>{summary.academicTerm}</dd>
+            </div>
+            <div>
+              <dt>Institutional Email</dt>
+              <dd>{summary.email}</dd>
+            </div>
+          </dl>
+          <p className="form-hint">
+            Supabase will send an ownership-verification email before the
+            registration can proceed to institutional review.
+          </p>
+          <div className="modal-actions">
+            <ActionButton
+              variant="secondary"
+              disabled={loading}
+              onClick={() => setPendingRegistration(null)}
+            >
+              Go back
+            </ActionButton>
+            <ActionButton
+              disabled={loading}
+              onClick={() => void submitRegistration()}
+            >
+              {loading ? "Submitting…" : "Submit registration"}
+            </ActionButton>
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 }
 
 function RegistrationSuccessPage() {
-  const [registeredEmail] = useState(() => typeof window === "undefined" ? "" : sessionStorage.getItem("praxiz-registration-email") ?? "");
+  const [registeredEmail] = useState(() =>
+    typeof window === "undefined"
+      ? ""
+      : (sessionStorage.getItem("praxiz-registration-email") ?? ""),
+  );
   const inbox = inboxLinkForEmail(registeredEmail);
-  return <div className="success-page registration-success-page"><PublicHeader /><main><span className="success-icon"><Check size={38} /></span><span className="eyebrow dark">Application received</span><h1>Registration submitted</h1><p>Your administrator will review your registration. Open your email inbox after approval for the PRAXIZ account activation confirmation.</p><div className="registration-success-actions">{inbox && <a className="button button-secondary" href={inbox.href} target="_blank" rel="noopener noreferrer">{inbox.label}<ExternalLink size={18} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>}<Link className="button button-primary" href="/signin">Back to sign in</Link></div><Link className="text-link" href="/">Return to welcome page</Link></main></div>;
+  return (
+    <div className="success-page registration-success-page">
+      <PublicHeader />
+      <main>
+        <section className="registration-success-card">
+          <span className="success-icon">
+            <Check size={38} />
+          </span>
+          <span className="eyebrow dark">Application received</span>
+          <h1>Registration submitted</h1>
+          <p>
+            Your institutional format was accepted. Confirm that you own the
+            PSU mailbox, then wait for institutional review before signing in.
+          </p>
+          <ol className="registration-success-steps">
+            <li>
+              <span>1</span>
+              <div>
+                <strong>Verify your email address</strong>
+                <small>Open the Supabase verification message sent to your PSU inbox.</small>
+              </div>
+            </li>
+            <li>
+              <span>2</span>
+              <div>
+                <strong>Institutional review</strong>
+                <small>Your verified Student Intern details remain pending until approved.</small>
+              </div>
+            </li>
+            <li>
+              <span>3</span>
+              <div>
+                <strong>Sign in after approval</strong>
+                <small>Use the same institutional email and the password you created.</small>
+              </div>
+            </li>
+          </ol>
+          <div className="registration-success-actions">
+            {inbox && (
+              <a
+                className="button button-secondary"
+                href={inbox.href}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {inbox.label}
+                <ExternalLink size={18} aria-hidden="true" />
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            )}
+            <Link className="button button-primary" href="/signin">
+              Go to sign in
+            </Link>
+          </div>
+          <Link className="text-link" href="/">
+            Return to welcome page
+          </Link>
+        </section>
+      </main>
+    </div>
+  );
 }
 
-function PageHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
-  return <div className="page-heading"><div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>{action && <div className="page-actions">{action}</div>}</div>;
+function PageHeader({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string;
+  subtitle?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="page-heading">
+      <div>
+        <h1>{title}</h1>
+        {subtitle && <p>{subtitle}</p>}
+      </div>
+      {action && <div className="page-actions">{action}</div>}
+    </div>
+  );
 }
 
-function AppShell({ role, page, children }: { role: RoleId; page: string; children: ReactNode }) {
+function AppShell({
+  role,
+  page,
+  children,
+}: {
+  role: RoleId;
+  page: string;
+  children: ReactNode;
+}) {
   const { signOut, user } = useAuth();
   const [mobileNav, setMobileNav] = useState(false);
   const [menu, setMenu] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      localStorage.getItem("praxiz-sidebar-expanded") === "true",
+  );
   const sidebarRef = useRef<HTMLElement>(null);
-  const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const [notificationError, setNotificationError] = useState("");
   const [markingRead, setMarkingRead] = useState(false);
@@ -1020,81 +2482,367 @@ function AppShell({ role, page, children }: { role: RoleId; page: string; childr
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const bellTrigger = useRef<HTMLButtonElement>(null);
   const [bellOpen, setBellOpen] = useState(false);
-  const [shellNotifications, setShellNotifications] = useState<NotificationRecord[]>([]);
+  const [shellNotifications, setShellNotifications] = useState<
+    NotificationRecord[]
+  >([]);
   const current = roles[role];
-  const visibleNavigation = current.nav.filter((item) => !['Notifications', 'System Settings', 'Profile'].includes(item.label) && (!item.permission || hasPermission(role, item.permission)));
-  const active = visibleNavigation.find((item) => item.href.endsWith(`/${page}`));
-  const title = active?.label ?? ({ settings: 'Settings', profile: 'Profile', notifications: 'Notifications' }[page] ?? 'Dashboard');
+  const visibleNavigation = current.nav.filter(
+    (item) =>
+      !["Notifications", "System Settings", "Profile"].includes(item.label) &&
+      (!item.permission || hasPermission(role, item.permission)),
+  );
+  const active = visibleNavigation.find((item) =>
+    item.href.endsWith(`/${page}`),
+  );
+  const title =
+    active?.label ??
+    {
+      settings: "Settings",
+      profile: "Profile",
+      notifications: "Notifications",
+    }[page] ??
+    "Dashboard";
   const displayName = user?.fullName ?? current.user;
 
-  function expandSidebar() { if (collapseTimer.current) clearTimeout(collapseTimer.current); setExpanded(true); }
-  function collapseSidebar() { collapseTimer.current = setTimeout(() => { if (!sidebarRef.current?.contains(document.activeElement)) setExpanded(false); }, 180); }
+  function toggleSidebar() {
+    setExpanded((currentValue) => {
+      const nextValue = !currentValue;
+      localStorage.setItem("praxiz-sidebar-expanded", String(nextValue));
+      return nextValue;
+    });
+  }
   useEffect(() => {
-    const close = (event: PointerEvent) => { if (!(event.target as HTMLElement).closest('.sidebar-account, .popover-wrap')) { setMenu(false); setBellOpen(false); } };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setMenu(false); setBellOpen(false); setMobileNav(false); if (mobileNav) document.querySelector<HTMLButtonElement>('.mobile-menu')?.focus(); else if (menu) menuTrigger.current?.focus(); else if (bellOpen) bellTrigger.current?.focus(); }
-      if (event.key === 'Tab' && mobileNav) {
-        const controls = sidebarRef.current?.querySelectorAll<HTMLElement>('a[href],button:not([disabled])');
-        const first = controls?.[0]; const last = controls?.[controls.length - 1];
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    const close = (event: PointerEvent) => {
+      if (
+        !(event.target as HTMLElement).closest(
+          ".sidebar-account, .popover-wrap",
+        )
+      ) {
+        setMenu(false);
+        setBellOpen(false);
       }
     };
-    document.addEventListener('pointerdown', close); document.addEventListener('keydown', escape);
-    if (mobileNav) sidebarRef.current?.querySelector<HTMLElement>('a')?.focus();
-    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', escape); };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenu(false);
+        setBellOpen(false);
+        setMobileNav(false);
+        if (mobileNav)
+          document.querySelector<HTMLButtonElement>(".mobile-menu")?.focus();
+        else if (menu) menuTrigger.current?.focus();
+        else if (bellOpen) bellTrigger.current?.focus();
+      }
+      if (event.key === "Tab" && mobileNav) {
+        const controls = sidebarRef.current?.querySelectorAll<HTMLElement>(
+          "a[href],button:not([disabled])",
+        );
+        const first = controls?.[0];
+        const last = controls?.[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", escape);
+    if (mobileNav) sidebarRef.current?.querySelector<HTMLElement>("a")?.focus();
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", escape);
+    };
   }, [mobileNav, menu, bellOpen]);
-  useEffect(() => () => { if (collapseTimer.current) clearTimeout(collapseTimer.current); }, []);
-  useEffect(() => { if (menu) accountMenuRef.current?.querySelector<HTMLElement>('a,button')?.focus(); }, [menu]);
+  useEffect(() => {
+    if (menu)
+      accountMenuRef.current?.querySelector<HTMLElement>("a,button")?.focus();
+  }, [menu]);
   function accountMenuKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('a[href],button:not([disabled])'));
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        "a[href],button:not([disabled])",
+      ),
+    );
     const index = items.indexOf(document.activeElement as HTMLElement);
-    if (event.key === 'Tab') { event.preventDefault(); setMenu(false); if (event.shiftKey) menuTrigger.current?.focus(); else document.querySelector<HTMLElement>('.header-actions button')?.focus(); return; }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      setMenu(false);
+      if (event.shiftKey) menuTrigger.current?.focus();
+      else
+        document.querySelector<HTMLElement>(".header-actions button")?.focus();
+      return;
+    }
     let next: number | undefined;
-    if (event.key === 'ArrowDown') next = (index + 1) % items.length;
-    if (event.key === 'ArrowUp') next = (index - 1 + items.length) % items.length;
-    if (event.key === 'Home') next = 0;
-    if (event.key === 'End') next = items.length - 1;
-    if (next !== undefined) { event.preventDefault(); items[next]?.focus(); }
+    if (event.key === "ArrowDown") next = (index + 1) % items.length;
+    if (event.key === "ArrowUp")
+      next = (index - 1 + items.length) % items.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = items.length - 1;
+    if (next !== undefined) {
+      event.preventDefault();
+      items[next]?.focus();
+    }
   }
   const unread = shellNotifications.filter((item) => item.unread).length;
   useEffect(() => {
     let activeRequest = true;
     if (user) {
-      void notificationService.listLive().then((items) => {
-        if (activeRequest) setShellNotifications(items);
-      }).catch(() => { if (activeRequest) setNotificationError('Notifications could not be loaded. Open all notifications to retry.'); });
+      void notificationService
+        .listLive()
+        .then((items) => {
+          if (activeRequest) setShellNotifications(items);
+        })
+        .catch(() => {
+          if (activeRequest)
+            setNotificationError(
+              "Notifications could not be loaded. Open all notifications to retry.",
+            );
+        });
     }
-    return () => { activeRequest = false; };
+    return () => {
+      activeRequest = false;
+    };
   }, [user]);
   async function markShellNotificationsRead() {
     if (markingRead) return;
-    setMarkingRead(true); setNotificationError('');
+    setMarkingRead(true);
+    setNotificationError("");
     try {
       await notificationService.markAllRead();
-      setShellNotifications(shellNotifications.map((item) => ({ ...item, unread: false })));
-    } catch { setNotificationError('Could not mark notifications as read. Please try again.'); }
-    finally { setMarkingRead(false); }
+      setShellNotifications(
+        shellNotifications.map((item) => ({ ...item, unread: false })),
+      );
+    } catch {
+      setNotificationError(
+        "Could not mark notifications as read. Please try again.",
+      );
+    } finally {
+      setMarkingRead(false);
+    }
   }
   return (
-    <div className="app-shell">
-      <aside ref={sidebarRef} className={`sidebar ${mobileNav ? "sidebar-open" : ""} ${expanded ? 'sidebar-expanded' : ''}`} onPointerEnter={expandSidebar} onPointerLeave={collapseSidebar} onFocusCapture={expandSidebar} onBlurCapture={collapseSidebar}>
-        <div className="sidebar-top"><Link href={`/${role}/dashboard`}><Logo /></Link><button className="sidebar-close" onClick={() => setMobileNav(false)} aria-label="Close menu"><X size={20} /></button></div>
+    <div
+      className={`app-shell ${expanded ? "app-shell-sidebar-expanded" : ""}`}
+    >
+      <aside
+        ref={sidebarRef}
+        className={`sidebar ${mobileNav ? "sidebar-open" : ""} ${expanded ? "sidebar-expanded" : ""}`}
+      >
+        <div className="sidebar-top">
+          <Link href={`/${role}/dashboard`}>
+            <Logo />
+          </Link>
+          <button
+            className="sidebar-pin"
+            onClick={toggleSidebar}
+            aria-label={expanded ? "Collapse sidebar" : "Pin sidebar open"}
+            aria-pressed={expanded}
+          >
+            {expanded ? (
+              <PanelLeftClose size={19} />
+            ) : (
+              <PanelLeftOpen size={19} />
+            )}
+          </button>
+          <button
+            className="sidebar-close"
+            onClick={() => setMobileNav(false)}
+            aria-label="Close menu"
+          >
+            <X size={20} />
+          </button>
+        </div>
         <div className="role-label">{current.label}</div>
-        <nav className="side-nav" aria-label={`${current.label} navigation`}>{visibleNavigation.map((item) => { const Icon = iconMap[item.icon] ?? Gauge; const selected = item.href.endsWith(`/${page}`); return <Link className={selected ? "active" : ""} href={item.href} key={item.href} title={item.label} aria-label={item.label} aria-current={selected ? 'page' : undefined}><Icon size={20} /><span>{item.label}</span></Link>; })}</nav>
-        <div className="sidebar-account"><button ref={menuTrigger} className="sidebar-user" onClick={() => setMenu(!menu)} aria-label={`Account menu for ${displayName}`} aria-expanded={menu} aria-controls={menu ? "account-menu" : undefined} aria-haspopup="menu"><ProfileAvatar name={displayName} path={user?.avatarPath} /><span className="sidebar-identity"><strong>{displayName}</strong><small>{current.label}</small></span><Ellipsis className="account-ellipsis" size={20} /></button>{menu && <div id="account-menu" tabIndex={-1} role="menu" aria-label="Account" ref={accountMenuRef} className="header-popover sidebar-account-menu" onKeyDown={accountMenuKeyDown} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node) && event.relatedTarget !== menuTrigger.current) setMenu(false); }}>{user?.roles.filter(availableRole => availableRole !== role).map(availableRole => <Link role="menuitem" tabIndex={-1} href={`/${availableRole}/dashboard`} key={availableRole}><ShieldCheck size={17} />{roles[availableRole].label} workspace</Link>)}<Link role="menuitem" tabIndex={-1} href={`/${role}/profile`}><UserRound size={17} />Profile</Link><Link role="menuitem" tabIndex={-1} href={`/${role}/settings`}><Settings size={17} />Settings</Link><hr /><button role="menuitem" tabIndex={-1} className="account-signout" disabled={signingOut} onClick={() => { if (signingOut) return; setSigningOut(true); void signOut().then(() => { window.location.href = '/signin'; }).catch(() => { setNotificationError('Sign out failed. Please try again.'); setSigningOut(false); }); }}><LogOut size={17} aria-hidden="true" />{signingOut ? 'Signing out…' : 'Sign out'}</button></div>}</div>
+        <nav className="side-nav" aria-label={`${current.label} navigation`}>
+          {visibleNavigation.map((item) => {
+            const Icon = iconMap[item.icon] ?? Gauge;
+            const selected = item.href.endsWith(`/${page}`);
+            return (
+              <Link
+                className={selected ? "active" : ""}
+                href={item.href}
+                key={item.href}
+                title={item.label}
+                aria-label={item.label}
+                aria-current={selected ? "page" : undefined}
+              >
+                <Icon size={20} />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="sidebar-account">
+          <button
+            ref={menuTrigger}
+            className="sidebar-user"
+            onClick={() => setMenu(!menu)}
+            aria-label={`Account menu for ${displayName}`}
+            aria-expanded={menu}
+            aria-controls={menu ? "account-menu" : undefined}
+            aria-haspopup="menu"
+          >
+            <ProfileAvatar name={displayName} path={user?.avatarPath} />
+            <span className="sidebar-identity">
+              <strong>{displayName}</strong>
+              <small>{current.label}</small>
+            </span>
+            <Ellipsis className="account-ellipsis" size={20} />
+          </button>
+          {menu && (
+            <div
+              id="account-menu"
+              tabIndex={-1}
+              role="menu"
+              aria-label="Account"
+              ref={accountMenuRef}
+              className="header-popover sidebar-account-menu"
+              onKeyDown={accountMenuKeyDown}
+              onBlur={(event) => {
+                if (
+                  !event.currentTarget.contains(event.relatedTarget as Node) &&
+                  event.relatedTarget !== menuTrigger.current
+                )
+                  setMenu(false);
+              }}
+            >
+              {user?.roles
+                .filter((availableRole) => availableRole !== role)
+                .map((availableRole) => (
+                  <Link
+                    role="menuitem"
+                    tabIndex={-1}
+                    href={`/${availableRole}/dashboard`}
+                    key={availableRole}
+                  >
+                    <ShieldCheck size={17} />
+                    {roles[availableRole].label} workspace
+                  </Link>
+                ))}
+              <Link role="menuitem" tabIndex={-1} href={`/${role}/profile`}>
+                <UserRound size={17} />
+                Profile
+              </Link>
+              <Link role="menuitem" tabIndex={-1} href={`/${role}/settings`}>
+                <Settings size={17} />
+                Settings
+              </Link>
+              <hr />
+              <button
+                role="menuitem"
+                tabIndex={-1}
+                className="account-signout"
+                disabled={signingOut}
+                onClick={() => {
+                  if (signingOut) return;
+                  setSigningOut(true);
+                  void signOut()
+                    .then(() => {
+                      window.location.href = "/signin";
+                    })
+                    .catch(() => {
+                      setNotificationError(
+                        "Sign out failed. Please try again.",
+                      );
+                      setSigningOut(false);
+                    });
+                }}
+              >
+                <LogOut size={17} aria-hidden="true" />
+                {signingOut ? "Signing out…" : "Sign out"}
+              </button>
+            </div>
+          )}
+        </div>
       </aside>
-      {mobileNav && <button className="nav-scrim" onClick={() => setMobileNav(false)} aria-label="Close navigation" />}
+      {mobileNav && (
+        <button
+          className="nav-scrim"
+          onClick={() => setMobileNav(false)}
+          aria-label="Close navigation"
+        />
+      )}
       <section className="app-area">
         <header className="app-header">
-          <button className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open menu"><Menu size={22} /></button>
-          <div className="crumb"><strong>{title}</strong><small>PRAXIZ <ChevronRight size={12} /> {title}</small></div>
+          <button
+            className="mobile-menu"
+            onClick={() => setMobileNav(true)}
+            aria-label="Open menu"
+          >
+            <Menu size={22} />
+          </button>
+          <div className="crumb">
+            <strong>{title}</strong>
+            <small>
+              PRAXIZ <ChevronRight size={12} /> {title}
+            </small>
+          </div>
           <div className="header-actions">
             <ThemeControls compact />
-            <div className="popover-wrap"><button ref={bellTrigger} className="icon-button" aria-expanded={bellOpen} aria-label={`${unread} unread notifications`} onClick={() => setBellOpen(!bellOpen)}><Bell size={21} />{unread > 0 && <b>{unread}</b>}</button>{bellOpen && <div className="header-popover notification-popover"><strong>Notifications</strong>{shellNotifications.slice(0, 3).map((item) => <Link href={item.targetPath ?? `/${role}/notifications`} key={item.id}><Bell size={16} /><span><b>{item.title}</b><small>{item.unread ? 'Unread · ' : 'Read · '}{item.time}</small></span></Link>)}{shellNotifications.length === 0 && !notificationError && <small className="notification-empty">No notifications yet.</small>}{notificationError && <p role="alert" className="form-error">{notificationError}</p>}{unread > 0 && <button disabled={markingRead} onClick={() => { void markShellNotificationsRead(); }}>{markingRead ? 'Updating…' : 'Mark all as read'}</button>}<Link className="notification-all-link" href={`/${role}/notifications`}><Eye size={16} />View all notifications</Link></div>}</div>
+            <div className="popover-wrap">
+              <button
+                ref={bellTrigger}
+                className="icon-button"
+                aria-expanded={bellOpen}
+                aria-label={`${unread} unread notifications`}
+                onClick={() => setBellOpen(!bellOpen)}
+              >
+                <Bell size={21} />
+                {unread > 0 && <b>{unread}</b>}
+              </button>
+              {bellOpen && (
+                <div className="header-popover notification-popover">
+                  <strong>Notifications</strong>
+                  {shellNotifications.slice(0, 3).map((item) => (
+                    <Link
+                      href={item.targetPath ?? `/${role}/notifications`}
+                      key={item.id}
+                    >
+                      <Bell size={16} />
+                      <span>
+                        <b>{item.title}</b>
+                        <small>
+                          {item.unread ? "Unread · " : "Read · "}
+                          {item.time}
+                        </small>
+                      </span>
+                    </Link>
+                  ))}
+                  {shellNotifications.length === 0 && !notificationError && (
+                    <small className="notification-empty">
+                      No notifications yet.
+                    </small>
+                  )}
+                  {notificationError && (
+                    <p role="alert" className="form-error">
+                      {notificationError}
+                    </p>
+                  )}
+                  {unread > 0 && (
+                    <button
+                      disabled={markingRead}
+                      onClick={() => {
+                        void markShellNotificationsRead();
+                      }}
+                    >
+                      {markingRead ? "Updating…" : "Mark all as read"}
+                    </button>
+                  )}
+                  <Link
+                    className="notification-all-link"
+                    href={`/${role}/notifications`}
+                  >
+                    <Eye size={16} />
+                    View all notifications
+                  </Link>
+                </div>
+              )}
+            </div>
           </div>
         </header>
-                <main className="app-main">{children}</main>
+        <main className="app-main">{children}</main>
       </section>
 
       <PraxizAiAssistant />
@@ -1102,12 +2850,57 @@ function AppShell({ role, page, children }: { role: RoleId; page: string; childr
   );
 }
 
-function EmptyAction({ icon: Icon, title, copy, action }: { icon: LucideIcon; title: string; copy: string; action?: ReactNode }) {
-  return <div className="empty-action"><span><Icon size={26} /></span><h3>{title}</h3><p>{copy}</p>{action}</div>;
+function EmptyAction({
+  icon: Icon,
+  title,
+  copy,
+  action,
+}: {
+  icon: LucideIcon;
+  title: string;
+  copy: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="empty-action">
+      <span>
+        <Icon size={26} />
+      </span>
+      <h3>{title}</h3>
+      <p>{copy}</p>
+      {action}
+    </div>
+  );
 }
 
-function ConfirmDialog({ title, message, confirmLabel, onConfirm, onCancel, busy = false }: { title: string; message: ReactNode; confirmLabel: string; onConfirm: () => void; onCancel: () => void; busy?: boolean }) {
-  return <Dialog title={title} onClose={onCancel} busy={busy}><p>{message}</p><div className="modal-actions"><ActionButton variant="secondary" disabled={busy} onClick={onCancel}>Cancel</ActionButton><ActionButton disabled={busy} onClick={onConfirm}>{confirmLabel}</ActionButton></div></Dialog>;
+function ConfirmDialog({
+  title,
+  message,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+  busy = false,
+}: {
+  title: string;
+  message: ReactNode;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  busy?: boolean;
+}) {
+  return (
+    <Dialog title={title} onClose={onCancel} busy={busy}>
+      <p>{message}</p>
+      <div className="modal-actions">
+        <ActionButton variant="secondary" disabled={busy} onClick={onCancel}>
+          Cancel
+        </ActionButton>
+        <ActionButton disabled={busy} onClick={onConfirm}>
+          {confirmLabel}
+        </ActionButton>
+      </div>
+    </Dialog>
+  );
 }
 
 function StudentDashboard() {
@@ -1116,116 +2909,916 @@ function StudentDashboard() {
   const [recent, setRecent] = useState<NotificationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-   useEffect(() => {
+  useEffect(() => {
     let activeRequest = true;
-    void Promise.all([internshipService.getStudentProgress(), notificationService.listLive()]).then(([summary, notifications]) => {
-      if (!activeRequest) return;
-      setData(summary);
-      setRecent(notifications.slice(0, 5));
-    }).catch((reason) => {
-      if (activeRequest) setError(userError(reason, "Your internship dashboard could not be loaded."));
-    }).finally(() => {
-      if (activeRequest) setLoading(false);
-    });
-    return () => { activeRequest = false; };
+    void Promise.all([
+      internshipService.getStudentProgress(),
+      notificationService.listLive(),
+    ])
+      .then(([summary, notifications]) => {
+        if (!activeRequest) return;
+        setData(summary);
+        setRecent(notifications.slice(0, 5));
+      })
+      .catch((reason) => {
+        if (activeRequest)
+          setError(
+            userError(reason, "Your internship dashboard could not be loaded."),
+          );
+      })
+      .finally(() => {
+        if (activeRequest) setLoading(false);
+      });
+    return () => {
+      activeRequest = false;
+    };
   }, []);
-  if (loading) return <><PageHeader title={`Good day, ${user?.fullName ?? "Student Intern"}`} subtitle="Loading your verified internship progress…" /><div className="dashboard-skeleton" role="status" aria-label="Loading dashboard"><span /><span /><span /><span /><i /></div></>;
-  if (!data) return <><PageHeader title={`Good day, ${user?.fullName ?? "Student Intern"}`} subtitle="Your secure student workspace is ready." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<EmptyAction icon={BriefcaseBusiness} title="No active internship assignment" copy="Your coordinator must create or approve an internship assignment before progress can be tracked." /></>;
-  const hoursPercent = data.requiredHours ? Math.min(100, Math.round((data.renderedHours / data.requiredHours) * 100)) : 0;
-  const logsPercent = data.logsExpected ? Math.min(100, Math.round((data.logsSubmitted / data.logsExpected) * 100)) : 0;
+  if (loading)
+    return (
+      <>
+        <PageHeader
+          title={`Good day, ${user?.fullName ?? "Student Intern"}`}
+          subtitle="Loading your verified internship progress…"
+        />
+        <div
+          className="dashboard-skeleton"
+          role="status"
+          aria-label="Loading dashboard"
+        >
+          <span />
+          <span />
+          <span />
+          <span />
+          <i />
+        </div>
+      </>
+    );
+  if (!data)
+    return (
+      <>
+        <PageHeader
+          title={`Good day, ${user?.fullName ?? "Student Intern"}`}
+          subtitle="Your secure student workspace is ready."
+        />
+        {error && (
+          <p className="form-error">
+            <AlertTriangle size={16} /> {error}
+          </p>
+        )}
+        <EmptyAction
+          icon={BriefcaseBusiness}
+          title="No active internship assignment"
+          copy="Your coordinator must create or approve an internship assignment before progress can be tracked."
+        />
+      </>
+    );
+  const hoursPercent = data.requiredHours
+    ? Math.min(100, Math.round((data.renderedHours / data.requiredHours) * 100))
+    : 0;
+  const logsPercent = data.logsExpected
+    ? Math.min(100, Math.round((data.logsSubmitted / data.logsExpected) * 100))
+    : 0;
   const hasDocumentRequirements = data.documentsRequired > 0;
-  const documentPercent = hasDocumentRequirements ? Math.round((data.documentsApproved / data.documentsRequired) * 100) : 0;
+  const documentPercent = hasDocumentRequirements
+    ? Math.round((data.documentsApproved / data.documentsRequired) * 100)
+    : 0;
   const remainingHours = Math.max(0, data.requiredHours - data.renderedHours);
-  return <><PageHeader title={`Good day, ${user?.fullName ?? "Student Intern"}`} subtitle="Here is an overview of your verified internship progress." />
-    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <div className="stats-grid four"><StatCard label="Rendered hours" value={String(data.renderedHours)} detail={`/ ${data.requiredHours} verified hours`} icon={Clock3} progress={hoursPercent} /><StatCard label="Attendance rate" value={`${data.attendanceRate}%`} detail={`${data.verifiedSessions} of ${data.recordedSessions} sessions verified`} icon={CalendarCheck2} tone="green" progress={data.attendanceRate} /><StatCard label="Weekly logs" value={String(data.logsSubmitted)} detail={`${data.logsApproved} approved`} icon={FileText} tone="orange" progress={logsPercent} /><StatCard label="Document compliance" value={hasDocumentRequirements ? `${documentPercent}%` : "Not configured"} detail={hasDocumentRequirements ? `${data.documentsApproved} of ${data.documentsRequired} approved` : "No requirements assigned"} icon={FileCheck2} tone="violet" progress={documentPercent} /></div>
-    <div className="dashboard-grid"><div className="dashboard-main-col"><section className="card progress-card"><div className="card-title"><h2>Internship progress</h2><StatusBadge status={data.status} /></div><div className="metric-row"><span>{data.renderedHours} of {data.requiredHours} verified hours</span><strong>{hoursPercent}% of required hours</strong></div><ProgressBar value={hoursPercent} /><p className="muted-note">{remainingHours} verified hours remain. Pending attendance will not count until it is reviewed.</p></section>
-      <section className="card"><h2>Quick actions</h2><div className="quick-actions"><Link className="quick-action-primary" href="/student/attendance"><Clock3 /> Time In / Time Out</Link><Link href="/student/weekly-logs"><FileText /> Add weekly log</Link><Link href="/student/documents"><Upload /> Upload document</Link><Link href="/student/progress"><LineChart /> View progress</Link></div></section>
-      <section className="card"><h2>Recent updates</h2><div className="activity-list">{recent.map((item) => <div className="activity-row" key={item.id}><span><strong>{item.title}</strong><small>{item.message}</small></span><span><small>{item.time}</small><StatusBadge status={item.unread ? "Unread" : "Read"} /></span></div>)}{recent.length === 0 && <p className="muted-note">No updates have been sent to your account yet.</p>}</div></section></div>
-      <aside className="dashboard-side-col"><section className="card"><h2>Internship information</h2><dl className="info-list"><div><dt>Campus</dt><dd>{user?.campus ?? data.campus}</dd></div><div><dt>Program</dt><dd>{user?.academicProgram ?? data.program}</dd></div><div><dt>Host training establishment</dt><dd>{data.hte}</dd></div><div><dt>Internship coordinator</dt><dd>{data.coordinator}</dd></div><div><dt>Period</dt><dd>{data.startDate} – {data.endDate}</dd></div><div><dt>Required hours</dt><dd>{data.requiredHours} hours</dd></div></dl></section><section className="card"><h2>Requirement status</h2>{data.requirements.length > 0 ? <ul className="check-list">{data.requirements.map((requirement) => <li className={requirement.complete ? "" : "pending"} key={requirement.name}>{requirement.complete ? <Check /> : <Clock3 />} {requirement.name}<small>{requirement.status}</small></li>)}</ul> : <p className="muted-note">No requirements configured for this assignment.</p>}<div className="metric-row small"><span>{hasDocumentRequirements ? `${data.documentsApproved} of ${data.documentsRequired} requirements` : "No requirements configured"}</span><strong>{hasDocumentRequirements ? `${documentPercent}%` : "Not configured"}</strong></div><ProgressBar value={documentPercent} tone="green" /></section></aside></div></>;
+  return (
+    <>
+      <PageHeader
+        title={`Good day, ${user?.fullName ?? "Student Intern"}`}
+        subtitle="Here is an overview of your verified internship progress."
+      />
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <div className="stats-grid four">
+        <StatCard
+          label="Rendered hours"
+          value={String(data.renderedHours)}
+          detail={`/ ${data.requiredHours} verified hours`}
+          icon={Clock3}
+          progress={hoursPercent}
+        />
+        <StatCard
+          label="Verified session rate"
+          value={`${data.attendanceRate}%`}
+          detail={`${data.verifiedSessions} of ${data.recordedSessions} sessions verified`}
+          icon={CalendarCheck2}
+          tone="green"
+          progress={data.attendanceRate}
+        />
+        <StatCard
+          label="Weekly logs"
+          value={String(data.logsSubmitted)}
+          detail={`${data.logsApproved} approved`}
+          icon={FileText}
+          tone="orange"
+          progress={logsPercent}
+        />
+        <StatCard
+          label="Document compliance"
+          value={
+            hasDocumentRequirements ? `${documentPercent}%` : "Not configured"
+          }
+          detail={
+            hasDocumentRequirements
+              ? `${data.documentsApproved} of ${data.documentsRequired} approved`
+              : "No requirements assigned"
+          }
+          icon={FileCheck2}
+          tone="violet"
+          progress={documentPercent}
+        />
+      </div>
+      <div className="dashboard-grid">
+        <div className="dashboard-main-col">
+          <section className="card progress-card">
+            <div className="card-title">
+              <h2>Internship progress</h2>
+              <StatusBadge status={data.status} />
+            </div>
+            <div className="metric-row">
+              <span>
+                {data.renderedHours} of {data.requiredHours} verified hours
+              </span>
+              <strong>{hoursPercent}% of required hours</strong>
+            </div>
+            <ProgressBar value={hoursPercent} />
+            <p className="muted-note">
+              {remainingHours} verified hours remain. Pending attendance will
+              not count until it is reviewed.
+            </p>
+          </section>
+          <section className="card">
+            <h2>Quick actions</h2>
+            <div className="quick-actions">
+              <Link className="quick-action-primary" href="/student/attendance">
+                <Clock3 /> Time In / Time Out
+              </Link>
+              <Link href="/student/weekly-logs">
+                <FileText /> Add weekly log
+              </Link>
+              <Link href="/student/documents">
+                <Upload /> Upload document
+              </Link>
+              <Link href="/student/progress">
+                <LineChart /> View progress
+              </Link>
+            </div>
+          </section>
+          <section className="card">
+            <h2>Recent updates</h2>
+            <div className="activity-list">
+              {recent.map((item) => (
+                <div className="activity-row" key={item.id}>
+                  <span>
+                    <strong>{item.title}</strong>
+                    <small>{item.message}</small>
+                  </span>
+                  <span>
+                    <small>{item.time}</small>
+                    <StatusBadge status={item.unread ? "Unread" : "Read"} />
+                  </span>
+                </div>
+              ))}
+              {recent.length === 0 && (
+                <p className="muted-note">
+                  No updates have been sent to your account yet.
+                </p>
+              )}
+            </div>
+          </section>
+        </div>
+        <aside className="dashboard-side-col">
+          <section className="card">
+            <h2>Internship information</h2>
+            <dl className="info-list">
+              <div>
+                <dt>Campus</dt>
+                <dd>{user?.campus ?? data.campus}</dd>
+              </div>
+              <div>
+                <dt>Program</dt>
+                <dd>{user?.academicProgram ?? data.program}</dd>
+              </div>
+              <div>
+                <dt>Host training establishment</dt>
+                <dd>{data.hte}</dd>
+              </div>
+              <div>
+                <dt>Internship coordinator</dt>
+                <dd>{data.coordinator}</dd>
+              </div>
+              <div>
+                <dt>Period</dt>
+                <dd>
+                  {data.startDate} – {data.endDate}
+                </dd>
+              </div>
+              <div>
+                <dt>Required hours</dt>
+                <dd>{data.requiredHours} hours</dd>
+              </div>
+            </dl>
+          </section>
+          <section className="card">
+            <h2>Requirement status</h2>
+            {data.requirements.length > 0 ? (
+              <ul className="check-list">
+                {data.requirements.map((requirement) => (
+                  <li
+                    className={requirement.complete ? "" : "pending"}
+                    key={requirement.name}
+                  >
+                    {requirement.complete ? <Check /> : <Clock3 />}{" "}
+                    {requirement.name}
+                    <small>{requirement.status}</small>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted-note">
+                No requirements configured for this assignment.
+              </p>
+            )}
+            <div className="metric-row small">
+              <span>
+                {hasDocumentRequirements
+                  ? `${data.documentsApproved} of ${data.documentsRequired} requirements`
+                  : "No requirements configured"}
+              </span>
+              <strong>
+                {hasDocumentRequirements
+                  ? `${documentPercent}%`
+                  : "Not configured"}
+              </strong>
+            </div>
+            <ProgressBar value={documentPercent} tone="green" />
+          </section>
+        </aside>
+      </div>
+    </>
+  );
 }
 
 function HteDashboard() {
   const { user } = useAuth();
   const [rows, setRows] = useState<Intern[]>([]);
   const [logs, setLogs] = useState<WeeklyLogRecord[]>([]);
-  const [selectedPendingLog, setSelectedPendingLog] = useState<WeeklyLogRecord | null>(null);
+  const [selectedPendingLog, setSelectedPendingLog] =
+    useState<WeeklyLogRecord | null>(null);
   const [evaluationRows, setEvaluationRows] = useState<EvaluationRecord[]>([]);
-  const [attendanceRows, setAttendanceRows] = useState<AttendanceHistoryRow[]>([]);
+  const [attendanceRows, setAttendanceRows] = useState<AttendanceHistoryRow[]>(
+    [],
+  );
+  const [workConfigurations, setWorkConfigurations] = useState<
+    HteDailyHourConfig[]
+  >([]);
+  const [dashboardLoaded, setDashboardLoaded] = useState(false);
+  const [internsLoading, setInternsLoading] = useState(true);
+  const [internError, setInternError] = useState("");
   const [error, setError] = useState("");
-     useEffect(() => {
+  useEffect(() => {
     let active = true;
-    void Promise.all([internshipService.listLiveInterns(), weeklyLogService.listLive(), evaluationService.listLive(), attendanceService.listLiveHistory()]).then(([internRows, logRows, liveEvaluations, liveAttendance]) => {
-      if (!active) return;
-      setRows(internRows);
-      setLogs(logRows);
-      setEvaluationRows(liveEvaluations);
-      setAttendanceRows(liveAttendance);
-    }).catch((reason) => {
-      if (active) setError(userError(reason, "The supervision dashboard could not be loaded."));
-    });
-    return () => { active = false; };
+    void internshipService
+      .listHteInterns()
+      .then((internRows) => {
+        if (active) setRows(internRows);
+      })
+      .catch((reason) => {
+        if (active)
+          setInternError(
+            userError(reason, "We couldn't load assigned interns."),
+          );
+      })
+      .finally(() => {
+        if (active) setInternsLoading(false);
+      });
+    void Promise.all([
+      weeklyLogService.listLive(),
+      evaluationService.listLive(),
+      attendanceService.listLiveHistory(),
+      hteWorkSetupService.list(),
+    ])
+      .then(
+        ([
+          logRows,
+          liveEvaluations,
+          liveAttendance,
+          configurations,
+        ]) => {
+          if (!active) return;
+          setLogs(logRows);
+          setEvaluationRows(liveEvaluations);
+          setAttendanceRows(liveAttendance);
+          setWorkConfigurations(configurations);
+        },
+      )
+      .catch((reason) => {
+        if (active)
+          setError(
+            userError(reason, "Some supervision metrics could not be loaded."),
+          );
+      })
+      .finally(() => {
+        if (active) setDashboardLoaded(true);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
   const pendingLogs = logs.filter((log) => log.status === "Submitted");
-  const pendingEvaluations = evaluationRows.filter((evaluation) => evaluation.status === "Draft" || evaluation.status === "Submitted").length;
-  const attendanceAwaiting = attendanceRows.filter((row) => row.status === "Pending Verification").length;
+  const pendingEvaluations = evaluationRows.filter(
+    (evaluation) =>
+      evaluation.status === "Draft" || evaluation.status === "Submitted",
+  ).length;
+  const attendanceAwaiting = attendanceRows.filter(
+    (row) => row.status === "Pending Verification",
+  ).length;
   const totalHours = rows.reduce((sum, row) => sum + row.hours, 0);
-  return <><PageHeader title={`Good day, ${user?.fullName ?? "HTE Representative"}`} subtitle="Authorized host training establishment representative portal." />
-    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <div className="stats-grid four"><StatCard label="Assigned interns" value={String(rows.length)} icon={UsersRound} /><StatCard label="Attendance awaiting" value={String(attendanceAwaiting)} icon={Clock3} tone="orange" /><StatCard label="Open evaluations" value={String(pendingEvaluations)} icon={Star} tone="violet" /><StatCard label="Verified hours" value={String(totalHours)} icon={Gauge} tone="green" /></div>
-    <div className="dashboard-grid"><section className="card table-card"><div className="card-title"><h2>Assigned interns</h2><Link className="text-link" href="/hte/interns">View all</Link></div><InternTable rows={rows.slice(0, 5)} compact />{rows.length === 0 && <p className="muted-note table-empty-note">No interns are currently assigned within your authorized scope.</p>}</section><aside className="card weekly-review-card"><div className="weekly-review-heading"><span><FileText size={20} /></span><div><h2>Pending Weekly Log reviews</h2><p>{pendingLogs.length ? `${pendingLogs.length} log${pendingLogs.length === 1 ? " is" : "s are"} waiting for review.` : "No submitted Weekly Logs are waiting for review."}</p></div>{pendingLogs.length > 0 && <b className="weekly-review-count" aria-label={`${pendingLogs.length} pending reviews`}>{pendingLogs.length}</b>}</div>{pendingLogs.length > 0 && <div className="weekly-review-preview"><div><strong>{pendingLogs[0].studentName}</strong><small>{pendingLogs[0].reportingPeriod}</small></div><StatusBadge status={pendingLogs[0].status} /></div>}{pendingLogs.length === 1 ? <button className="button button-secondary button-small weekly-review-action" onClick={() => setSelectedPendingLog(pendingLogs[0])}>Review log <ChevronRight size={16} /></button> : pendingLogs.length > 1 ? <Link className="button button-secondary button-small weekly-review-action" href="/hte/weekly-logs">View all reviews <ChevronRight size={16} /></Link> : null}</aside></div>{selectedPendingLog && <WeeklyLogDialog log={selectedPendingLog} student={false} close={() => setSelectedPendingLog(null)} onSaved={() => { setSelectedPendingLog(null); void weeklyLogService.listLive().then(setLogs).catch(reason => setError(userError(reason, "Weekly logs could not be refreshed."))); }} />}</>;
+  return (
+    <>
+      <PageHeader
+        title={`Good day, ${user?.fullName ?? "HTE Representative"}`}
+        subtitle="Authorized host training establishment representative portal."
+      />
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      {dashboardLoaded && !error && workConfigurations.length === 0 ? (
+        <section className="card dashboard-task-card" role="status">
+          <div>
+            <span className="eyebrow dark">Setup task</span>
+            <h2>Daily required hours are not configured</h2>
+            <p>
+              Set the HTE organization’s daily requirement before new internship
+              assignments are created.
+            </p>
+          </div>
+          <Link className="button button-primary" href="/hte/work-setup">
+            Configure work setup <ChevronRight size={17} />
+          </Link>
+        </section>
+      ) : dashboardLoaded && !error ? (
+        <section className="card dashboard-task-card configured">
+          <div>
+            <span className="eyebrow dark">Internship work setup</span>
+            <h2>
+              <CheckCircle2 size={20} /> Configured
+            </h2>
+            <p>
+              {workConfigurations[0].hteName} ·{" "}
+              {workConfigurations[0].dailyRequiredHours}
+              {" hours/day · "}
+              {workConfigurations[0].termLabel}
+            </p>
+          </div>
+          <Link className="button button-secondary" href="/hte/work-setup">
+            View work setup <ChevronRight size={17} />
+          </Link>
+        </section>
+      ) : null}
+      <div className="stats-grid four">
+        <StatCard
+          label="Assigned interns"
+          value={internsLoading ? "…" : internError ? "Unavailable" : String(rows.length)}
+          icon={UsersRound}
+        />
+        <StatCard
+          label="Attendance awaiting"
+          value={error ? "Unavailable" : String(attendanceAwaiting)}
+          icon={Clock3}
+          tone="orange"
+        />
+        <StatCard
+          label="Open evaluations"
+          value={error ? "Unavailable" : String(pendingEvaluations)}
+          icon={Star}
+          tone="violet"
+        />
+        <StatCard
+          label="Verified hours"
+          value={internError ? "Unavailable" : String(totalHours)}
+          icon={Gauge}
+          tone="green"
+        />
+      </div>
+      <div className="dashboard-grid">
+        <section className="card table-card">
+          <div className="card-title">
+            <h2>Assigned interns</h2>
+            <Link className="text-link" href="/hte/interns">
+              View all
+            </Link>
+          </div>
+          <InternTable rows={rows.slice(0, 5)} compact />
+          {internsLoading ? (
+            <div className="table-row-skeleton" role="status" aria-label="Loading assigned interns" />
+          ) : internError ? (
+            <div className="table-error-state" role="alert">
+              <AlertTriangle size={18} />
+              <span>{internError}</span>
+              <button className="button button-secondary button-small" onClick={() => window.location.reload()}>
+                Retry
+              </button>
+            </div>
+          ) : rows.length === 0 ? (
+            <p className="muted-note table-empty-note">
+              No interns are currently assigned within your authorized scope.
+            </p>
+          ) : null}
+        </section>
+        <aside className="card weekly-review-card">
+          <div className="weekly-review-heading">
+            <span>
+              <FileText size={20} />
+            </span>
+            <div>
+              <h2>Pending Weekly Log reviews</h2>
+              <p>
+                {pendingLogs.length
+                  ? `${pendingLogs.length} log${pendingLogs.length === 1 ? " is" : "s are"} waiting for review.`
+                  : "No submitted Weekly Logs are waiting for review."}
+              </p>
+            </div>
+            {pendingLogs.length > 0 && (
+              <b
+                className="weekly-review-count"
+                aria-label={`${pendingLogs.length} pending reviews`}
+              >
+                {pendingLogs.length}
+              </b>
+            )}
+          </div>
+          {pendingLogs.length > 0 && (
+            <div className="weekly-review-preview">
+              <div>
+                <strong>{pendingLogs[0].studentName}</strong>
+                <small>{pendingLogs[0].reportingPeriod}</small>
+              </div>
+              <StatusBadge status={pendingLogs[0].status} />
+            </div>
+          )}
+          {pendingLogs.length === 1 ? (
+            <button
+              className="button button-secondary button-small weekly-review-action"
+              onClick={() => setSelectedPendingLog(pendingLogs[0])}
+            >
+              Review log <ChevronRight size={16} />
+            </button>
+          ) : pendingLogs.length > 1 ? (
+            <Link
+              className="button button-secondary button-small weekly-review-action"
+              href="/hte/weekly-logs"
+            >
+              View all reviews <ChevronRight size={16} />
+            </Link>
+          ) : null}
+        </aside>
+      </div>
+      {selectedPendingLog && (
+        <WeeklyLogDialog
+          log={selectedPendingLog}
+          student={false}
+          close={() => setSelectedPendingLog(null)}
+          onSaved={() => {
+            setSelectedPendingLog(null);
+            void weeklyLogService
+              .listLive()
+              .then(setLogs)
+              .catch((reason) =>
+                setError(
+                  userError(reason, "Weekly logs could not be refreshed."),
+                ),
+              );
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 function CoordinatorDashboard() {
   const { user } = useAuth();
-  const [compliance, setCompliance] = useState<ReturnType<typeof summarizeCompliance> | null>(null);
+  const [compliance, setCompliance] = useState<ReturnType<
+    typeof summarizeCompliance
+  > | null>(null);
   const [rows, setRows] = useState<Intern[]>([]);
+  const [requirementConfigs, setRequirementConfigs] = useState<
+    RequirementConfigRecord[]
+  >([]);
+  const [dashboardLoaded, setDashboardLoaded] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void Promise.all([internshipService.listCoordinatorInterns(), documentService.complianceSummary()]).then(([records, summaries]) => {
-      if (active) { setRows(records); setCompliance(summarizeCompliance(summaries)); }
-    }).catch((reason) => {
-      if (active) setError(userError(reason, "The coordinator dashboard could not be loaded."));
-    });
-    return () => { active = false; };
+    void Promise.all([
+      internshipService.listCoordinatorInterns(),
+      documentService.complianceSummary(),
+      coordinatorService.listRequirementConfigs(),
+    ])
+      .then(([records, summaries, configurations]) => {
+        if (active) {
+          setRows(records);
+          setCompliance(summarizeCompliance(summaries));
+          setRequirementConfigs(configurations);
+        }
+      })
+      .catch((reason) => {
+        if (active)
+          setError(
+            userError(reason, "The coordinator dashboard could not be loaded."),
+          );
+      })
+      .finally(() => {
+        if (active) setDashboardLoaded(true);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
   const totalInterns = rows.length;
-  const awaitingAssignment = rows.filter((intern) => intern.status === "Awaiting Assignment").length;
-  const activeInterns = rows.filter((intern) => intern.status === "Active" || intern.status === "Needs Attention").length;
-  const completedInterns = rows.filter((intern) => intern.status === "Completed").length;
-  const assignedRows = rows.filter((intern) => intern.status !== "Awaiting Assignment");
-  const partnerHtes = new Set(assignedRows.map((intern) => intern.hte).filter((hte) => hte !== "Not assigned")).size;
-  const averageAttendance = assignedRows.length ? Math.round(assignedRows.reduce((sum, row) => sum + row.attendance, 0) / assignedRows.length) : 0;
-  const hteCounts = [...assignedRows.reduce((counts, intern) => counts.set(intern.hte, (counts.get(intern.hte) ?? 0) + 1), new Map<string, number>()).entries()].sort((left, right) => right[1] - left[1]);
+  const awaitingAssignment = rows.filter(
+    (intern) => intern.status === "Awaiting Assignment",
+  ).length;
+  const activeInterns = rows.filter(
+    (intern) =>
+      intern.status === "Active" || intern.status === "Needs Attention",
+  ).length;
+  const completedInterns = rows.filter(
+    (intern) => intern.status === "Completed",
+  ).length;
+  const assignedRows = rows.filter(
+    (intern) => intern.status !== "Awaiting Assignment",
+  );
+  const partnerHtes = new Set(
+    assignedRows
+      .map((intern) => intern.hte)
+      .filter((hte) => hte !== "Not assigned"),
+  ).size;
+  const averageAttendance = assignedRows.length
+    ? Math.round(
+        assignedRows.reduce((sum, row) => sum + row.attendance, 0) /
+          assignedRows.length,
+      )
+    : 0;
+  const hteCounts = [
+    ...assignedRows
+      .reduce(
+        (counts, intern) =>
+          counts.set(intern.hte, (counts.get(intern.hte) ?? 0) + 1),
+        new Map<string, number>(),
+      )
+      .entries(),
+  ].sort((left, right) => right[1] - left[1]);
   const maxHteCount = Math.max(1, ...hteCounts.map(([, count]) => count));
   const attentionRows = rows.filter((intern) => {
-    const [approved = 0, required = 0] = intern.requirements.split("/").map(Number);
+    const [approved = 0, required = 0] = intern.requirements
+      .split("/")
+      .map(Number);
     return intern.status === "Needs Attention" || approved < required;
   });
-  return <><PageHeader title={`Good day, ${user?.fullName ?? "Internship Coordinator"}`} subtitle="Live internship overview for your authorized academic-program scope." />
-    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <div className="stats-grid five"><StatCard label="Program students" value={String(totalInterns)} detail="matched by academic program" icon={UsersRound} /><StatCard label="Awaiting assignment" value={String(awaitingAssignment)} detail="registered without a placement" icon={Clock3} tone="orange" /><StatCard label="Active interns" value={String(activeInterns)} detail={totalInterns ? `${Math.round(activeInterns / totalInterns * 100)}% of program students` : "No students yet"} icon={CheckCircle2} /><StatCard label="Completed" value={String(completedInterns)} detail={totalInterns ? `${Math.round(completedInterns / totalInterns * 100)}% completed` : "No students yet"} icon={GraduationCap} tone="green" /><StatCard label="Partner HTEs" value={String(partnerHtes)} detail="with visible assignments" icon={BriefcaseBusiness} tone="violet" /></div>
-    <div className="chart-grid"><section className="card"><h2>Portfolio attendance verification</h2><div className="progress-card"><div className="metric-row"><span>Average verified-session rate</span><strong>{averageAttendance}%</strong></div><ProgressBar value={averageAttendance} /><p className="muted-note">Calculated from the attendance sessions visible within your coordinator scope.</p></div></section><section className="card donut-card"><h2>Document compliance</h2>{compliance ? <><div className="donut" role="img" aria-label={`${compliance.total} required documents: ${compliance.complete} complete, ${compliance.pending} pending review, ${compliance.missing} missing or needing correction`} style={{ background: compliance.background }}><strong>{compliance.total}<small>required documents</small></strong></div><ul className="legend"><li><i className="green" />Complete <b>{compliance.complete}</b></li><li><i className="orange" />Pending review <b>{compliance.pending}</b></li><li><i className="red" />Missing / correction needed <b>{compliance.missing}</b></li></ul>{compliance.total === 0 && <p className="muted-note">No required documents are configured in your assignment scope.</p>}<p className="muted-note">All authorized assignments and terms. Optional documents excluded; waived requirements count as satisfied.</p></> : <p role="status">{error ? "Compliance data unavailable." : "Loading compliance…"}</p>}</section></div>
-    <section className="card hte-bars-card"><h2>Interns by host training establishment</h2><div className="horizontal-bars">{hteCounts.map(([label, value]) => <div key={label}><span>{label}</span><b style={{ width: `${value / maxHteCount * 100}%` }} /><em>{value}</em></div>)}{hteCounts.length === 0 && <p className="muted-note">No HTE assignments are visible yet.</p>}</div></section>
-    <section className="card table-card"><div className="card-title"><h2>Interns needing attention</h2><Link className="text-link" href="/coordinator/interns">Open monitoring</Link></div><InternTable rows={attentionRows.slice(0, 6)} />{attentionRows.length === 0 && <p className="muted-note">No interns currently meet the follow-up criteria.</p>}</section></>;
+  return (
+    <>
+      <PageHeader
+        title={`Good day, ${user?.fullName ?? "Internship Coordinator"}`}
+        subtitle="Live internship overview for your authorized academic-program scope."
+      />
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      {dashboardLoaded && requirementConfigs.length === 0 ? (
+        <section className="card dashboard-task-card" role="status">
+          <div>
+            <span className="eyebrow dark">Setup task</span>
+            <h2>Internship setup required</h2>
+            <p>
+              Configure the total internship-hour requirement for your assigned
+              students before progress can be calculated accurately.
+            </p>
+          </div>
+          <Link
+            className="button button-primary"
+            href="/coordinator/requirements"
+          >
+            Configure requirements <ChevronRight size={17} />
+          </Link>
+        </section>
+      ) : dashboardLoaded ? (
+        <section className="card dashboard-task-card configured">
+          <div>
+            <span className="eyebrow dark">Internship requirements</span>
+            <h2>
+              <CheckCircle2 size={20} /> Configured
+            </h2>
+            <p>
+              {requirementConfigs[0].termLabel} ·{" "}
+              {requirementConfigs[0].programLabel}
+              {requirementConfigs[0].section
+                ? ` · Section ${requirementConfigs[0].section}`
+                : " · All Sections"}
+              {` · ${requirementConfigs[0].requiredHours} total hours`}
+              {requirementConfigs.length > 1
+                ? ` · ${requirementConfigs.length} configurations`
+                : ""}
+            </p>
+          </div>
+          <Link
+            className="button button-secondary"
+            href="/coordinator/requirements"
+          >
+            View requirements <ChevronRight size={17} />
+          </Link>
+        </section>
+      ) : null}
+      <div className="stats-grid five">
+        <StatCard
+          label="Program students"
+          value={String(totalInterns)}
+          detail="matched by academic program"
+          icon={UsersRound}
+        />
+        <StatCard
+          label="Awaiting assignment"
+          value={String(awaitingAssignment)}
+          detail="registered without a placement"
+          icon={Clock3}
+          tone="orange"
+        />
+        <StatCard
+          label="Active interns"
+          value={String(activeInterns)}
+          detail={
+            totalInterns
+              ? `${Math.round((activeInterns / totalInterns) * 100)}% of program students`
+              : "No students yet"
+          }
+          icon={CheckCircle2}
+        />
+        <StatCard
+          label="Completed"
+          value={String(completedInterns)}
+          detail={
+            totalInterns
+              ? `${Math.round((completedInterns / totalInterns) * 100)}% completed`
+              : "No students yet"
+          }
+          icon={GraduationCap}
+          tone="green"
+        />
+        <StatCard
+          label="Partner HTEs"
+          value={String(partnerHtes)}
+          detail="with visible assignments"
+          icon={BriefcaseBusiness}
+          tone="violet"
+        />
+      </div>
+      <div className="chart-grid">
+        <section className="card">
+          <h2>Portfolio attendance verification</h2>
+          <div className="progress-card">
+            <div className="metric-row">
+              <span>Average verified-session rate</span>
+              <strong>{averageAttendance}%</strong>
+            </div>
+            <ProgressBar value={averageAttendance} />
+            <p className="muted-note">
+              Calculated from the attendance sessions visible within your
+              coordinator scope.
+            </p>
+          </div>
+        </section>
+        <section className="card donut-card">
+          <h2>Document compliance</h2>
+          {compliance ? (
+            <>
+              <div
+                className="donut"
+                role="img"
+                aria-label={`${compliance.total} required documents: ${compliance.complete} complete, ${compliance.pending} pending review, ${compliance.missing} missing or needing correction`}
+                style={{ background: compliance.background }}
+              >
+                <strong>
+                  {compliance.total}
+                  <small>required documents</small>
+                </strong>
+              </div>
+              <ul className="legend">
+                <li>
+                  <i className="green" />
+                  Complete <b>{compliance.complete}</b>
+                </li>
+                <li>
+                  <i className="orange" />
+                  Pending review <b>{compliance.pending}</b>
+                </li>
+                <li>
+                  <i className="red" />
+                  Missing / correction needed <b>{compliance.missing}</b>
+                </li>
+              </ul>
+              {compliance.total === 0 && (
+                <p className="muted-note">
+                  No required documents are configured in your assignment scope.
+                </p>
+              )}
+              <p className="muted-note">
+                All authorized assignments and terms. Optional documents
+                excluded; waived requirements count as satisfied.
+              </p>
+            </>
+          ) : (
+            <p role="status">
+              {error ? "Compliance data unavailable." : "Loading compliance…"}
+            </p>
+          )}
+        </section>
+      </div>
+      <section className="card hte-bars-card">
+        <h2>Interns by host training establishment</h2>
+        <div className="horizontal-bars">
+          {hteCounts.map(([label, value]) => (
+            <div key={label}>
+              <span>{label}</span>
+              <b style={{ width: `${(value / maxHteCount) * 100}%` }} />
+              <em>{value}</em>
+            </div>
+          ))}
+          {hteCounts.length === 0 && (
+            <p className="muted-note">No HTE assignments are visible yet.</p>
+          )}
+        </div>
+      </section>
+      <section className="card table-card">
+        <div className="card-title">
+          <h2>Interns needing attention</h2>
+          <Link className="text-link" href="/coordinator/interns">
+            Open monitoring
+          </Link>
+        </div>
+        <InternTable rows={attentionRows.slice(0, 6)} />
+        {attentionRows.length === 0 && (
+          <p className="muted-note">
+            No interns currently meet the follow-up criteria.
+          </p>
+        )}
+      </section>
+    </>
+  );
 }
 
 function AdminDashboard() {
-  const [data, setData] = useState({ activeAccounts: 0, pendingRegistrations: 0, roleAssignments: 0, securityEvents: 0 });
+  const [data, setData] = useState({
+    activeAccounts: 0,
+    pendingRegistrations: 0,
+    roleAssignments: 0,
+    securityEvents: 0,
+  });
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void adminService.getSummary().then((summary) => {
-      if (active) setData(summary);
-    }).catch((reason) => {
-      if (active) setError(userError(reason, "Administrative totals could not be loaded."));
-    });
-    return () => { active = false; };
+    void adminService
+      .getSummary()
+      .then((summary) => {
+        if (active) setData(summary);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(
+            userError(reason, "Administrative totals could not be loaded."),
+          );
+      });
+    return () => {
+      active = false;
+    };
   }, []);
-  const operational = [{ label: "Active accounts", value: data.activeAccounts }, { label: "Role assignments", value: data.roleAssignments }, { label: "Pending registrations", value: data.pendingRegistrations }, { label: "Audit events (24h)", value: data.securityEvents }];
-  const operationalMax = Math.max(1, ...operational.map(item => item.value));
-  return <><PageHeader title="System administration" subtitle="Manage access, registrations, institutional master data, and system activity." action={<Link className="button button-primary button-default" href="/admin/registrations"><UserCheck size={18} /> Review registrations</Link>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid four"><StatCard label="Active accounts" value={String(data.activeAccounts)} detail="live Supabase profiles" icon={UsersRound} /><StatCard label="Pending registrations" value={String(data.pendingRegistrations)} icon={Clock3} tone="orange" /><StatCard label="Role assignments" value={String(data.roleAssignments)} detail="active scopes" icon={ShieldCheck} tone="green" /><StatCard label="Audit events" value={String(data.securityEvents)} detail="last 24 hours" icon={LockKeyhole} tone="violet" /></div><section className="card admin-operations-chart"><div className="card-title"><div><h2>Operational overview</h2><p className="muted-note">Live administrative totals from the current authorized summary.</p></div></div><div className="horizontal-bars">{operational.map(item => <div key={item.label}><span>{item.label}</span><b style={{ width: `${item.value / operationalMax * 100}%` }} /><em>{item.value}</em></div>)}</div></section><div className="dashboard-grid"><section className="card table-card"><h2>Pending registrations</h2><RegistrationTable /></section><aside className="card admin-controls"><h2>Administration controls</h2><p className="muted-note">Review role policies, permissions, and recent system activity.</p><div className="admin-control-links"><Link href="/admin/roles"><ShieldCheck size={20} aria-hidden="true" /><span><strong>Roles & permissions</strong><small>Review current access policies</small></span><ChevronRight size={18} aria-hidden="true" /></Link><Link href="/admin/audit-logs"><FileText size={20} aria-hidden="true" /><span><strong>Audit history</strong><small>Inspect recent system activity</small></span><ChevronRight size={18} aria-hidden="true" /></Link></div></aside></div></>;
+  const operational = [
+    { label: "Active accounts", value: data.activeAccounts },
+    { label: "Role assignments", value: data.roleAssignments },
+    { label: "Pending registrations", value: data.pendingRegistrations },
+    { label: "Audit events (24h)", value: data.securityEvents },
+  ];
+  const operationalMax = Math.max(1, ...operational.map((item) => item.value));
+  return (
+    <>
+      <PageHeader
+        title="System administration"
+        subtitle="Manage access, registrations, institutional master data, and system activity."
+      />
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <section className="card admin-quick-actions" aria-labelledby="admin-quick-actions-title">
+        <div>
+          <span className="eyebrow dark">Authorized shortcuts</span>
+          <h2 id="admin-quick-actions-title">Quick actions</h2>
+        </div>
+        <nav aria-label="Administrative quick actions">
+          <Link href="/admin/registrations">
+            <UserCheck size={18} /> Review registrations
+          </Link>
+          <Link href="/admin/users?create=coordinator">
+            <Plus size={18} /> Create Internship Coordinator
+          </Link>
+          <Link href="/admin/users?create=placement">
+            <Plus size={18} /> Create Placement Head
+          </Link>
+          <Link href="/admin/hte-verification">
+            <ShieldCheck size={18} /> Review HTE verification
+          </Link>
+          <Link href="/admin/master-data">
+            <CalendarCheck2 size={18} /> Academic terms
+          </Link>
+        </nav>
+      </section>
+      <div className="stats-grid four">
+        <StatCard
+          label="Active accounts"
+          value={String(data.activeAccounts)}
+          detail="live Supabase profiles"
+          icon={UsersRound}
+        />
+        <StatCard
+          label="Pending registrations"
+          value={String(data.pendingRegistrations)}
+          icon={Clock3}
+          tone="orange"
+        />
+        <StatCard
+          label="Role assignments"
+          value={String(data.roleAssignments)}
+          detail="active scopes"
+          icon={ShieldCheck}
+          tone="green"
+        />
+        <StatCard
+          label="Audit events"
+          value={String(data.securityEvents)}
+          detail="last 24 hours"
+          icon={LockKeyhole}
+          tone="violet"
+        />
+      </div>
+      <section className="card admin-operations-chart">
+        <div className="card-title">
+          <div>
+            <h2>Operational overview</h2>
+            <p className="muted-note">
+              Live administrative totals from the current authorized summary.
+            </p>
+          </div>
+        </div>
+        <div className="horizontal-bars">
+          {operational.map((item) => (
+            <div key={item.label}>
+              <span>{item.label}</span>
+              <b style={{ width: `${(item.value / operationalMax) * 100}%` }} />
+              <em>{item.value}</em>
+            </div>
+          ))}
+        </div>
+      </section>
+      <div className="dashboard-grid">
+        <section className="card table-card">
+          <h2>Pending registrations</h2>
+          <RegistrationTable />
+        </section>
+        <aside className="card admin-controls">
+          <h2>Administration controls</h2>
+          <p className="muted-note">
+            Review role policies, permissions, and recent system activity.
+          </p>
+          <div className="admin-control-links">
+            <Link href="/admin/roles">
+              <ShieldCheck size={20} aria-hidden="true" />
+              <span>
+                <strong>Roles & permissions</strong>
+                <small>Review current access policies</small>
+              </span>
+              <ChevronRight size={18} aria-hidden="true" />
+            </Link>
+            <Link href="/admin/audit-logs">
+              <FileText size={20} aria-hidden="true" />
+              <span>
+                <strong>Audit history</strong>
+                <small>Inspect recent system activity</small>
+              </span>
+              <ChevronRight size={18} aria-hidden="true" />
+            </Link>
+          </div>
+        </aside>
+      </div>
+    </>
+  );
 }
 
 function InternTable({
@@ -1253,6 +3846,7 @@ function InternTable({
             {!compact && <th>Section</th>}
             <th>HTE</th>
             {!compact && <th>HTE representative</th>}
+            {!compact && <th>Daily hours</th>}
             <th>Hours</th>
             <th>Attendance</th>
             {!compact && <th>Requirements</th>}
@@ -1264,71 +3858,107 @@ function InternTable({
           {rows.map((intern, index) => {
             const requiredHours = intern.requiredHours ?? 0;
             const awaitingAssignment = intern.status === "Awaiting Assignment";
-            const groupLabel = groupBy === "section" ? `Section ${intern.section ?? "Not recorded"}` : groupBy === "hte" ? intern.hte : "";
+            const groupLabel =
+              groupBy === "section"
+                ? `Section ${intern.section ?? "Not recorded"}`
+                : groupBy === "hte"
+                  ? intern.hte
+                  : "";
             const previous = rows[index - 1];
-            const previousGroup = !previous ? "" : groupBy === "section" ? `Section ${previous.section ?? "Not recorded"}` : previous.hte;
+            const previousGroup = !previous
+              ? ""
+              : groupBy === "section"
+                ? `Section ${previous.section ?? "Not recorded"}`
+                : previous.hte;
             return (
               <Fragment key={intern.studentUserId ?? intern.name}>
-              {groupBy !== "all" && groupLabel !== previousGroup && <tr className="table-group-row"><th colSpan={(compact ? 5 : 11) + (onView ? 1 : 0)} scope="rowgroup">{groupLabel}</th></tr>}
-              <tr>
-                <td className="identity-cell">
-                  <span className="person-cell">
-                    <i>{intern.initials}</i>
-                    <b className="table-primary-text" title={intern.name}>{intern.name}</b>
-                  </span>
-                </td>
-                {!compact && <td>{intern.campus}</td>}
-                {!compact && <td>{intern.program}</td>}
-                {!compact && <td>{intern.yearLevel ? `Year ${intern.yearLevel}` : "—"}</td>}
-                {!compact && <td>{intern.section ?? "—"}</td>}
-                <td className="identity-cell"><span className="table-primary-text" title={intern.hte}>{intern.hte}</span></td>
-                {!compact && <td>{intern.hteRepresentative}</td>}
-                <td>
-                  {awaitingAssignment ? (
-                    "—"
-                  ) : (
-                    <span className="hours-cell">
-                      {intern.hours}/{requiredHours}
-                      <ProgressBar
-                        value={
-                          requiredHours
-                            ? Math.min(
-                                100,
-                                (intern.hours / requiredHours) * 100,
-                              )
-                            : 0
-                        }
-                      />
-                    </span>
-                  )}
-                </td>
-                <td>{awaitingAssignment ? "—" : `${intern.attendance}%`}</td>
-                {!compact && (
-                  <td>{awaitingAssignment ? "—" : intern.requirements}</td>
-                )}
-                <td>
-                  <StatusBadge status={intern.status} />
-                </td>
-                {onView && (
-                  <td className="table-actions">
-                    <button
-                      className="table-link"
-                      disabled={!intern.studentUserId}
-                      onClick={() => onView(intern)}
-                      aria-label={`View intern record for ${intern.name}`}
+                {groupBy !== "all" && groupLabel !== previousGroup && (
+                  <tr className="table-group-row">
+                    <th
+                      colSpan={(compact ? 5 : 12) + (onView ? 1 : 0)}
+                      scope="rowgroup"
                     >
-                      <Eye size={16} aria-hidden="true" />
-                      View
-                    </button>
-                  </td>
+                      {groupLabel}
+                    </th>
+                  </tr>
                 )}
-              </tr></Fragment>
+                <tr>
+                  <td className="identity-cell">
+                    <span className="person-cell">
+                      <i>{intern.initials}</i>
+                      <b className="table-primary-text" title={intern.name}>
+                        {intern.name}
+                      </b>
+                    </span>
+                  </td>
+                  {!compact && <td>{intern.campus}</td>}
+                  {!compact && <td>{intern.program}</td>}
+                  {!compact && (
+                    <td>
+                      {intern.yearLevel ? `Year ${intern.yearLevel}` : "—"}
+                    </td>
+                  )}
+                  {!compact && <td>{intern.section ?? "—"}</td>}
+                  <td className="identity-cell">
+                    <span className="table-primary-text" title={intern.hte}>
+                      {intern.hte}
+                    </span>
+                  </td>
+                  {!compact && <td>{intern.hteRepresentative}</td>}
+                  {!compact && (
+                    <td>
+                      {intern.dailyRequiredHours == null
+                        ? "Not configured"
+                        : `${intern.dailyRequiredHours} hrs/day`}
+                    </td>
+                  )}
+                  <td>
+                    {awaitingAssignment ? (
+                      "—"
+                    ) : (
+                      <span className="hours-cell">
+                        {intern.hours}/{requiredHours}
+                        <ProgressBar
+                          value={
+                            requiredHours
+                              ? Math.min(
+                                  100,
+                                  (intern.hours / requiredHours) * 100,
+                                )
+                              : 0
+                          }
+                        />
+                      </span>
+                    )}
+                  </td>
+                  <td>{awaitingAssignment ? "—" : `${intern.attendance}%`}</td>
+                  {!compact && (
+                    <td>{awaitingAssignment ? "—" : intern.requirements}</td>
+                  )}
+                  <td>
+                    <StatusBadge status={intern.status} />
+                  </td>
+                  {onView && (
+                    <td className="table-actions">
+                      <button
+                        className="table-link"
+                        disabled={!intern.studentUserId}
+                        onClick={() => onView(intern)}
+                        aria-label={`View intern record for ${intern.name}`}
+                      >
+                        <Eye size={16} aria-hidden="true" />
+                        View
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              </Fragment>
             );
           })}
           {rows.length === 0 && emptyMessage && (
             <tr>
               <td
-                colSpan={(compact ? 5 : 11) + (onView ? 1 : 0)}
+                colSpan={(compact ? 5 : 12) + (onView ? 1 : 0)}
                 className="table-empty"
               >
                 <p role="status">{emptyMessage}</p>
@@ -1341,28 +3971,79 @@ function InternTable({
   );
 }
 
-function AttendanceReviewDialog({ record, close, onSaved }: { record: AttendanceHistoryRow; close: () => void; onSaved: () => void }) {
-  const [remarks, setRemarks] = useState(record.remarks === "—" ? "" : record.remarks);
-  const [confirmation, setConfirmation] = useState<"verified" | "flagged" | "rejected" | null>(null);
+function AttendanceReviewDialog({
+  record,
+  close,
+  onSaved,
+}: {
+  record: AttendanceHistoryRow;
+  close: () => void;
+  onSaved: () => void;
+}) {
+  const [remarks, setRemarks] = useState(
+    record.remarks === "—" ? "" : record.remarks,
+  );
+  const [confirmation, setConfirmation] = useState<
+    "verified" | "flagged" | "rejected" | null
+  >(null);
   const lock = useRef(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const displayedPair = record.pairSource === "approved_corrected"
-    ? resolveAttendancePair({
-        original: { timeInAt: null, timeOutAt: null },
-        correction: { status: "approved", timeInAt: record.timeInAt, timeOutAt: record.timeOutAt },
-      })
-    : resolveAttendancePair({ original: { timeInAt: record.timeInAt, timeOutAt: record.timeOutAt } });
-  const pair = { ...displayedPair, blockingReason: record.pairIssue ?? displayedPair.blockingReason };
-  const pairLabel = pair.authoritativePair === "approved_corrected" ? "Approved corrected event" : "Original event";
-  const pairSummary = pair.authoritativePair === "approved_corrected" ? "approved corrected" : "original";
+  const displayedPair =
+    record.pairSource === "approved_corrected"
+      ? resolveAttendancePair({
+          original: { timeInAt: null, timeOutAt: null },
+          correction: {
+            status: "approved",
+            timeInAt: record.timeInAt,
+            timeOutAt: record.timeOutAt,
+          },
+        })
+      : resolveAttendancePair({
+          original: { timeInAt: record.timeInAt, timeOutAt: record.timeOutAt },
+        });
+  const pair = {
+    ...displayedPair,
+    blockingReason: record.pairIssue ?? displayedPair.blockingReason,
+  };
+  const pairLabel =
+    pair.authoritativePair === "approved_corrected"
+      ? "Approved corrected event"
+      : "Original event";
+  const pairSummary =
+    pair.authoritativePair === "approved_corrected"
+      ? "approved corrected"
+      : "original";
   const pairReviewReady = pair.complete && !pair.blockingReason;
-  const verifyBlocked = attendanceDecisionBlock(record.status, "verified", pair, true);
-  const flagBlocked = attendanceDecisionBlock(record.status, "flagged", pair, Boolean(remarks.trim()));
-  const rejectBlocked = attendanceDecisionBlock(record.status, "rejected", pair, Boolean(remarks.trim()));
+  const verifyBlocked = attendanceDecisionBlock(
+    record.status,
+    "verified",
+    pair,
+    true,
+  );
+  const flagBlocked = attendanceDecisionBlock(
+    record.status,
+    "flagged",
+    pair,
+    Boolean(remarks.trim()),
+  );
+  const rejectBlocked = attendanceDecisionBlock(
+    record.status,
+    "rejected",
+    pair,
+    Boolean(remarks.trim()),
+  );
   async function decide(decision: "verified" | "flagged" | "rejected") {
-    const blocked = attendanceDecisionBlock(record.status, decision, pair, Boolean(remarks.trim()));
-    if (blocked) { setError(blocked); return; }
+    const blocked = attendanceDecisionBlock(
+      record.status,
+      decision,
+      pair,
+      Boolean(remarks.trim()),
+    );
+    if (blocked) {
+      setError(blocked);
+      return;
+    }
     if (lock.current) return;
     lock.current = true;
     setLoading(true);
@@ -1371,10 +4052,139 @@ function AttendanceReviewDialog({ record, close, onSaved }: { record: Attendance
       await attendanceService.review(record.id, decision, remarks);
       onSaved();
     } catch (reason) {
-      setError(userError(reason, "The attendance decision could not be saved."));
-    } finally { lock.current = false; setLoading(false); setConfirmation(null); }
+      setError(
+        userError(reason, "The attendance decision could not be saved."),
+      );
+    } finally {
+      lock.current = false;
+      setLoading(false);
+      setConfirmation(null);
+    }
   }
-  return <Dialog title="Review attendance session" onClose={close} busy={loading} wide><InfoCallout icon={ShieldCheck}><p><strong>{record.studentName}</strong> · {record.date}</p></InfoCallout><div className="readonly-event-grid"><div><span>Time In</span><strong>{record.timeIn}</strong><small>{pairLabel} · read-only</small></div><div><span>Time Out</span><strong>{record.timeOut}</strong><small>{pairLabel} · read-only</small></div></div>{pairReviewReady ? <p className="form-success attendance-pair-notice"><CheckCircle2 size={16} /> Complete {pairSummary} Time In and Time Out pair</p> : <p className="form-error attendance-pair-notice"><AlertTriangle size={16} />{pair.blockingReason ?? "A complete authoritative Time In and Time Out pair is required"}. Verify is unavailable, but an authorized reviewer may flag or reject the session with a reason.</p>}<label className="field"><span>Verification remarks</span><textarea value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Add the basis for your review decision…" /></label><p className="form-hint">A reason is required when flagging or rejecting a session.</p>{verifyBlocked && pair.complete && <p className="form-hint review-state-hint">{verifyBlocked}</p>}{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading || Boolean(verifyBlocked)} icon={Check} onClick={() => setConfirmation("verified")}>Verify</ActionButton><ActionButton variant="secondary" disabled={loading || Boolean(flagBlocked)} icon={Flag} onClick={() => setConfirmation("flagged")}>Flag</ActionButton><ActionButton variant="danger" disabled={loading || Boolean(rejectBlocked)} icon={X} onClick={() => setConfirmation("rejected")}>Reject</ActionButton></div>{confirmation && <Dialog title={`${confirmation === "verified" ? "Verify" : confirmation === "flagged" ? "Flag" : "Reject"} this attendance session?`} onClose={() => setConfirmation(null)} busy={loading} protectChanges={false}><p>{record.studentName} · {record.date}</p><p>{confirmation === "verified" ? "This session will count toward verified internship hours." : "This session will not count toward verified internship hours until an authorized review resolves it."} The original timestamps and review history are retained.</p><div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => setConfirmation(null)}>Keep reviewing</ActionButton><ActionButton disabled={loading} onClick={() => void decide(confirmation)}>{loading ? "Saving…" : confirmation === "verified" ? "Verify session" : confirmation === "flagged" ? "Flag session" : "Reject session"}</ActionButton></div></Dialog>}</Dialog>;
+  return (
+    <Dialog
+      title="Review attendance session"
+      onClose={close}
+      busy={loading}
+      wide
+    >
+      <InfoCallout icon={ShieldCheck}>
+        <p>
+          <strong>{record.studentName}</strong> · {record.date}
+        </p>
+      </InfoCallout>
+      <div className="readonly-event-grid">
+        <div>
+          <span>Time In</span>
+          <strong>{record.timeIn}</strong>
+          <small>{pairLabel} · read-only</small>
+        </div>
+        <div>
+          <span>Time Out</span>
+          <strong>{record.timeOut}</strong>
+          <small>{pairLabel} · read-only</small>
+        </div>
+      </div>
+      {pairReviewReady ? (
+        <p className="form-success attendance-pair-notice">
+          <CheckCircle2 size={16} /> Complete {pairSummary} Time In and Time Out
+          pair
+        </p>
+      ) : (
+        <p className="form-error attendance-pair-notice">
+          <AlertTriangle size={16} />
+          {pair.blockingReason ??
+            "A complete authoritative Time In and Time Out pair is required"}
+          . Verify is unavailable, but an authorized reviewer may flag or reject
+          the session with a reason.
+        </p>
+      )}
+      <label className="field">
+        <span>Verification remarks</span>
+        <textarea
+          value={remarks}
+          onChange={(event) => setRemarks(event.target.value)}
+          placeholder="Add the basis for your review decision…"
+        />
+      </label>
+      <p className="form-hint">
+        A reason is required when flagging or rejecting a session.
+      </p>
+      {verifyBlocked && pair.complete && (
+        <p className="form-hint review-state-hint">{verifyBlocked}</p>
+      )}
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <div className="modal-actions review-actions">
+        <ActionButton
+          variant="secondary"
+          disabled={loading || Boolean(verifyBlocked)}
+          icon={Check}
+          onClick={() => setConfirmation("verified")}
+        >
+          Verify
+        </ActionButton>
+        <ActionButton
+          variant="secondary"
+          disabled={loading || Boolean(flagBlocked)}
+          icon={Flag}
+          onClick={() => setConfirmation("flagged")}
+        >
+          Flag
+        </ActionButton>
+        <ActionButton
+          variant="danger"
+          disabled={loading || Boolean(rejectBlocked)}
+          icon={X}
+          onClick={() => setConfirmation("rejected")}
+        >
+          Reject
+        </ActionButton>
+      </div>
+      {confirmation && (
+        <Dialog
+          title={`${confirmation === "verified" ? "Verify" : confirmation === "flagged" ? "Flag" : "Reject"} this attendance session?`}
+          onClose={() => setConfirmation(null)}
+          busy={loading}
+          protectChanges={false}
+        >
+          <p>
+            {record.studentName} · {record.date}
+          </p>
+          <p>
+            {confirmation === "verified"
+              ? "This session will count toward verified internship hours."
+              : "This session will not count toward verified internship hours until an authorized review resolves it."}{" "}
+            The original timestamps and review history are retained.
+          </p>
+          <div className="modal-actions">
+            <ActionButton
+              variant="secondary"
+              disabled={loading}
+              onClick={() => setConfirmation(null)}
+            >
+              Keep reviewing
+            </ActionButton>
+            <ActionButton
+              disabled={loading}
+              onClick={() => void decide(confirmation)}
+            >
+              {loading
+                ? "Saving…"
+                : confirmation === "verified"
+                  ? "Verify session"
+                  : confirmation === "flagged"
+                    ? "Flag session"
+                    : "Reject session"}
+            </ActionButton>
+          </div>
+        </Dialog>
+      )}
+    </Dialog>
+  );
 }
 
 function AttendancePage({ role }: { role: RoleId }) {
@@ -1444,10 +4254,12 @@ function AttendancePage({ role }: { role: RoleId }) {
   useEffect(() => {
     let active = true;
     const request = student
-      ? Promise.all([
-          attendanceService.getTodaySession(),
-          attendanceService.listLiveHistory(),
-        ])
+      ? attendanceService.closeMyStaleSessions().then(() =>
+          Promise.all([
+            attendanceService.getTodaySession(),
+            attendanceService.listLiveHistory(),
+          ]),
+        )
       : Promise.all([
           Promise.resolve(null),
           attendanceService.listLiveHistory(),
@@ -1537,7 +4349,13 @@ function AttendancePage({ role }: { role: RoleId }) {
     setAttendanceLoading(true);
     setAttendanceError("");
     try {
-      setAttendanceRows(await attendanceService.listLiveHistory());
+      if (student) await attendanceService.closeMyStaleSessions();
+      const [refreshedSession, rows] = await Promise.all([
+        student ? attendanceService.getTodaySession() : Promise.resolve(null),
+        attendanceService.listLiveHistory(),
+      ]);
+      if (student) setCurrentSession(refreshedSession);
+      setAttendanceRows(rows);
       setSelectedReview(null);
     } catch (reason) {
       setAttendanceError(
@@ -1721,9 +4539,10 @@ function AttendancePage({ role }: { role: RoleId }) {
           </section>
           <div className="stats-grid three">
             <StatCard
-              label="Attendance rate"
+              label="Verified session rate"
               value={`${progress?.attendanceRate ?? 0}%`}
               icon={CalendarCheck2}
+              detail={`${progress?.verifiedSessions ?? 0} of ${progress?.recordedSessions ?? 0} sessions verified`}
             />
             <StatCard
               label="Recorded sessions"
@@ -1780,6 +4599,7 @@ function AttendancePage({ role }: { role: RoleId }) {
           </div>
         </>
       )}
+      <MonthlyDtrWorkspace role={role} />
       <section className="card table-card">
         <div className="card-title">
           <div>
@@ -1870,7 +4690,9 @@ function AttendancePage({ role }: { role: RoleId }) {
                   {!student && (
                     <td className="table-actions">
                       <div className="table-action-group">
-                        {["Pending Verification", "Flagged"].includes(record.status) ? (
+                        {["Pending Verification", "Flagged"].includes(
+                          record.status,
+                        ) ? (
                           <button
                             className="table-link"
                             onClick={() => setSelectedReview(record)}
@@ -1880,7 +4702,9 @@ function AttendancePage({ role }: { role: RoleId }) {
                           </button>
                         ) : (
                           <span className="table-state-label">
-                            {record.status === "Active" ? "In progress" : "Reviewed"}
+                            {record.status === "Active"
+                              ? "In progress"
+                              : "Reviewed"}
                           </span>
                         )}
                         <button
@@ -1969,26 +4793,80 @@ function AttendancePage({ role }: { role: RoleId }) {
   );
 }
 
-function WeeklyLogRecordContent({ log, showStudent = false }: { log: WeeklyLogRecord; showStudent?: boolean }) {
-  return <div className="weekly-log-record">
-    {showStudent && <div className="weekly-log-student"><span>Student</span><strong>{log.studentName}</strong></div>}
-    <div className="weekly-log-record-meta">
-      <div><span>Reporting period</span><strong>{log.reportingPeriod}</strong><small>{log.hours} rendered hours</small></div>
-      <StatusBadge status={log.status} />
+function WeeklyLogRecordContent({
+  log,
+  showStudent = false,
+}: {
+  log: WeeklyLogRecord;
+  showStudent?: boolean;
+}) {
+  return (
+    <div className="weekly-log-record">
+      {showStudent && (
+        <div className="weekly-log-student">
+          <span>Student</span>
+          <strong>{log.studentName}</strong>
+        </div>
+      )}
+      <div className="weekly-log-record-meta">
+        <div>
+          <span>Reporting period</span>
+          <strong>{log.reportingPeriod}</strong>
+          <small>{log.hours} rendered hours</small>
+        </div>
+        <StatusBadge status={log.status} />
+      </div>
+      <div className="weekly-log-record-sections">
+        <section>
+          <h4>Weekly accomplishments</h4>
+          <p>{log.summary || "No response recorded."}</p>
+        </section>
+        <section>
+          <h4>Key learnings</h4>
+          <p>{log.learnings || "No response recorded."}</p>
+        </section>
+        <section>
+          <h4>Challenges</h4>
+          <p>{log.challenges || "No response recorded."}</p>
+        </section>
+      </div>
+      <div className="weekly-log-record-status">
+        <span>Status</span>
+        <p>
+          <StatusBadge status={log.status} />{" "}
+          {log.status === "Submitted"
+            ? "Awaiting authorized review"
+            : log.reviewedAt
+              ? `Reviewed ${log.reviewedAt}`
+              : "Record saved"}
+        </p>
+      </div>
+      {log.latestFeedback && (
+        <section className="weekly-log-feedback">
+          <h4>Coordinator feedback</h4>
+          <p>{log.latestFeedback}</p>
+          {log.reviewedAt && <small>Reviewed {log.reviewedAt}</small>}
+        </section>
+      )}
     </div>
-    <div className="weekly-log-record-sections">
-      <section><h4>Weekly accomplishments</h4><p>{log.summary || "No response recorded."}</p></section>
-      <section><h4>Key learnings</h4><p>{log.learnings || "No response recorded."}</p></section>
-      <section><h4>Challenges</h4><p>{log.challenges || "No response recorded."}</p></section>
-    </div>
-    <div className="weekly-log-record-status"><span>Status</span><p><StatusBadge status={log.status} /> {log.status === "Submitted" ? "Awaiting authorized review" : log.reviewedAt ? `Reviewed ${log.reviewedAt}` : "Record saved"}</p></div>
-    {log.latestFeedback && <section className="weekly-log-feedback"><h4>Coordinator feedback</h4><p>{log.latestFeedback}</p>{log.reviewedAt && <small>Reviewed {log.reviewedAt}</small>}</section>}
-  </div>;
+  );
 }
 
-function StudentWeeklyLogDialog({ log, close, onSaved }: { log: WeeklyLogRecord | null; close: () => void; onSaved: (message?: string) => void }) {
-  const initialPeriod = log ? { weekStartDate: log.weekStartDate, weekEndDate: log.weekEndDate } : reportingWeekFor(new Date().toISOString().slice(0, 10));
-  const [weekStartDate, setWeekStartDate] = useState(initialPeriod.weekStartDate);
+function StudentWeeklyLogDialog({
+  log,
+  close,
+  onSaved,
+}: {
+  log: WeeklyLogRecord | null;
+  close: () => void;
+  onSaved: (message?: string) => void;
+}) {
+  const initialPeriod = log
+    ? { weekStartDate: log.weekStartDate, weekEndDate: log.weekEndDate }
+    : reportingWeekFor(new Date().toISOString().slice(0, 10));
+  const [weekStartDate, setWeekStartDate] = useState(
+    initialPeriod.weekStartDate,
+  );
   const [weekEndDate, setWeekEndDate] = useState(initialPeriod.weekEndDate);
   const [hours, setHours] = useState(String(log?.hours ?? 8));
   const [accomplishments, setAccomplishments] = useState(log?.summary ?? "");
@@ -2003,8 +4881,23 @@ function StudentWeeklyLogDialog({ log, close, onSaved }: { log: WeeklyLogRecord 
     setLoading(true);
     setError("");
     try {
-      await weeklyLogService.save({ id: log?.id, weekStartDate, weekEndDate, hours: Number(hours), accomplishments, learnings, challenges }, status);
-      onSaved(status === "draft" ? "Weekly log saved as draft." : "Weekly log submitted.");
+      await weeklyLogService.save(
+        {
+          id: log?.id,
+          weekStartDate,
+          weekEndDate,
+          hours: Number(hours),
+          accomplishments,
+          learnings,
+          challenges,
+        },
+        status,
+      );
+      onSaved(
+        status === "draft"
+          ? "Weekly log saved as draft."
+          : "Weekly log submitted.",
+      );
     } catch (reason) {
       setError(userError(reason, "The weekly log could not be saved."));
     } finally {
@@ -2012,11 +4905,166 @@ function StudentWeeklyLogDialog({ log, close, onSaved }: { log: WeeklyLogRecord 
       setLoading(false);
     }
   }
-  if (log && !["Draft", "Needs Revision"].includes(log.status)) return <Dialog title="Weekly Log Details" onClose={close} busy={loading} protectChanges={false} className="weekly-log-details-dialog"><WeeklyLogRecordContent log={log} /></Dialog>;
-  return <Dialog title={log ? "Edit weekly log" : "Add weekly log"} onClose={close} busy={loading} wide><header className="modal-heading"><span className="modal-icon"><FileText /></span><div><span className="settings-kicker">Weekly internship activity record</span><p>Save a private draft, or submit the reporting week to your authorized reviewers.</p></div></header><form onSubmit={(event) => { event.preventDefault(); void save("submitted"); }}><fieldset className="daily-log-section"><legend>1. Reporting week</legend><p>PRAXIZ uses a Monday-to-Sunday reporting period and prevents duplicate logs for the same assignment week.</p>{log?.legacyDailyEntry && <p className="muted-note">This is a preserved legacy record. Its original entry and review history remain unchanged.</p>}<div className="two-fields"><label className="field"><span>Week starting *</span><input required type="date" value={weekStartDate} onChange={(event) => { const period = reportingWeekFor(event.target.value); setWeekStartDate(period.weekStartDate); setWeekEndDate(period.weekEndDate); }} /></label><label className="field"><span>Week ending</span><input readOnly type="date" value={weekEndDate} /></label></div><label className="field"><span>Total rendered hours for the week *</span><input required type="number" min="0.25" max="168" step="0.25" value={hours} onChange={(event) => setHours(event.target.value)} /></label></fieldset><fieldset className="daily-log-section"><legend>2. Accomplishments and learning</legend><label className="field"><span>Weekly accomplishments *</span><textarea required minLength={3} value={accomplishments} onChange={(event) => setAccomplishments(event.target.value)} placeholder="Summarize the work, tasks, and responsibilities you completed during this reporting week." /></label><div className="two-fields"><label className="field"><span>Key learnings</span><textarea value={learnings} onChange={(event) => setLearnings(event.target.value)} placeholder="Skills, knowledge, or insights gained this week" /></label><label className="field"><span>Challenges encountered</span><textarea value={challenges} onChange={(event) => setChallenges(event.target.value)} placeholder="Optional blockers or issues that need follow-up" /></label></div></fieldset>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="daily-log-actions"><p><strong>Draft</strong> stays editable. <strong>Submit</strong> sends this weekly record for review.</p><div className="modal-actions"><ActionButton type="button" variant="ghost" onClick={close}>Cancel</ActionButton><ActionButton type="button" variant="secondary" disabled={loading || !accomplishments.trim()} onClick={() => void save("draft")}>Save Draft</ActionButton><ActionButton type="submit" disabled={loading || !accomplishments.trim()}>{loading ? "Saving…" : "Submit weekly log"}</ActionButton></div></div></form></Dialog>;
+  if (log && !["Draft", "Needs Revision"].includes(log.status))
+    return (
+      <Dialog
+        title="Weekly Log Details"
+        onClose={close}
+        busy={loading}
+        protectChanges={false}
+        className="weekly-log-details-dialog"
+      >
+        <WeeklyLogRecordContent log={log} />
+      </Dialog>
+    );
+  return (
+    <Dialog
+      title={log ? "Edit weekly log" : "Add weekly log"}
+      onClose={close}
+      busy={loading}
+      wide
+    >
+      <header className="modal-heading">
+        <span className="modal-icon">
+          <FileText />
+        </span>
+        <div>
+          <span className="settings-kicker">
+            Weekly internship activity record
+          </span>
+          <p>
+            Save a private draft, or submit the reporting week to your
+            authorized reviewers.
+          </p>
+        </div>
+      </header>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save("submitted");
+        }}
+      >
+        <fieldset className="daily-log-section">
+          <legend>1. Reporting week</legend>
+          <p>
+            PRAXIZ uses a Monday-to-Sunday reporting period and prevents
+            duplicate logs for the same assignment week.
+          </p>
+          {log?.legacyDailyEntry && (
+            <p className="muted-note">
+              This is a preserved legacy record. Its original entry and review
+              history remain unchanged.
+            </p>
+          )}
+          <div className="two-fields">
+            <label className="field">
+              <span>Week starting *</span>
+              <input
+                required
+                type="date"
+                value={weekStartDate}
+                onChange={(event) => {
+                  const period = reportingWeekFor(event.target.value);
+                  setWeekStartDate(period.weekStartDate);
+                  setWeekEndDate(period.weekEndDate);
+                }}
+              />
+            </label>
+            <label className="field">
+              <span>Week ending</span>
+              <input readOnly type="date" value={weekEndDate} />
+            </label>
+          </div>
+          <label className="field">
+            <span>Total rendered hours for the week *</span>
+            <input
+              required
+              type="number"
+              min="0.25"
+              max="168"
+              step="0.25"
+              value={hours}
+              onChange={(event) => setHours(event.target.value)}
+            />
+          </label>
+        </fieldset>
+        <fieldset className="daily-log-section">
+          <legend>2. Accomplishments and learning</legend>
+          <label className="field">
+            <span>Weekly accomplishments *</span>
+            <textarea
+              required
+              minLength={3}
+              value={accomplishments}
+              onChange={(event) => setAccomplishments(event.target.value)}
+              placeholder="Summarize the work, tasks, and responsibilities you completed during this reporting week."
+            />
+          </label>
+          <div className="two-fields">
+            <label className="field">
+              <span>Key learnings</span>
+              <textarea
+                value={learnings}
+                onChange={(event) => setLearnings(event.target.value)}
+                placeholder="Skills, knowledge, or insights gained this week"
+              />
+            </label>
+            <label className="field">
+              <span>Challenges encountered</span>
+              <textarea
+                value={challenges}
+                onChange={(event) => setChallenges(event.target.value)}
+                placeholder="Optional blockers or issues that need follow-up"
+              />
+            </label>
+          </div>
+        </fieldset>
+        {error && (
+          <p className="form-error">
+            <AlertTriangle size={16} /> {error}
+          </p>
+        )}
+        <div className="daily-log-actions">
+          <p>
+            <strong>Draft</strong> stays editable. <strong>Submit</strong> sends
+            this weekly record for review.
+          </p>
+          <div className="modal-actions">
+            <ActionButton type="button" variant="ghost" onClick={close}>
+              Cancel
+            </ActionButton>
+            <ActionButton
+              type="button"
+              variant="secondary"
+              disabled={loading || !accomplishments.trim()}
+              onClick={() => void save("draft")}
+            >
+              Save Draft
+            </ActionButton>
+            <ActionButton
+              type="submit"
+              disabled={loading || !accomplishments.trim()}
+            >
+              {loading ? "Saving…" : "Submit weekly log"}
+            </ActionButton>
+          </div>
+        </div>
+      </form>
+    </Dialog>
+  );
 }
 
-function WeeklyLogDialog({ log, student, close, onSaved }: { log: WeeklyLogRecord | null; student: boolean; close: () => void; onSaved: (message?: string) => void }) {
+function WeeklyLogDialog({
+  log,
+  student,
+  close,
+  onSaved,
+}: {
+  log: WeeklyLogRecord | null;
+  student: boolean;
+  close: () => void;
+  onSaved: (message?: string) => void;
+}) {
   const [feedback, setFeedback] = useState(log?.latestFeedback ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -2025,7 +5073,9 @@ function WeeklyLogDialog({ log, student, close, onSaved }: { log: WeeklyLogRecor
   async function review(decision: "approved" | "needs_revision" | "rejected") {
     if (!log) return;
     if (decision !== "approved" && !feedback.trim()) {
-      setError("Feedback is required when returning or rejecting a weekly log.");
+      setError(
+        "Feedback is required when returning or rejecting a weekly log.",
+      );
       return;
     }
     setLoading(true);
@@ -2039,40 +5089,298 @@ function WeeklyLogDialog({ log, student, close, onSaved }: { log: WeeklyLogRecor
     }
   }
 
-  if (student) return <StudentWeeklyLogDialog log={log} close={close} onSaved={onSaved} />;
+  if (student)
+    return <StudentWeeklyLogDialog log={log} close={close} onSaved={onSaved} />;
 
-  return <Dialog title="Review Weekly Log" onClose={close} busy={loading} wide className="weekly-log-review-dialog">{log && <div className="weekly-log-review"><p className="modal-subtitle">Review the student&apos;s weekly submission and provide feedback.</p><WeeklyLogRecordContent log={log} showStudent /><label className="field weekly-review-feedback"><span>Review feedback</span><textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Enter clear, traceable feedback…" /><small>Feedback is required when requesting a revision or rejecting this log.</small></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading || !feedback.trim()} onClick={() => void review("needs_revision")}>Request revision</ActionButton><ActionButton variant="danger" disabled={loading} onClick={() => setConfirmReject(true)}>Reject</ActionButton><ActionButton disabled={loading} onClick={() => void review("approved")}>Approve</ActionButton></div>{confirmReject && <Dialog title="Reject Weekly Log?" protectChanges={false} busy={loading} onClose={() => setConfirmReject(false)}><p>This will return the Weekly Log as rejected. The record and review history remain available.</p><label className="field"><span>Reason *</span><textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Explain why this log is being rejected…" /></label><div className="modal-actions"><ActionButton variant="secondary" onClick={() => setConfirmReject(false)}>Cancel</ActionButton><ActionButton variant="danger" disabled={!feedback.trim()} onClick={() => void review("rejected")}>Reject log</ActionButton></div></Dialog>}</div>}</Dialog>;
+  if (log && log.status !== "Submitted")
+    return (
+      <Dialog
+        title="Weekly Log Details"
+        onClose={close}
+        protectChanges={false}
+        className="weekly-log-details-dialog"
+      >
+        <WeeklyLogRecordContent log={log} showStudent />
+      </Dialog>
+    );
+
+  return (
+    <Dialog
+      title="Review Weekly Log"
+      onClose={close}
+      busy={loading}
+      wide
+      className="weekly-log-review-dialog"
+    >
+      {log && (
+        <div className="weekly-log-review">
+          <p className="modal-subtitle">
+            Review the student&apos;s weekly submission and provide feedback.
+          </p>
+          <WeeklyLogRecordContent log={log} showStudent />
+          <label className="field weekly-review-feedback">
+            <span>Review feedback</span>
+            <textarea
+              value={feedback}
+              onChange={(event) => setFeedback(event.target.value)}
+              placeholder="Enter clear, traceable feedback…"
+            />
+            <small>
+              Feedback is required when requesting a revision or rejecting this
+              log.
+            </small>
+          </label>
+          {error && (
+            <p className="form-error">
+              <AlertTriangle size={16} /> {error}
+            </p>
+          )}
+          <div className="modal-actions review-actions">
+            <ActionButton
+              variant="secondary"
+              disabled={loading || !feedback.trim()}
+              onClick={() => void review("needs_revision")}
+            >
+              Request revision
+            </ActionButton>
+            <ActionButton
+              variant="danger"
+              disabled={loading}
+              onClick={() => setConfirmReject(true)}
+            >
+              Reject
+            </ActionButton>
+            <ActionButton
+              disabled={loading}
+              onClick={() => void review("approved")}
+            >
+              Approve
+            </ActionButton>
+          </div>
+          {confirmReject && (
+            <Dialog
+              title="Reject Weekly Log?"
+              protectChanges={false}
+              busy={loading}
+              onClose={() => setConfirmReject(false)}
+            >
+              <p>
+                This will return the Weekly Log as rejected. The record and
+                review history remain available.
+              </p>
+              <label className="field">
+                <span>Reason *</span>
+                <textarea
+                  value={feedback}
+                  onChange={(event) => setFeedback(event.target.value)}
+                  placeholder="Explain why this log is being rejected…"
+                />
+              </label>
+              <div className="modal-actions">
+                <ActionButton
+                  variant="secondary"
+                  onClick={() => setConfirmReject(false)}
+                >
+                  Cancel
+                </ActionButton>
+                <ActionButton
+                  variant="danger"
+                  disabled={!feedback.trim()}
+                  onClick={() => void review("rejected")}
+                >
+                  Reject log
+                </ActionButton>
+              </div>
+            </Dialog>
+          )}
+        </div>
+      )}
+    </Dialog>
+  );
 }
 
 function WeeklyLogsPage({ role }: { role: RoleId }) {
   const student = role === "student";
   const [records, setRecords] = useState<WeeklyLogRecord[]>([]);
-  const [selected, setSelected] = useState<WeeklyLogRecord | null | undefined>(undefined);
+  const [selected, setSelected] = useState<WeeklyLogRecord | null | undefined>(
+    undefined,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   async function load() {
-    try { setRecords(await weeklyLogService.listLive()); }
-    catch (reason) { setError(userError(reason, "Weekly logs could not be loaded.")); }
-    finally { setLoading(false); }
+    try {
+      setRecords(await weeklyLogService.listLive());
+    } catch (reason) {
+      setError(userError(reason, "Weekly logs could not be loaded."));
+    } finally {
+      setLoading(false);
+    }
   }
   useEffect(() => {
     let active = true;
-    void weeklyLogService.listLive().then((result) => {
-      if (active) setRecords(result);
-    }).catch((reason) => {
-      if (active) setError(userError(reason, "Weekly logs could not be loaded."));
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => { active = false; };
+    void weeklyLogService
+      .listLive()
+      .then((result) => {
+        if (active) setRecords(result);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(userError(reason, "Weekly logs could not be loaded."));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
   const approved = records.filter((log) => log.status === "Approved").length;
   const pending = records.filter((log) => log.status === "Submitted").length;
-  return <><PageHeader title="Weekly logs" subtitle={student ? "Record and track your internship accomplishments by reporting week." : "Review Weekly Logs submitted by your assigned interns."} action={student ? <ActionButton icon={Plus} onClick={() => setSelected(null)}>Add weekly log</ActionButton> : undefined} />{notice && <p className="form-success" role="status"><CheckCircle2 size={16} /> {notice}</p>}{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Total records" value={String(records.length)} detail="loaded from Supabase" icon={FileText} /><StatCard label="Approved" value={String(approved)} detail="by an authorized reviewer" icon={CheckCircle2} tone="green" /><StatCard label="Pending review" value={String(pending)} detail="awaiting feedback" icon={Clock3} tone="orange" /></div><section className="card table-card weekly-log-table"><h2>Weekly Log history</h2><div className="table-scroll"><table className="data-table"><thead><tr>{!student && <th>Student</th>}<th>Reporting week</th><th>Hours</th><th>Accomplishments summary</th><th>Submitted</th><th>Status</th><th>Actions</th></tr></thead><tbody>{records.map((log) => <tr key={log.id}>{!student && <td><b>{log.studentName}</b></td>}<td><b>{log.reportingPeriod}</b>{log.legacyDailyEntry && <small className="record-note">Historical entry</small>}</td><td>{log.hours}</td><td className="summary-cell">{log.summary}</td><td>{log.submitted}</td><td><StatusBadge status={log.status} /></td><td>{student && ["Draft", "Needs Revision"].includes(log.status) ? <button className="table-link" onClick={() => setSelected(log)}>Edit</button> : <button className="table-link" aria-label={`${student ? "View" : "Review"} Weekly Log for ${log.reportingPeriod}`} onClick={() => setSelected(log)}><Eye size={16} />{student ? "View" : "Review"}</button>}</td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={student ? 6 : 7}>No Weekly Logs are available yet.</td></tr>}</tbody></table></div></section>{selected !== undefined && <WeeklyLogDialog log={selected} student={student} close={() => setSelected(undefined)} onSaved={(message) => { setNotice(message ?? "Weekly Log changes saved."); setSelected(undefined); setLoading(true); setError(""); void load(); }} />}</>;
+  return (
+    <>
+      <PageHeader
+        title="Weekly logs"
+        subtitle={
+          student
+            ? "Record and track your internship accomplishments by reporting week."
+            : "Review Weekly Logs submitted by your assigned interns."
+        }
+        action={
+          student ? (
+            <ActionButton icon={Plus} onClick={() => setSelected(null)}>
+              Add weekly log
+            </ActionButton>
+          ) : undefined
+        }
+      />
+      {notice && (
+        <p className="form-success" role="status">
+          <CheckCircle2 size={16} /> {notice}
+        </p>
+      )}
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <div className="stats-grid three">
+        <StatCard
+          label="Total records"
+          value={String(records.length)}
+          detail="loaded from Supabase"
+          icon={FileText}
+        />
+        <StatCard
+          label="Approved"
+          value={String(approved)}
+          detail="by an authorized reviewer"
+          icon={CheckCircle2}
+          tone="green"
+        />
+        <StatCard
+          label="Pending review"
+          value={String(pending)}
+          detail="awaiting feedback"
+          icon={Clock3}
+          tone="orange"
+        />
+      </div>
+      <section className="card table-card weekly-log-table">
+        <h2>Weekly Log history</h2>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {!student && <th>Student</th>}
+                <th>Reporting week</th>
+                <th>Hours</th>
+                <th>Accomplishments summary</th>
+                <th>Submitted</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((log) => (
+                <tr key={log.id}>
+                  {!student && (
+                    <td>
+                      <b>{log.studentName}</b>
+                    </td>
+                  )}
+                  <td>
+                    <b>{log.reportingPeriod}</b>
+                    {log.legacyDailyEntry && (
+                      <small className="record-note">Historical entry</small>
+                    )}
+                  </td>
+                  <td>{log.hours}</td>
+                  <td className="summary-cell">{log.summary}</td>
+                  <td>{log.submitted}</td>
+                  <td>
+                    <StatusBadge status={log.status} />
+                  </td>
+                  <td>
+                    {student &&
+                    ["Draft", "Needs Revision"].includes(log.status) ? (
+                      <button
+                        className="table-link"
+                        onClick={() => setSelected(log)}
+                      >
+                        Edit
+                      </button>
+                    ) : (
+                      <button
+                        className="table-link"
+                        aria-label={`${student || log.status !== "Submitted" ? "View details for" : "Review"} Weekly Log for ${log.reportingPeriod}`}
+                        onClick={() => setSelected(log)}
+                      >
+                        {(student || log.status !== "Submitted") && <Eye size={16} />}
+                        {student || log.status !== "Submitted" ? "View details" : "Review"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {!loading && records.length === 0 && (
+                <tr>
+                  <td colSpan={student ? 6 : 7}>
+                    No Weekly Logs are available yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {selected !== undefined && (
+        <WeeklyLogDialog
+          log={selected}
+          student={student}
+          close={() => setSelected(undefined)}
+          onSaved={(message) => {
+            setNotice(message ?? "Weekly Log changes saved.");
+            setSelected(undefined);
+            setLoading(true);
+            setError("");
+            void load();
+          }}
+        />
+      )}
+    </>
+  );
 }
 
-function DocumentUploadDialog({ record, close, onSaved }: { record: DocumentRecord; close: () => void; onSaved: () => void }) {
+function DocumentUploadDialog({
+  record,
+  close,
+  onSaved,
+}: {
+  record: DocumentRecord;
+  close: () => void;
+  onSaved: () => void;
+}) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
@@ -2090,12 +5398,72 @@ function DocumentUploadDialog({ record, close, onSaved }: { record: DocumentReco
       setLoading(false);
     }
   }
-  return <Dialog title={`Upload ${record.templateName}`} onClose={close} busy={loading}><InfoCallout icon={Upload}><p>The file will be stored in the private PRAXIZ document bucket and submitted as a new immutable version.</p></InfoCallout><form onSubmit={submit}><label className="field"><span>Document file</span><input type="file" required accept={record.allowedMimeTypes.join(",")} onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} /><small>Maximum {Math.round(record.maxFileSizeBytes / 1024 / 1024)} MB · {record.allowedMimeTypes.join(", ")}</small></label><label className="field"><span>Submission notes (optional)</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add context for the reviewer…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !selectedFile}>{loading ? "Uploading…" : "Upload and submit"}</ActionButton></div></form></Dialog>;
+  return (
+    <Dialog
+      title={`Upload ${record.templateName}`}
+      onClose={close}
+      busy={loading}
+    >
+      <InfoCallout icon={Upload}>
+        <p>
+          The file will be stored in the private PRAXIZ document bucket and
+          submitted as a new immutable version.
+        </p>
+      </InfoCallout>
+      <form onSubmit={submit}>
+        <label className="field">
+          <span>Document file</span>
+          <input
+            type="file"
+            required
+            accept={record.allowedMimeTypes.join(",")}
+            onChange={(event) =>
+              setSelectedFile(event.target.files?.[0] ?? null)
+            }
+          />
+          <small>
+            Maximum {Math.round(record.maxFileSizeBytes / 1024 / 1024)} MB ·{" "}
+            {record.allowedMimeTypes.join(", ")}
+          </small>
+        </label>
+        <label className="field">
+          <span>Submission notes (optional)</span>
+          <textarea
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="Add context for the reviewer…"
+          />
+        </label>
+        {error && (
+          <p className="form-error">
+            <AlertTriangle size={16} /> {error}
+          </p>
+        )}
+        <div className="modal-actions">
+          <ActionButton variant="secondary" onClick={close}>
+            Cancel
+          </ActionButton>
+          <ActionButton type="submit" disabled={loading || !selectedFile}>
+            {loading ? "Uploading…" : "Upload and submit"}
+          </ActionButton>
+        </div>
+      </form>
+    </Dialog>
+  );
 }
 
-function DocumentReviewDialog({ record, close, onSaved }: { record: DocumentRecord; close: () => void; onSaved: () => void }) {
+function DocumentReviewDialog({
+  record,
+  close,
+  onSaved,
+}: {
+  record: DocumentRecord;
+  close: () => void;
+  onSaved: () => void;
+}) {
   const [feedback, setFeedback] = useState(record.latestFeedback);
   const [loading, setLoading] = useState(false);
+  const [opening, setOpening] = useState(false);
   const [error, setError] = useState("");
   async function decide(decision: "approved" | "needs_revision" | "rejected") {
     if (decision !== "approved" && !feedback.trim()) return;
@@ -2109,21 +5477,157 @@ function DocumentReviewDialog({ record, close, onSaved }: { record: DocumentReco
       setLoading(false);
     }
   }
-  return <Dialog title={`Review ${record.templateName}`} onClose={close} busy={loading}><InfoCallout icon={FileCheck2}><p><strong>{record.studentName}</strong><br />{record.templateName} · {record.fileName}</p></InfoCallout><div className="inline-actions"><ActionButton variant="secondary" icon={Eye} onClick={() => { void documentService.open(record); }}>Open submitted file</ActionButton></div><label className="field"><span>Review feedback</span><textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Enter clear, traceable feedback…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions review-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("approved")}>Approve</ActionButton><ActionButton variant="secondary" disabled={loading || !feedback.trim()} onClick={() => void decide("needs_revision")}>Request revision</ActionButton><ActionButton variant="danger" disabled={loading || !feedback.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></Dialog>;
+  async function openSubmittedFile() {
+    setOpening(true);
+    setError("");
+    try {
+      await documentService.open(record);
+    } catch (reason) {
+      setError(userError(reason, "The submitted file could not be opened."));
+    } finally {
+      setOpening(false);
+    }
+  }
+  return (
+    <Dialog
+      title={`Review ${record.templateName}`}
+      onClose={close}
+      busy={loading}
+    >
+      <InfoCallout icon={FileCheck2}>
+        <p>
+          <strong>{record.studentName}</strong>
+          <br />
+          {record.templateName} · {record.fileName}
+        </p>
+      </InfoCallout>
+      <div className="inline-actions">
+        <ActionButton
+          variant="secondary"
+          icon={Eye}
+          disabled={opening}
+          onClick={() => void openSubmittedFile()}
+        >
+          {opening ? "Opening secure file…" : "Open submitted file"}
+        </ActionButton>
+      </div>
+      <label className="field">
+        <span>Review feedback</span>
+        <textarea
+          value={feedback}
+          onChange={(event) => setFeedback(event.target.value)}
+          placeholder="Enter clear, traceable feedback…"
+        />
+      </label>
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <div className="modal-actions review-actions">
+        <ActionButton
+          variant="secondary"
+          disabled={loading}
+          onClick={() => void decide("approved")}
+        >
+          Approve
+        </ActionButton>
+        <ActionButton
+          variant="secondary"
+          disabled={loading || !feedback.trim()}
+          onClick={() => void decide("needs_revision")}
+        >
+          Request revision
+        </ActionButton>
+        <ActionButton
+          variant="danger"
+          disabled={loading || !feedback.trim()}
+          onClick={() => void decide("rejected")}
+        >
+          Reject
+        </ActionButton>
+      </div>
+    </Dialog>
+  );
 }
 
-function DocumentPreviewDialog({ record, close }: { record: DocumentRecord; close: () => void }) {
+function DocumentPreviewDialog({
+  record,
+  close,
+}: {
+  record: DocumentRecord;
+  close: () => void;
+}) {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void documentService.signedUrl(record).then((signedUrl) => { if (active) setUrl(signedUrl); }).catch((reason) => { if (active) setError(userError(reason, "The secure preview could not be loaded.")); });
-    return () => { active = false; };
+    void documentService
+      .signedUrl(record)
+      .then((signedUrl) => {
+        if (active) setUrl(signedUrl);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(
+            userError(reason, "The secure preview could not be loaded."),
+          );
+      });
+    return () => {
+      active = false;
+    };
   }, [record]);
-  return <Dialog title={record.templateName} onClose={close} wide protectChanges={false} className="document-preview-dialog">
-    <div className="document-preview-toolbar"><p>Previewing <strong>{record.fileName}</strong> inside PRAXIZ.</p><div><button className="icon-button" title={`Download ${record.fileName}`} aria-label={`Download ${record.fileName}`} onClick={() => void documentService.open(record, true)}><Download size={18} /></button>{url && <a className="button button-secondary button-small" href={url} target="_blank" rel="noreferrer"><ExternalLink size={16} />Open in new tab</a>}</div></div>
-    {error ? <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p> : url ? <iframe className="document-preview-frame" src={url} title={`Preview ${record.fileName}`} /> : <div className="document-preview-loading" role="status"><LoaderCircle className="button-spinner" /> Loading secure preview…</div>}
-  </Dialog>;
+  return (
+    <Dialog
+      title={record.templateName}
+      onClose={close}
+      wide
+      protectChanges={false}
+      className="document-preview-dialog"
+    >
+      <div className="document-preview-toolbar">
+        <p>
+          Previewing <strong>{record.fileName}</strong> inside PRAXIZ.
+        </p>
+        <div>
+          <button
+            className="icon-button"
+            title={`Download ${record.fileName}`}
+            aria-label={`Download ${record.fileName}`}
+            onClick={() => void documentService.open(record, true)}
+          >
+            <Download size={18} />
+          </button>
+          {url && (
+            <a
+              className="button button-secondary button-small"
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <ExternalLink size={16} />
+              Open in new tab
+            </a>
+          )}
+        </div>
+      </div>
+      {error ? (
+        <p className="form-error" role="alert">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      ) : url ? (
+        <iframe
+          className="document-preview-frame"
+          src={url}
+          title={`Preview ${record.fileName}`}
+        />
+      ) : (
+        <div className="document-preview-loading" role="status">
+          <LoaderCircle className="button-spinner" /> Loading secure preview…
+        </div>
+      )}
+    </Dialog>
+  );
 }
 
 function DocumentsPage({ role }: { role: RoleId }) {
@@ -2131,39 +5635,209 @@ function DocumentsPage({ role }: { role: RoleId }) {
   const [records, setRecords] = useState<DocumentRecord[]>([]);
   const [uploadRecord, setUploadRecord] = useState<DocumentRecord | null>(null);
   const [reviewRecord, setReviewRecord] = useState<DocumentRecord | null>(null);
-  const [previewRecord, setPreviewRecord] = useState<DocumentRecord | null>(null);
+  const [previewRecord, setPreviewRecord] = useState<DocumentRecord | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   async function load() {
     setLoading(true);
     setError("");
-    try { setRecords(await documentService.listLive()); }
-    catch (reason) { setError(userError(reason, "Documents could not be loaded.")); }
-    finally { setLoading(false); }
+    try {
+      setRecords(await documentService.listLive());
+    } catch (reason) {
+      setError(userError(reason, "Documents could not be loaded."));
+    } finally {
+      setLoading(false);
+    }
   }
   useEffect(() => {
     let active = true;
-    void documentService.listLive().then((result) => {
-      if (active) setRecords(result);
-    }).catch((reason) => {
-      if (active) setError(userError(reason, "Documents could not be loaded."));
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => { active = false; };
+    void documentService
+      .listLive()
+      .then((result) => {
+        if (active) setRecords(result);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(userError(reason, "Documents could not be loaded."));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
-  const completed = records.filter((record) => record.status === "Approved" || record.status === "Waived").length;
-  const percent = records.length ? Math.round(completed / records.length * 100) : 0;
-  const nextUpload = records.find((record) => record.status === "Missing" || record.status === "Needs Revision" || record.status === "Rejected");
+  const completed = records.filter(
+    (record) => record.status === "Approved" || record.status === "Waived",
+  ).length;
+  const percent = records.length
+    ? Math.round((completed / records.length) * 100)
+    : 0;
+  const nextUpload = records.find(
+    (record) =>
+      record.status === "Missing" ||
+      record.status === "Needs Revision" ||
+      record.status === "Rejected",
+  );
   async function downloadDocument(record: DocumentRecord) {
     setError("");
-    try { await documentService.open(record, true); }
-    catch (reason) { setError(userError(reason, "The secure document link could not be opened.")); }
+    try {
+      await documentService.open(record, true);
+    } catch (reason) {
+      setError(
+        userError(reason, "The secure document link could not be opened."),
+      );
+    }
   }
-  return <><PageHeader title={role === "coordinator" ? "Document compliance" : "Documents"} subtitle={canUpload ? "Manage your internship requirements and secure document submissions." : "Review live requirement status and follow up on incomplete records."} action={canUpload && nextUpload ? <ActionButton icon={Upload} onClick={() => setUploadRecord(nextUpload)}>Upload next requirement</ActionButton> : undefined} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card compliance-card"><div className="metric-row"><span>Approved document requirements</span><strong>{completed} of {records.length} ({percent}%)</strong></div><ProgressBar value={percent} /></section>{(["Pre-Internship", "During Internship", "Post-Internship"] as const).map((phase) => <section className="card document-group" key={phase}><h2>{phase}</h2>{records.filter((record) => record.phase === phase).map((record) => <article className="document-row" key={record.id}><span className={`document-icon document-${record.status.toLowerCase().replaceAll(" ", "-")}`}><FileText size={21} /></span><div><strong>{record.templateName}</strong><small>{!canUpload && `${record.studentName} · `}{record.fileName} · {record.dueAt}</small><p>{record.latestFeedback || (record.objectPath ? "Submitted securely to PRAXIZ." : "A file has not been submitted yet.")}</p></div><StatusBadge status={record.status} /><div className="document-actions">{record.objectPath && <ActionButton variant="secondary" icon={Eye} onClick={() => setPreviewRecord(record)}>Preview</ActionButton>}{record.objectPath && <button className="icon-button document-download" title={`Download ${record.templateName}`} aria-label={`Download ${record.templateName}`} onClick={() => { void downloadDocument(record); }}><Download size={18} /></button>}{canUpload && (record.status === "Missing" || record.status === "Needs Revision" || record.status === "Rejected") && <ActionButton icon={Upload} onClick={() => setUploadRecord(record)}>{record.status === "Missing" ? "Upload" : "Re-upload"}</ActionButton>}{!canUpload && record.submissionId && (record.status === "Under Review" || record.status === "Submitted") && <ActionButton onClick={() => setReviewRecord(record)}>Review</ActionButton>}</div></article>)}{!loading && records.filter((record) => record.phase === phase).length === 0 && <p className="muted-note">No visible requirements in this phase.</p>}</section>)}{uploadRecord && <DocumentUploadDialog record={uploadRecord} close={() => setUploadRecord(null)} onSaved={() => { setUploadRecord(null); void load(); }} />}{reviewRecord && <DocumentReviewDialog record={reviewRecord} close={() => setReviewRecord(null)} onSaved={() => { setReviewRecord(null); void load(); }} />}{previewRecord && <DocumentPreviewDialog record={previewRecord} close={() => setPreviewRecord(null)} />}</>;
+  return (
+    <>
+      <PageHeader
+        title={role === "coordinator" ? "Document compliance" : "Documents"}
+        subtitle={
+          canUpload
+            ? "Manage your internship requirements and secure document submissions."
+            : "Review live requirement status and follow up on incomplete records."
+        }
+        action={
+          canUpload && nextUpload ? (
+            <ActionButton
+              icon={Upload}
+              onClick={() => setUploadRecord(nextUpload)}
+            >
+              Upload next requirement
+            </ActionButton>
+          ) : undefined
+        }
+      />
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <section className="card compliance-card">
+        <div className="metric-row">
+          <span>Approved document requirements</span>
+          <strong>
+            {completed} of {records.length} ({percent}%)
+          </strong>
+        </div>
+        <ProgressBar value={percent} />
+      </section>
+      {(
+        ["Pre-Internship", "During Internship", "Post-Internship"] as const
+      ).map((phase) => (
+        <section className="card document-group" key={phase}>
+          <h2>{phase}</h2>
+          {records
+            .filter((record) => record.phase === phase)
+            .map((record) => (
+              <article className="document-row" key={record.id}>
+                <span
+                  className={`document-icon document-${record.status.toLowerCase().replaceAll(" ", "-")}`}
+                >
+                  <FileText size={21} />
+                </span>
+                <div>
+                  <strong>{record.templateName}</strong>
+                  <small>
+                    {!canUpload && `${record.studentName} · `}
+                    {record.fileName} · {record.dueAt}
+                  </small>
+                  <p>
+                    {record.latestFeedback ||
+                      (record.objectPath
+                        ? "Submitted securely to PRAXIZ."
+                        : "A file has not been submitted yet.")}
+                  </p>
+                </div>
+                <StatusBadge status={record.status} />
+                <div className="document-actions">
+                  {record.objectPath && (
+                    <ActionButton
+                      variant="secondary"
+                      icon={Eye}
+                      onClick={() => setPreviewRecord(record)}
+                    >
+                      Preview
+                    </ActionButton>
+                  )}
+                  {record.objectPath && (
+                    <button
+                      className="icon-button document-download"
+                      title={`Download ${record.templateName}`}
+                      aria-label={`Download ${record.templateName}`}
+                      onClick={() => {
+                        void downloadDocument(record);
+                      }}
+                    >
+                      <Download size={18} />
+                    </button>
+                  )}
+                  {canUpload &&
+                    (record.status === "Missing" ||
+                      record.status === "Needs Revision" ||
+                      record.status === "Rejected") && (
+                      <ActionButton
+                        icon={Upload}
+                        onClick={() => setUploadRecord(record)}
+                      >
+                        {record.status === "Missing" ? "Upload" : "Re-upload"}
+                      </ActionButton>
+                    )}
+                  {!canUpload &&
+                    record.submissionId &&
+                    (record.status === "Under Review" ||
+                      record.status === "Submitted") && (
+                      <ActionButton onClick={() => setReviewRecord(record)}>
+                        Review
+                      </ActionButton>
+                    )}
+                </div>
+              </article>
+            ))}
+          {!loading &&
+            records.filter((record) => record.phase === phase).length === 0 && (
+              <p className="muted-note">
+                No visible requirements in this phase.
+              </p>
+            )}
+        </section>
+      ))}
+      {uploadRecord && (
+        <DocumentUploadDialog
+          record={uploadRecord}
+          close={() => setUploadRecord(null)}
+          onSaved={() => {
+            setUploadRecord(null);
+            void load();
+          }}
+        />
+      )}
+      {reviewRecord && (
+        <DocumentReviewDialog
+          record={reviewRecord}
+          close={() => setReviewRecord(null)}
+          onSaved={() => {
+            setReviewRecord(null);
+            void load();
+          }}
+        />
+      )}
+      {previewRecord && (
+        <DocumentPreviewDialog
+          record={previewRecord}
+          close={() => setPreviewRecord(null)}
+        />
+      )}
+    </>
+  );
 }
 
-function EvaluationsPage({ role }: { role: RoleId }) { return <EvaluationWorkspace role={role} />; }
+function EvaluationsPage({ role }: { role: RoleId }) {
+  return <EvaluationWorkspace role={role} />;
+}
 
 function ProgressPage() {
   const [data, setData] = useState<StudentProgressSummary | null>(null);
@@ -2171,34 +5845,198 @@ function ProgressPage() {
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void internshipService.getStudentProgress().then((summary) => {
-      if (active) setData(summary);
-    }).catch((reason) => {
-      if (active) setError(userError(reason, "Internship progress could not be loaded."));
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => { active = false; };
+    void internshipService
+      .getStudentProgress()
+      .then((summary) => {
+        if (active) setData(summary);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(
+            userError(reason, "Internship progress could not be loaded."),
+          );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
-  if (loading) return <><PageHeader title="Internship progress" subtitle="Loading verified progress from Supabase…" /><EmptyAction icon={Clock3} title="Loading live progress" copy="PRAXIZ is calculating your progress from verified records." /></>;
-  if (!data) return <><PageHeader title="Internship progress" subtitle="Follow your verified hours, requirements, and internship milestones." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<EmptyAction icon={BriefcaseBusiness} title="No active internship assignment" copy="Your progress timeline will appear after a coordinator creates your assignment." /></>;
-  const hoursPercent = data.requiredHours ? Math.min(100, Math.round(data.renderedHours / data.requiredHours * 100)) : 0;
+  if (loading)
+    return (
+      <>
+        <PageHeader
+          title="Internship progress"
+          subtitle="Loading verified progress from Supabase…"
+        />
+        <EmptyAction
+          icon={Clock3}
+          title="Loading live progress"
+          copy="PRAXIZ is calculating your progress from verified records."
+        />
+      </>
+    );
+  if (!data)
+    return (
+      <>
+        <PageHeader
+          title="Internship progress"
+          subtitle="Follow your verified hours, requirements, and internship milestones."
+        />
+        {error && (
+          <p className="form-error">
+            <AlertTriangle size={16} /> {error}
+          </p>
+        )}
+        <EmptyAction
+          icon={BriefcaseBusiness}
+          title="No active internship assignment"
+          copy="Your progress timeline will appear after a coordinator creates your assignment."
+        />
+      </>
+    );
+  const hoursPercent = data.requiredHours
+    ? Math.min(100, Math.round((data.renderedHours / data.requiredHours) * 100))
+    : 0;
   const attendancePercent = data.attendanceRate;
-  const logPercent = data.logsExpected ? Math.min(100, Math.round(data.logsSubmitted / data.logsExpected * 100)) : 0;
+  const logPercent = data.logsExpected
+    ? Math.min(100, Math.round((data.logsSubmitted / data.logsExpected) * 100))
+    : 0;
   const hasDocumentRequirements = data.documentsRequired > 0;
-  const documentPercent = hasDocumentRequirements ? Math.round(data.documentsApproved / data.documentsRequired * 100) : 0;
+  const documentPercent = hasDocumentRequirements
+    ? Math.round((data.documentsApproved / data.documentsRequired) * 100)
+    : 0;
   const remainingHours = Math.max(0, data.requiredHours - data.renderedHours);
-  const preInternshipRequirements = data.requirements.filter((item) => item.name === "Acceptance Form" || item.name === "Memorandum of Agreement");
-  const completedPreInternshipRequirements = preInternshipRequirements.filter((item) => item.complete).length;
+  const preInternshipRequirements = data.requirements.filter(
+    (item) =>
+      item.name === "Acceptance Form" ||
+      item.name === "Memorandum of Agreement",
+  );
+  const completedPreInternshipRequirements = preInternshipRequirements.filter(
+    (item) => item.complete,
+  ).length;
   const milestones = [
     { title: "Account verified", date: "PRAXIZ account active", done: true },
-    { title: "Internship assignment confirmed", date: `${data.hte} · ${data.startDate}`, done: ["Active", "Completed"].includes(data.status) },
-    { title: "Pre-internship requirements complete", date: preInternshipRequirements.length ? `${completedPreInternshipRequirements} of ${preInternshipRequirements.length} requirements approved` : "No pre-internship requirements configured", done: preInternshipRequirements.length > 0 && completedPreInternshipRequirements === preInternshipRequirements.length },
-    { title: "Performance evaluation recorded", date: data.finalizedEvaluationCount ? `${data.finalizedEvaluationCount} finalized report(s) available` : "Awaiting finalized evaluation", done: data.finalizedEvaluationCount > 0 },
-    { title: `Complete ${data.requiredHours} required hours`, date: `${data.renderedHours} of ${data.requiredHours} verified hours`, done: hoursPercent >= 100 },
-    { title: "Final evaluation and clearance", date: `Expected completion ${data.endDate}`, done: data.status === "Completed" },
+    {
+      title: "Internship assignment confirmed",
+      date: `${data.hte} · ${data.startDate}`,
+      done: ["Active", "Completed"].includes(data.status),
+    },
+    {
+      title: "Pre-internship requirements complete",
+      date: preInternshipRequirements.length
+        ? `${completedPreInternshipRequirements} of ${preInternshipRequirements.length} requirements approved`
+        : "No pre-internship requirements configured",
+      done:
+        preInternshipRequirements.length > 0 &&
+        completedPreInternshipRequirements === preInternshipRequirements.length,
+    },
+    {
+      title: "Performance evaluation recorded",
+      date: data.finalizedEvaluationCount
+        ? `${data.finalizedEvaluationCount} finalized report(s) available`
+        : "Awaiting finalized evaluation",
+      done: data.finalizedEvaluationCount > 0,
+    },
+    {
+      title: `Complete ${data.requiredHours} required hours`,
+      date: `${data.renderedHours} of ${data.requiredHours} verified hours`,
+      done: hoursPercent >= 100,
+    },
+    {
+      title: "Final evaluation and clearance",
+      date: `Expected completion ${data.endDate}`,
+      done: data.status === "Completed",
+    },
   ];
-  return <><PageHeader title="Internship progress" subtitle="Follow your verified hours, requirements, and internship milestones." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="progress-hero card"><div><span className="eyebrow dark">Verified-hour completion</span><strong>{hoursPercent}%</strong><p>{data.renderedHours} verified hours · {remainingHours} hours remaining</p></div><div className="progress-ring" style={hoursPercent > 0 ? { background: `conic-gradient(var(--primary) 0 ${hoursPercent}%, var(--surface-muted) ${hoursPercent}% 100%)` } : undefined} role="img" aria-label={`${hoursPercent}% verified-hour completion`}><span>{hoursPercent}<small>%</small></span></div></section><div className="dashboard-grid"><section className="card"><h2>Milestone timeline</h2><div className="timeline">{milestones.map((item) => <div className={item.done ? "done" : ""} key={item.title}><span>{item.done ? <Check size={16} /> : <Clock3 size={16} />}</span><div><strong>{item.title}</strong><small>{item.date}</small></div></div>)}</div></section><aside className="card"><h2>Completion details</h2><div className="indicator-list"><div><span>Rendered hours</span><b>{hoursPercent}%</b><ProgressBar value={hoursPercent} /></div><div><span>Attendance verification</span><b>{attendancePercent}%</b><ProgressBar value={attendancePercent} tone="green" /></div><div><span>Weekly logs</span><b>{logPercent}%</b><ProgressBar value={logPercent} /></div><div><span>Requirements</span><b>{hasDocumentRequirements ? `${documentPercent}%` : "Not configured"}</b><ProgressBar value={documentPercent} tone="orange" /></div></div></aside></div></>;
+  return (
+    <>
+      <PageHeader
+        title="Internship progress"
+        subtitle="Follow your verified hours, requirements, and internship milestones."
+      />
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <section className="progress-hero card">
+        <div>
+          <span className="eyebrow dark">Verified-hour completion</span>
+          <strong>{hoursPercent}%</strong>
+          <p>
+            {data.renderedHours} verified hours · {remainingHours} hours
+            remaining
+          </p>
+        </div>
+        <div
+          className="progress-ring"
+          style={
+            hoursPercent > 0
+              ? {
+                  background: `conic-gradient(var(--primary) 0 ${hoursPercent}%, var(--surface-muted) ${hoursPercent}% 100%)`,
+                }
+              : undefined
+          }
+          role="img"
+          aria-label={`${hoursPercent}% verified-hour completion`}
+        >
+          <span>
+            {hoursPercent}
+            <small>%</small>
+          </span>
+        </div>
+      </section>
+      <div className="dashboard-grid">
+        <section className="card">
+          <h2>Milestone timeline</h2>
+          <div className="timeline">
+            {milestones.map((item) => (
+              <div className={item.done ? "done" : ""} key={item.title}>
+                <span>
+                  {item.done ? <Check size={16} /> : <Clock3 size={16} />}
+                </span>
+                <div>
+                  <strong>{item.title}</strong>
+                  <small>{item.date}</small>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+        <aside className="card">
+          <h2>Completion details</h2>
+          <div className="indicator-list">
+            <div>
+              <span>Rendered hours</span>
+              <b>{hoursPercent}%</b>
+              <ProgressBar value={hoursPercent} />
+            </div>
+            <div>
+              <span>Attendance verification</span>
+              <b>{attendancePercent}%</b>
+              <ProgressBar value={attendancePercent} tone="green" />
+            </div>
+            <div>
+              <span>Weekly logs</span>
+              <b>{logPercent}%</b>
+              <ProgressBar value={logPercent} />
+            </div>
+            <div>
+              <span>Requirements</span>
+              <b>
+                {hasDocumentRequirements
+                  ? `${documentPercent}%`
+                  : "Not configured"}
+              </b>
+              <ProgressBar value={documentPercent} tone="orange" />
+            </div>
+          </div>
+        </aside>
+      </div>
+    </>
+  );
 }
 
 function NotificationsPage() {
@@ -2211,62 +6049,355 @@ function NotificationsPage() {
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void notificationService.listLive().then(records => { if (active) setItems(records); })
-      .catch(reason => { if (active) setError(userError(reason, "Notifications could not be loaded.")); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    void notificationService
+      .listLive()
+      .then((records) => {
+        if (active) setItems(records);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(userError(reason, "Notifications could not be loaded."));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
   async function view(item: NotificationRecord) {
     setError("");
-    try { if (item.unread) { await notificationService.markRead(item.id); setItems(old => old.map(r => r.id === item.id ? { ...r, unread: false } : r)); } }
-    catch (reason) { setError(userError(reason, "The notification could not be marked as read.")); }
-    if (item.targetPath) { window.location.assign(item.targetPath); return; }
+    try {
+      if (item.unread) {
+        await notificationService.markRead(item.id);
+        setItems((old) =>
+          old.map((r) => (r.id === item.id ? { ...r, unread: false } : r)),
+        );
+      }
+    } catch (reason) {
+      setError(
+        userError(reason, "The notification could not be marked as read."),
+      );
+    }
+    if (item.targetPath) {
+      window.location.assign(item.targetPath);
+      return;
+    }
     setSelected(item);
   }
   async function markAll() {
     if (lock.current) return;
-    lock.current = true; setBusy(true); setError("");
-    try { await notificationService.markAllRead(); setItems(old => old.map(r => ({ ...r, unread: false }))); }
-    catch (reason) { setError(userError(reason)); }
-    finally { lock.current = false; setBusy(false); }
+    lock.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await notificationService.markAllRead();
+      setItems((old) => old.map((r) => ({ ...r, unread: false })));
+    } catch (reason) {
+      setError(userError(reason));
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   }
-  const unread = items.filter(r => r.unread).length;
-  const shown = filter === "unread" ? items.filter(r => r.unread) : items;
-  return <><PageHeader title="Notifications" subtitle={unread + " unread notifications"} action={<div className="notification-controls"><button aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All ({items.length})</button><button aria-pressed={filter === "unread"} onClick={() => setFilter("unread")}>Unread ({unread})</button><button disabled={!unread || busy} onClick={() => void markAll()}>{busy ? "Updating…" : "Mark all read"}</button></div>} />
-    {error && <p className="form-error" role="alert">{error}</p>}
-    {loading ? <div className="card page-skeleton" role="status" aria-label="Loading notifications"><span /><span /></div> : <div className="notification-list">{shown.map(item => <article key={item.id} className={"notification-item notification-" + item.tone + (item.unread ? " unread" : "")}><span className="notification-symbol"><Bell /></span><div><strong>{item.title}</strong><p>{item.message}</p><small>{item.time}{item.unread ? " · Unread" : ""}</small></div><button className="table-link" aria-label={"View notification: " + item.title} title="View notification" onClick={() => void view(item)}><Eye size={18} />View</button></article>)}{!shown.length && <EmptyAction icon={Bell} title="You’re all caught up" copy={filter === "unread" ? "There are no unread notifications." : "No notifications have been sent to this account yet."} />}</div>}
-    {selected && <Dialog title={selected.title} onClose={() => setSelected(null)}><p className="muted-note">{selected.time}</p><p className="preserve-text">{selected.message}</p>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><ActionButton onClick={() => setSelected(null)}>Done</ActionButton></div></Dialog>}
-  </>;
+  const unread = items.filter((r) => r.unread).length;
+  const shown = filter === "unread" ? items.filter((r) => r.unread) : items;
+  return (
+    <>
+      <PageHeader
+        title="Notifications"
+        subtitle={unread + " unread notifications"}
+        action={
+          <div className="notification-controls">
+            <button
+              aria-pressed={filter === "all"}
+              onClick={() => setFilter("all")}
+            >
+              All ({items.length})
+            </button>
+            <button
+              aria-pressed={filter === "unread"}
+              onClick={() => setFilter("unread")}
+            >
+              Unread ({unread})
+            </button>
+            <button disabled={!unread || busy} onClick={() => void markAll()}>
+              {busy ? "Updating…" : "Mark all read"}
+            </button>
+          </div>
+        }
+      />
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      {loading ? (
+        <div
+          className="card page-skeleton"
+          role="status"
+          aria-label="Loading notifications"
+        >
+          <span />
+          <span />
+        </div>
+      ) : (
+        <div className="notification-list">
+          {shown.map((item) => (
+            <article
+              key={item.id}
+              className={
+                "notification-item notification-" +
+                item.tone +
+                (item.unread ? " unread" : "")
+              }
+            >
+              <span className="notification-symbol">
+                <Bell />
+              </span>
+              <div>
+                <strong>{item.title}</strong>
+                <p>{item.message}</p>
+                <small>
+                  {item.time}
+                  {item.unread ? " · Unread" : ""}
+                </small>
+              </div>
+              <button
+                className="table-link"
+                aria-label={"View notification: " + item.title}
+                title="View notification"
+                onClick={() => void view(item)}
+              >
+                <Eye size={18} />
+                View
+              </button>
+            </article>
+          ))}
+          {!shown.length && (
+            <EmptyAction
+              icon={Bell}
+              title="You’re all caught up"
+              copy={
+                filter === "unread"
+                  ? "There are no unread notifications."
+                  : "No notifications have been sent to this account yet."
+              }
+            />
+          )}
+        </div>
+      )}
+      {selected && (
+        <Dialog title={selected.title} onClose={() => setSelected(null)}>
+          <p className="muted-note">{selected.time}</p>
+          <p className="preserve-text">{selected.message}</p>
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="modal-actions">
+            <ActionButton onClick={() => setSelected(null)}>Done</ActionButton>
+          </div>
+        </Dialog>
+      )}
+    </>
+  );
 }
 
 function SettingsPanel() {
   const { user } = useAuth();
   const saveLock = useRef(false);
-  const [preferences, setPreferences] = useState({ emailNotifications: true, weeklyProgressSummary: true, monitoringNotices: false });
-  const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [notice, setNotice] = useState(""); const [error, setError] = useState("");
+  const [preferences, setPreferences] = useState({
+    emailNotifications: true,
+    weeklyProgressSummary: true,
+    monitoringNotices: false,
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void notificationService.getPreferences().then(result => { if (active) setPreferences(result); }).catch(reason => { if (active) setError(userError(reason)); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    void notificationService
+      .getPreferences()
+      .then((result) => {
+        if (active) setPreferences(result);
+      })
+      .catch((reason) => {
+        if (active) setError(userError(reason));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
-  useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 6000); return () => clearTimeout(timer); }, [notice]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), 6000);
+    return () => clearTimeout(timer);
+  }, [notice]);
   async function save() {
-    if (saveLock.current) return; saveLock.current = true; setSaving(true); setError(""); setNotice("");
-    try { await notificationService.savePreferences(preferences); setNotice("Notification preferences saved."); }
-    catch (reason) { setError(userError(reason, "Preferences could not be saved.")); }
-    finally { saveLock.current = false; setSaving(false); }
+    if (saveLock.current) return;
+    saveLock.current = true;
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      await notificationService.savePreferences(preferences);
+      setNotice("Notification preferences saved.");
+    } catch (reason) {
+      setError(userError(reason, "Preferences could not be saved."));
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
+    }
   }
-  const choices = [{ key: 'emailNotifications', label: 'Email notifications', hint: 'Submission, verification, and account updates' }, { key: 'weeklyProgressSummary', label: 'Weekly progress summary', hint: 'A digest of verified internship progress' }, { key: 'monitoringNotices', label: 'Monitoring notices', hint: 'Attendance and compliance reminders' }] as const;
-  return <div className="settings-stack settings-card-grid">
-    <section className="card settings-card account-settings-card"><header><UserRound /><div><h2>Account</h2><p>Your verified institutional identity.</p></div></header><div className="settings-identity"><ProfileAvatar name={user?.fullName ?? 'PRAXIZ user'} path={user?.avatarPath} /><div><strong>{user?.fullName}</strong><span>{user?.email}</span><small>{user ? roles[user.role].label : ''}</small></div></div><Link className="button button-secondary" href={user ? `/${user.role}/profile` : '/signin'}>View profile</Link></section>
-    <section className="card settings-card security-settings-card"><header><LockKeyhole /><div><h2>Security</h2><p>Passwords are managed through secure account recovery.</p></div></header><Link className="button button-secondary" href="/forgot-password">Reset password</Link></section>
-    <section className="card settings-card notification-settings-card"><header><Bell /><div><h2>Notifications</h2><p>Preferences are stored in your account.</p></div></header><div>{choices.map(choice => <label className="toggle-row" key={choice.key} htmlFor={choice.key}><span><strong id={`${choice.key}-label`}>{choice.label}</strong><small>{choice.hint}</small></span><input role="switch" aria-checked={preferences[choice.key]} aria-labelledby={`${choice.key}-label`} id={choice.key} type="checkbox" checked={preferences[choice.key]} disabled={loading || saving} onChange={() => setPreferences(value => ({ ...value, [choice.key]: !value[choice.key] }))} /></label>)}</div>{notice && <p className="form-success" role="status">{notice}</p>}{error && <p className="form-error" role="alert">{error}</p>}<div className="settings-card-actions"><ActionButton disabled={loading || saving} onClick={() => void save()}>{saving ? 'Saving…' : notice ? 'Saved' : 'Save preferences'}</ActionButton></div></section>
-    <section className="card settings-card appearance-settings-card"><header><Settings /><div><h2>Appearance</h2><p>Choose a color mode and PRAXIZ accent for this device.</p></div></header><ThemeControls /></section>
-  </div>;
+  const choices = [
+    {
+      key: "emailNotifications",
+      label: "Email notifications",
+      hint: "Submission, verification, and account updates",
+    },
+    {
+      key: "weeklyProgressSummary",
+      label: "Weekly progress summary",
+      hint: "A digest of verified internship progress",
+    },
+    {
+      key: "monitoringNotices",
+      label: "Monitoring notices",
+      hint: "Attendance and compliance reminders",
+    },
+  ] as const;
+  return (
+    <div className="settings-stack settings-card-grid">
+      <section className="card settings-card account-settings-card">
+        <header>
+          <UserRound />
+          <div>
+            <h2>Account</h2>
+            <p>Your verified institutional identity.</p>
+          </div>
+        </header>
+        <div className="settings-identity">
+          <ProfileAvatar
+            name={user?.fullName ?? "PRAXIZ user"}
+            path={user?.avatarPath}
+          />
+          <div>
+            <strong>{user?.fullName}</strong>
+            <span>{user?.email}</span>
+            <small>{user ? roles[user.role].label : ""}</small>
+          </div>
+        </div>
+        <Link
+          className="button button-secondary"
+          href={user ? `/${user.role}/profile` : "/signin"}
+        >
+          View profile
+        </Link>
+      </section>
+      <section className="card settings-card security-settings-card">
+        <header>
+          <LockKeyhole />
+          <div>
+            <h2>Security</h2>
+            <p>Passwords are managed through secure account recovery.</p>
+          </div>
+        </header>
+        <Link className="button button-secondary" href="/forgot-password">
+          Reset password
+        </Link>
+      </section>
+      <section className="card settings-card notification-settings-card">
+        <header>
+          <Bell />
+          <div>
+            <h2>Notifications</h2>
+            <p>Preferences are stored in your account.</p>
+          </div>
+        </header>
+        <div>
+          {choices.map((choice) => (
+            <label className="toggle-row" key={choice.key} htmlFor={choice.key}>
+              <span>
+                <strong id={`${choice.key}-label`}>{choice.label}</strong>
+                <small>{choice.hint}</small>
+              </span>
+              <input
+                role="switch"
+                aria-checked={preferences[choice.key]}
+                aria-labelledby={`${choice.key}-label`}
+                id={choice.key}
+                type="checkbox"
+                checked={preferences[choice.key]}
+                disabled={loading || saving}
+                onChange={() =>
+                  setPreferences((value) => ({
+                    ...value,
+                    [choice.key]: !value[choice.key],
+                  }))
+                }
+              />
+            </label>
+          ))}
+        </div>
+        {notice && (
+          <p className="form-success" role="status">
+            {notice}
+          </p>
+        )}
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="settings-card-actions">
+          <ActionButton
+            disabled={loading || saving}
+            onClick={() => void save()}
+          >
+            {saving ? "Saving…" : notice ? "Saved" : "Save preferences"}
+          </ActionButton>
+        </div>
+      </section>
+      <section className="card settings-card appearance-settings-card">
+        <header>
+          <Settings />
+          <div>
+            <h2>Appearance</h2>
+            <p>Choose a color mode and PRAXIZ accent for this device.</p>
+          </div>
+        </header>
+        <ThemeControls />
+      </section>
+    </div>
+  );
 }
 
-function ProfilePage({ role, settings = false }: { role: RoleId; settings?: boolean }) {
-  return <><PageHeader title={settings ? "Settings" : "Profile"} subtitle={settings ? "Manage your account, notifications, appearance, and security." : "Your identity and institutional account information."} />{settings ? <SettingsPanel /> : <ProfileDetails role={role} />}</>;
+function ProfilePage({
+  role,
+  settings = false,
+}: {
+  role: RoleId;
+  settings?: boolean;
+}) {
+  return (
+    <>
+      <PageHeader
+        title={settings ? "Settings" : "Profile"}
+        subtitle={
+          settings
+            ? "Manage your account, notifications, appearance, and security."
+            : "Your identity and institutional account information."
+        }
+      />
+      {settings ? <SettingsPanel /> : <ProfileDetails role={role} />}
+    </>
+  );
 }
 
 function InternManagementPage({ role }: { role: RoleId }) {
@@ -2280,54 +6411,318 @@ function InternManagementPage({ role }: { role: RoleId }) {
   const [hte, setHte] = useState("");
   const [academicTerm, setAcademicTerm] = useState("");
   const [viewBy, setViewBy] = useState<"all" | "section" | "hte">("all");
-  const [scope, setScope] = useState<Awaited<ReturnType<typeof coordinatorService.getScope>>>([]);
+  const [scope, setScope] = useState<
+    Awaited<ReturnType<typeof coordinatorService.getScope>>
+  >([]);
   const [rows, setRows] = useState<Intern[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
     void Promise.all([
-      role === "coordinator" ? internshipService.listCoordinatorInterns() : internshipService.listLiveInterns(),
-      role === "coordinator" ? coordinatorService.getScope() : Promise.resolve([]),
-    ]).then(([records, programs]) => {
-      if (active) { setRows(records); setScope(programs); }
-    }).catch(reason => { if (active) setError(userError(reason, "Intern assignments could not be loaded.")); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+      role === "coordinator"
+        ? internshipService.listCoordinatorInterns()
+        : internshipService.listHteInterns(),
+      role === "coordinator"
+        ? coordinatorService.getScope()
+        : Promise.resolve([]),
+    ])
+      .then(([records, programs]) => {
+        if (active) {
+          setRows(records);
+          setScope(programs);
+        }
+      })
+      .catch((reason) => {
+        if (active)
+          setError(
+            userError(reason, "Intern assignments could not be loaded."),
+          );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [role]);
-  const campusOptions = [...new Set(rows.map(intern => intern.campus))];
-  const programOptions = role === "coordinator" ? scope.map(item => ({ id: item.id, label: `${item.code} · ${item.name}` }))
-    : [...new Map(rows.map(intern => [intern.programId ?? intern.program, { id: intern.programId ?? intern.program, label: intern.program }])).values()];
-  const yearOptions = mergeAcademicOptionValues(STUDENT_YEAR_LEVEL_OPTIONS, rows.map(intern => intern.yearLevel).filter((value): value is number => typeof value === "number")).sort((a, b) => a - b);
-  const sectionOptions = mergeAcademicOptionValues(STUDENT_SECTION_OPTIONS, rows.map(intern => intern.section).filter((value): value is string => Boolean(value))).sort();
-  const hteOptions = [...new Set(rows.map(intern => intern.hte).filter(value => value && value !== "Not assigned"))].sort();
-  const termOptions = [...new Set(rows.map(intern => intern.academicTerm).filter((value): value is string => Boolean(value)))].sort();
-  const visible = rows.filter(intern => (!search || `${intern.name} ${intern.hte} ${intern.section ?? ""}`.toLowerCase().includes(search.trim().toLowerCase()))
-    && (role === "coordinator" || !campus || intern.campus === campus)
-    && (!program || (intern.programId ?? intern.program) === program) && (!status || intern.status === status)
-    && (!yearLevel || String(intern.yearLevel ?? "") === yearLevel) && (!section || intern.section === section)
-    && (!hte || intern.hte === hte) && (!academicTerm || intern.academicTerm === academicTerm))
-    .sort((left, right) => viewBy === "section" ? (left.section ?? "ZZZ").localeCompare(right.section ?? "ZZZ") || left.name.localeCompare(right.name) : viewBy === "hte" ? left.hte.localeCompare(right.hte) || left.name.localeCompare(right.name) : left.name.localeCompare(right.name));
-  const filtered = !!(search || program || status || campus || yearLevel || section || hte || academicTerm);
-  return <><PageHeader title={role === "coordinator" ? "Intern management" : "Assigned interns"} subtitle={role === "coordinator" ? "Students are routed here by academic program; placement details appear after assignment." : "View interns assigned to your authorized supervision scope."} />
-    {role === "coordinator" && scope.length > 0 && <dl className="scope-context"><div><dt>Assigned campus</dt><dd>{[...new Set(scope.map(item => item.campus))].join(" · ")}</dd></div><div><dt>{scope.length === 1 ? "Handled program" : "Handled programs"}</dt><dd>{scope.map(item => `${item.code} · ${item.name}`).join("; ")}</dd></div></dl>}
-    {error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}
-    <section className="card table-card"><div className="intern-toolbar">
-      <h2 aria-live="polite">{loading ? "Loading interns…" : `${visible.length} intern${visible.length === 1 ? "" : "s"}`}</h2>
-      <div className="filter-bar"><label><Search size={18} aria-hidden="true" /><input aria-label="Search interns or HTEs" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search intern or HTE…" /></label>
-        {role === "coordinator" && <select className="view-by-select" aria-label="View interns by" value={viewBy} onChange={event => setViewBy(event.target.value as "all" | "section" | "hte")}><option value="all">View: All interns</option><option value="section">View by Section</option><option value="hte">View by HTE</option></select>}
-        {role !== "coordinator" && campusOptions.length > 1 && <select aria-label="Filter by campus" value={campus} onChange={event => setCampus(event.target.value)}><option value="">All assigned campuses</option>{campusOptions.map(item => <option key={item}>{item}</option>)}</select>}
-        {programOptions.length > 1 && <select aria-label="Filter by handled program" value={program} onChange={event => setProgram(event.target.value)}><option value="">All handled programs</option>{programOptions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>}
-        {role === "coordinator" && <select aria-label="Filter by year level" value={yearLevel} onChange={event => setYearLevel(event.target.value)}><option value="">All year levels</option>{yearOptions.map(item => <option key={item} value={item}>Year {item}</option>)}</select>}
-        {role === "coordinator" && <select aria-label="Filter by section" value={section} onChange={event => setSection(event.target.value)}><option value="">All sections</option>{sectionOptions.map(item => <option key={item} value={item}>Section {item}</option>)}</select>}
-        {role === "coordinator" && <select aria-label="Filter by HTE" value={hte} onChange={event => setHte(event.target.value)}><option value="">All HTEs</option>{hteOptions.map(item => <option key={item}>{item}</option>)}</select>}
-        {role === "coordinator" && termOptions.length > 0 && <select aria-label="Filter by academic term" value={academicTerm} onChange={event => setAcademicTerm(event.target.value)}><option value="">All academic terms</option>{termOptions.map(item => <option key={item}>{item}</option>)}</select>}
-        <select aria-label="Filter by status" value={status} onChange={event => setStatus(event.target.value)}><option value="">All statuses</option>{["Awaiting Assignment", "Active", "Completed", "Needs Attention"].map(item => <option key={item}>{item}</option>)}</select>
-        {filtered && <button className="table-link" onClick={() => { setSearch(""); setCampus(""); setProgram(""); setStatus(""); setYearLevel(""); setSection(""); setHte(""); setAcademicTerm(""); }}>Clear filters</button>}
-      </div></div>
-      <InternTable rows={visible} groupBy={role === "coordinator" ? viewBy : "all"} onView={intern => setHistoryStudent(intern)} emptyMessage={loading ? "Loading interns…" : error ? "Interns could not be loaded." : filtered ? "No interns match the current filters. Try adjusting your search or status filter." : "No interns are available in your assigned scope yet."} />
-    </section>{historyStudent?.studentUserId && <StudentAttendanceHistory studentId={historyStudent.studentUserId} name={historyStudent.name} onClose={() => setHistoryStudent(null)} />}
-  </>;
+  const campusOptions = [...new Set(rows.map((intern) => intern.campus))];
+  const programOptions =
+    role === "coordinator"
+      ? scope.map((item) => ({
+          id: item.id,
+          label: `${item.code} · ${item.name}`,
+        }))
+      : [
+          ...new Map(
+            rows.map((intern) => [
+              intern.programId ?? intern.program,
+              { id: intern.programId ?? intern.program, label: intern.program },
+            ]),
+          ).values(),
+        ];
+  const yearOptions = mergeAcademicOptionValues(
+    STUDENT_YEAR_LEVEL_OPTIONS,
+    rows
+      .map((intern) => intern.yearLevel)
+      .filter((value): value is number => typeof value === "number"),
+  ).sort((a, b) => a - b);
+  const sectionOptions = mergeAcademicOptionValues(
+    STUDENT_SECTION_OPTIONS,
+    rows
+      .map((intern) => intern.section)
+      .filter((value): value is string => Boolean(value)),
+  ).sort();
+  const hteOptions = [
+    ...new Set(
+      rows
+        .map((intern) => intern.hte)
+        .filter((value) => value && value !== "Not assigned"),
+    ),
+  ].sort();
+  const termOptions = [
+    ...new Set(
+      rows
+        .map((intern) => intern.academicTerm)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ].sort();
+  const visible = rows
+    .filter(
+      (intern) =>
+        (!search ||
+          `${intern.name} ${intern.hte} ${intern.section ?? ""}`
+            .toLowerCase()
+            .includes(search.trim().toLowerCase())) &&
+        (role === "coordinator" || !campus || intern.campus === campus) &&
+        (!program || (intern.programId ?? intern.program) === program) &&
+        (!status || intern.status === status) &&
+        (!yearLevel || String(intern.yearLevel ?? "") === yearLevel) &&
+        (!section || intern.section === section) &&
+        (!hte || intern.hte === hte) &&
+        (!academicTerm || intern.academicTerm === academicTerm),
+    )
+    .sort((left, right) =>
+      viewBy === "section"
+        ? (left.section ?? "ZZZ").localeCompare(right.section ?? "ZZZ") ||
+          left.name.localeCompare(right.name)
+        : viewBy === "hte"
+          ? left.hte.localeCompare(right.hte) ||
+            left.name.localeCompare(right.name)
+          : left.name.localeCompare(right.name),
+    );
+  const filtered = !!(
+    search ||
+    program ||
+    status ||
+    campus ||
+    yearLevel ||
+    section ||
+    hte ||
+    academicTerm
+  );
+  return (
+    <>
+      <PageHeader
+        title={
+          role === "coordinator" ? "Intern management" : "Assigned interns"
+        }
+        subtitle={
+          role === "coordinator"
+            ? "Students are routed here by academic program; placement details appear after assignment."
+            : "View interns assigned to your authorized supervision scope."
+        }
+      />
+      {role === "coordinator" && scope.length > 0 && (
+        <dl className="scope-context">
+          <div>
+            <dt>Assigned campus</dt>
+            <dd>
+              {[...new Set(scope.map((item) => item.campus))].join(" · ")}
+            </dd>
+          </div>
+          <div>
+            <dt>
+              {scope.length === 1 ? "Handled program" : "Handled programs"}
+            </dt>
+            <dd>
+              {scope.map((item) => `${item.code} · ${item.name}`).join("; ")}
+            </dd>
+          </div>
+        </dl>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <section className="card table-card">
+        <div className="intern-toolbar">
+          <h2 aria-live="polite">
+            {loading
+              ? "Loading interns…"
+              : `${visible.length} intern${visible.length === 1 ? "" : "s"}`}
+          </h2>
+          <div className="filter-bar">
+            <label>
+              <Search size={18} aria-hidden="true" />
+              <input
+                aria-label="Search interns or HTEs"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search intern or HTE…"
+              />
+            </label>
+            {role === "coordinator" && (
+              <select
+                className="view-by-select"
+                aria-label="View interns by"
+                value={viewBy}
+                onChange={(event) =>
+                  setViewBy(event.target.value as "all" | "section" | "hte")
+                }
+              >
+                <option value="all">View: All interns</option>
+                <option value="section">View by Section</option>
+                <option value="hte">View by HTE</option>
+              </select>
+            )}
+            {role !== "coordinator" && campusOptions.length > 1 && (
+              <select
+                aria-label="Filter by campus"
+                value={campus}
+                onChange={(event) => setCampus(event.target.value)}
+              >
+                <option value="">All assigned campuses</option>
+                {campusOptions.map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+            )}
+            {programOptions.length > 1 && (
+              <select
+                aria-label="Filter by handled program"
+                value={program}
+                onChange={(event) => setProgram(event.target.value)}
+              >
+                <option value="">All handled programs</option>
+                {programOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            {role === "coordinator" && (
+              <select
+                aria-label="Filter by year level"
+                value={yearLevel}
+                onChange={(event) => setYearLevel(event.target.value)}
+              >
+                <option value="">All year levels</option>
+                {yearOptions.map((item) => (
+                  <option key={item} value={item}>
+                    Year {item}
+                  </option>
+                ))}
+              </select>
+            )}
+            {role === "coordinator" && (
+              <select
+                aria-label="Filter by section"
+                value={section}
+                onChange={(event) => setSection(event.target.value)}
+              >
+                <option value="">All sections</option>
+                {sectionOptions.map((item) => (
+                  <option key={item} value={item}>
+                    Section {item}
+                  </option>
+                ))}
+              </select>
+            )}
+            {role === "coordinator" && (
+              <select
+                aria-label="Filter by HTE"
+                value={hte}
+                onChange={(event) => setHte(event.target.value)}
+              >
+                <option value="">All HTEs</option>
+                {hteOptions.map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+            )}
+            {role === "coordinator" && termOptions.length > 0 && (
+              <select
+                aria-label="Filter by academic term"
+                value={academicTerm}
+                onChange={(event) => setAcademicTerm(event.target.value)}
+              >
+                <option value="">All academic terms</option>
+                {termOptions.map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+            )}
+            <select
+              aria-label="Filter by status"
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+            >
+              <option value="">All statuses</option>
+              {[
+                "Awaiting Assignment",
+                "Active",
+                "Completed",
+                "Needs Attention",
+              ].map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+            {filtered && (
+              <button
+                className="table-link"
+                onClick={() => {
+                  setSearch("");
+                  setCampus("");
+                  setProgram("");
+                  setStatus("");
+                  setYearLevel("");
+                  setSection("");
+                  setHte("");
+                  setAcademicTerm("");
+                }}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        </div>
+        <InternTable
+          rows={visible}
+          groupBy={role === "coordinator" ? viewBy : "all"}
+          onView={(intern) => setHistoryStudent(intern)}
+          emptyMessage={
+            loading
+              ? "Loading interns…"
+              : error
+                ? "Interns could not be loaded."
+                : filtered
+                  ? "No interns match the current filters. Try adjusting your search or status filter."
+                  : "No interns are available in your assigned scope yet."
+          }
+        />
+      </section>
+      {historyStudent?.studentUserId && (
+        <StudentAttendanceHistory
+          studentId={historyStudent.studentUserId}
+          name={historyStudent.name}
+          onClose={() => setHistoryStudent(null)}
+        />
+      )}
+    </>
+  );
 }
 
 type AnalyticsAiResult = {
@@ -2353,20 +6748,28 @@ type AnalyticsMetric = {
 
 function AnalyticsPage() {
   const { user } = useAuth();
-  const [analysisScope, setAnalysisScope] = useState<'overall' | 'section' | 'hte' | 'student'>('overall');
-  const [selectedSection, setSelectedSection] = useState('');
-  const [selectedHteId, setSelectedHteId] = useState('');
-  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [analysisScope, setAnalysisScope] = useState<
+    "overall" | "section" | "hte" | "student"
+  >("overall");
+  const [selectedSection, setSelectedSection] = useState("");
+  const [selectedHteId, setSelectedHteId] = useState("");
+  const [selectedStudentId, setSelectedStudentId] = useState("");
   const [rows, setRows] = useState<Intern[]>([]);
   const [evaluations, setEvaluations] = useState<EvaluationRecord[]>([]);
   const [logs, setLogs] = useState<WeeklyLogRecord[]>([]);
-  const [attendanceRows, setAttendanceRows] = useState<AttendanceHistoryRow[]>([]);
-  const [term, setTerm] = useState<{ academicYear: string; term: string } | null>(null);
+  const [attendanceRows, setAttendanceRows] = useState<AttendanceHistoryRow[]>(
+    [],
+  );
+  const [term, setTerm] = useState<{
+    academicYear: string;
+    term: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [aiInsights, setAiInsights] = useState<AnalyticsAiResult | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
+  const [aiRetryable, setAiRetryable] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -2376,82 +6779,699 @@ function AnalyticsPage() {
       weeklyLogService.listLive(),
       attendanceService.listLiveHistory(),
       institutionalService.getCurrentAcademicTerm().catch(() => null),
-    ]).then(([internRows, evaluationRows, logRows, liveAttendance, currentTerm]) => {
-      if (!active) return;
-      setRows(internRows);
-      setEvaluations(evaluationRows);
-      setLogs(logRows);
-      setAttendanceRows(liveAttendance);
-      setTerm(currentTerm ? { academicYear: currentTerm.academicYear, term: currentTerm.term } : null);
-    }).catch(reason => { if (active) setError(userError(reason, "Analytics could not be loaded.")); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    ])
+      .then(
+        ([
+          internRows,
+          evaluationRows,
+          logRows,
+          liveAttendance,
+          currentTerm,
+        ]) => {
+          if (!active) return;
+          setRows(internRows);
+          setEvaluations(evaluationRows);
+          setLogs(logRows);
+          setAttendanceRows(liveAttendance);
+          setTerm(
+            currentTerm
+              ? {
+                  academicYear: currentTerm.academicYear,
+                  term: currentTerm.term,
+                }
+              : null,
+          );
+        },
+      )
+      .catch((reason) => {
+        if (active)
+          setError(userError(reason, "Analytics could not be loaded."));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const assignedAll = rows.filter(row => row.status !== "Awaiting Assignment" && row.assignmentId);
-  const hteOptions = [...new Map(assignedAll.filter(row => row.hteId).map(row => [row.hteId!, { id: row.hteId!, label: row.hte }])).values()];
-  const studentOptions = [...new Map(assignedAll.filter(row => row.studentUserId).map(row => [row.studentUserId!, { id: row.studentUserId!, label: row.name }])).values()];
-  const sectionOptions = [...new Set(assignedAll.map(row => row.section).filter((value): value is string => Boolean(value)))].sort();
-  const activeSection = sectionOptions.includes(selectedSection) ? selectedSection : sectionOptions[0] ?? '';
-  const activeHteId = hteOptions.some(item => item.id === selectedHteId) ? selectedHteId : hteOptions[0]?.id ?? '';
-  const activeStudentId = studentOptions.some(item => item.id === selectedStudentId) ? selectedStudentId : studentOptions[0]?.id ?? '';
-
-  const percentage = (numerator: number, denominator: number) => denominator > 0 ? Math.round(numerator / denominator * 100) : null;
-  const assignedRows = assignedAll.filter(row => analysisScope === 'overall' || (analysisScope === 'section' ? row.section === activeSection : analysisScope === 'hte' ? row.hteId === activeHteId : row.studentUserId === activeStudentId));
-  const scopedAssignmentIds = new Set(assignedRows.map(row => row.assignmentId).filter((id): id is string => Boolean(id)));
-  const scopedAttendanceRows = attendanceRows.filter(row => scopedAssignmentIds.has(row.assignmentId));
-  const scopedLogs = logs.filter(log => scopedAssignmentIds.has(log.assignmentId));
-  const scopedEvaluations = evaluations.filter(item => scopedAssignmentIds.has(item.assignmentId));
-  const attendanceVerified = scopedAttendanceRows.filter(row => row.status === "Verified").length;
-  const approvedLogs = scopedLogs.filter(log => log.status === "Approved").length;
-  const finalizedCount = scopedEvaluations.filter(item => item.status === "Finalized").length;
-  const required = assignedRows.reduce((sum, row) => sum + Number(row.requirements.split("/")[1] ?? 0), 0);
-  const approved = assignedRows.reduce((sum, row) => sum + Number(row.requirements.split("/")[0] ?? 0), 0);
-  const sectionDistribution = [...assignedRows.reduce((counts, row) => counts.set(row.section ?? "Not recorded", (counts.get(row.section ?? "Not recorded") ?? 0) + 1), new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1]);
-  const hteDistribution = [...assignedRows.reduce((counts, row) => counts.set(row.hte, (counts.get(row.hte) ?? 0) + 1), new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1]);
-  const distributionMax = Math.max(1, ...sectionDistribution.map(([, count]) => count), ...hteDistribution.map(([, count]) => count));
-  const metrics: AnalyticsMetric[] = [
-    { label: "Attendance verification", numerator: attendanceVerified, denominator: scopedAttendanceRows.length, value: percentage(attendanceVerified, scopedAttendanceRows.length), detail: scopedAttendanceRows.length ? `${attendanceVerified} of ${scopedAttendanceRows.length} applicable sessions verified` : "No applicable sessions yet" },
-    { label: "Weekly Log approval", numerator: approvedLogs, denominator: scopedLogs.length, value: percentage(approvedLogs, scopedLogs.length), detail: scopedLogs.length ? `${approvedLogs} of ${scopedLogs.length} submitted Weekly Logs approved` : "No submitted Weekly Logs yet" },
-    { label: "Document compliance", numerator: approved, denominator: required, value: percentage(approved, required), detail: required ? `${approved} of ${required} required documents compliant` : "No required documents yet" },
-    { label: "Evaluation finalization", numerator: finalizedCount, denominator: scopedEvaluations.length, value: percentage(finalizedCount, scopedEvaluations.length), detail: scopedEvaluations.length ? `${finalizedCount} of ${scopedEvaluations.length} reports finalized · completion only, not a grade` : "No evaluation reports yet" },
+  const assignedAll = rows.filter(
+    (row) => row.status !== "Awaiting Assignment" && row.assignmentId,
+  );
+  const hteOptions = [
+    ...new Map(
+      assignedAll
+        .filter((row) => row.hteId)
+        .map((row) => [row.hteId!, { id: row.hteId!, label: row.hte }]),
+    ).values(),
   ];
-  const [attendanceMetric, logMetric, documentMetric, evaluationMetric] = metrics;
-  const concerns = assignedRows.filter(row => row.status === "Needs Attention" || (() => { const [complete = 0, total = 0] = row.requirements.split("/").map(Number); return total > 0 && complete < total; })());
+  const studentOptions = [
+    ...new Map(
+      assignedAll
+        .filter((row) => row.studentUserId)
+        .map((row) => [
+          row.studentUserId!,
+          { id: row.studentUserId!, label: row.name },
+        ]),
+    ).values(),
+  ];
+  const sectionOptions = [
+    ...new Set(
+      assignedAll
+        .map((row) => row.section)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ].sort();
+  const activeSection = sectionOptions.includes(selectedSection)
+    ? selectedSection
+    : (sectionOptions[0] ?? "");
+  const activeHteId = hteOptions.some((item) => item.id === selectedHteId)
+    ? selectedHteId
+    : (hteOptions[0]?.id ?? "");
+  const activeStudentId = studentOptions.some(
+    (item) => item.id === selectedStudentId,
+  )
+    ? selectedStudentId
+    : (studentOptions[0]?.id ?? "");
+
+  const percentage = (numerator: number, denominator: number) =>
+    denominator > 0 ? Math.round((numerator / denominator) * 100) : null;
+  const assignedRows = assignedAll.filter(
+    (row) =>
+      analysisScope === "overall" ||
+      (analysisScope === "section"
+        ? row.section === activeSection
+        : analysisScope === "hte"
+          ? row.hteId === activeHteId
+          : row.studentUserId === activeStudentId),
+  );
+  const scopedAssignmentIds = new Set(
+    assignedRows
+      .map((row) => row.assignmentId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const scopedAttendanceRows = attendanceRows.filter((row) =>
+    scopedAssignmentIds.has(row.assignmentId),
+  );
+  const scopedLogs = logs.filter((log) =>
+    scopedAssignmentIds.has(log.assignmentId),
+  );
+  const scopedEvaluations = evaluations.filter((item) =>
+    scopedAssignmentIds.has(item.assignmentId),
+  );
+  const attendanceVerified = scopedAttendanceRows.filter(
+    (row) => row.status === "Verified",
+  ).length;
+  const approvedLogs = scopedLogs.filter(
+    (log) => log.status === "Approved",
+  ).length;
+  const finalizedCount = scopedEvaluations.filter(
+    (item) => item.status === "Finalized",
+  ).length;
+  const required = assignedRows.reduce(
+    (sum, row) => sum + Number(row.requirements.split("/")[1] ?? 0),
+    0,
+  );
+  const approved = assignedRows.reduce(
+    (sum, row) => sum + Number(row.requirements.split("/")[0] ?? 0),
+    0,
+  );
+  const sectionDistribution = [
+    ...assignedRows
+      .reduce(
+        (counts, row) =>
+          counts.set(
+            row.section ?? "Not recorded",
+            (counts.get(row.section ?? "Not recorded") ?? 0) + 1,
+          ),
+        new Map<string, number>(),
+      )
+      .entries(),
+  ].sort((a, b) => b[1] - a[1]);
+  const hteDistribution = [
+    ...assignedRows
+      .reduce(
+        (counts, row) => counts.set(row.hte, (counts.get(row.hte) ?? 0) + 1),
+        new Map<string, number>(),
+      )
+      .entries(),
+  ].sort((a, b) => b[1] - a[1]);
+  const distributionMax = Math.max(
+    1,
+    ...sectionDistribution.map(([, count]) => count),
+    ...hteDistribution.map(([, count]) => count),
+  );
+  const metrics: AnalyticsMetric[] = [
+    {
+      label: "Attendance verification",
+      numerator: attendanceVerified,
+      denominator: scopedAttendanceRows.length,
+      value: percentage(attendanceVerified, scopedAttendanceRows.length),
+      detail: scopedAttendanceRows.length
+        ? `${attendanceVerified} of ${scopedAttendanceRows.length} applicable sessions verified`
+        : "No applicable sessions yet",
+    },
+    {
+      label: "Weekly Log approval",
+      numerator: approvedLogs,
+      denominator: scopedLogs.length,
+      value: percentage(approvedLogs, scopedLogs.length),
+      detail: scopedLogs.length
+        ? `${approvedLogs} of ${scopedLogs.length} submitted Weekly Logs approved`
+        : "No submitted Weekly Logs yet",
+    },
+    {
+      label: "Document compliance",
+      numerator: approved,
+      denominator: required,
+      value: percentage(approved, required),
+      detail: required
+        ? `${approved} of ${required} required documents compliant`
+        : "No required documents yet",
+    },
+    {
+      label: "Evaluation finalization",
+      numerator: finalizedCount,
+      denominator: scopedEvaluations.length,
+      value: percentage(finalizedCount, scopedEvaluations.length),
+      detail: scopedEvaluations.length
+        ? `${finalizedCount} of ${scopedEvaluations.length} reports finalized · completion only, not a grade`
+        : "No evaluation reports yet",
+    },
+  ];
+  const [attendanceMetric, logMetric, documentMetric, evaluationMetric] =
+    metrics;
+  const concerns = assignedRows.filter(
+    (row) =>
+      row.status === "Needs Attention" ||
+      (() => {
+        const [complete = 0, total = 0] = row.requirements
+          .split("/")
+          .map(Number);
+        return total > 0 && complete < total;
+      })(),
+  );
   const ruleBasedRisks = [
-    attendanceMetric.value !== null && attendanceMetric.value < 80 ? { indicator: attendanceMetric.label, message: attendanceMetric.detail, severity: attendanceMetric.value < 60 ? "high" : "medium", href: "/coordinator/attendance", action: "Review attendance" } : null,
-    documentMetric.value !== null && documentMetric.value < 75 ? { indicator: documentMetric.label, message: documentMetric.detail, severity: documentMetric.value < 50 ? "high" : "medium", href: "/coordinator/documents", action: "Review documents" } : null,
-    logMetric.value !== null && logMetric.value < 75 ? { indicator: logMetric.label, message: logMetric.detail, severity: logMetric.value < 50 ? "high" : "medium", href: "/coordinator/reports", action: "Review Weekly Logs" } : null,
-    evaluationMetric.value !== null && evaluationMetric.value < 100 ? { indicator: evaluationMetric.label, message: evaluationMetric.detail, severity: "medium", href: "/coordinator/evaluations", action: "Review evaluations" } : null,
-  ].filter((risk): risk is { indicator: string; message: string; severity: "high" | "medium"; href: string; action: string } => Boolean(risk));
-  const hasData = assignedRows.length > 0 || scopedAttendanceRows.length > 0 || scopedLogs.length > 0 || scopedEvaluations.length > 0 || required > 0;
-  const displayValue = (metric: AnalyticsMetric) => metric.value === null ? "No data" : `${metric.value}%`;
+    attendanceMetric.value !== null && attendanceMetric.value < 80
+      ? {
+          indicator: attendanceMetric.label,
+          message: attendanceMetric.detail,
+          severity: attendanceMetric.value < 60 ? "high" : "medium",
+          href: "/coordinator/attendance",
+          action: "Review attendance",
+        }
+      : null,
+    documentMetric.value !== null && documentMetric.value < 75
+      ? {
+          indicator: documentMetric.label,
+          message: documentMetric.detail,
+          severity: documentMetric.value < 50 ? "high" : "medium",
+          href: "/coordinator/documents",
+          action: "Review documents",
+        }
+      : null,
+    logMetric.value !== null && logMetric.value < 75
+      ? {
+          indicator: logMetric.label,
+          message: logMetric.detail,
+          severity: logMetric.value < 50 ? "high" : "medium",
+          href: "/coordinator/reports",
+          action: "Review Weekly Logs",
+        }
+      : null,
+    evaluationMetric.value !== null && evaluationMetric.value < 100
+      ? {
+          indicator: evaluationMetric.label,
+          message: evaluationMetric.detail,
+          severity: "medium",
+          href: "/coordinator/evaluations",
+          action: "Review evaluations",
+        }
+      : null,
+  ].filter(
+    (
+      risk,
+    ): risk is {
+      indicator: string;
+      message: string;
+      severity: "high" | "medium";
+      href: string;
+      action: string;
+    } => Boolean(risk),
+  );
+  const hasData =
+    assignedRows.length > 0 ||
+    scopedAttendanceRows.length > 0 ||
+    scopedLogs.length > 0 ||
+    scopedEvaluations.length > 0 ||
+    required > 0;
+  const displayValue = (metric: AnalyticsMetric) =>
+    metric.value === null ? "No data" : `${metric.value}%`;
 
   async function generateAiInsights() {
     if (aiLoading || loading || !hasData) return;
-    setAiLoading(true); setAiError("");
+    setAiLoading(true);
+    setAiError("");
+    setAiRetryable(false);
     try {
-      const response = await fetch("/api/ai/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: analysisScope, section: analysisScope === 'section' ? activeSection : undefined, hteId: analysisScope === 'hte' ? activeHteId : undefined, studentId: analysisScope === 'student' ? activeStudentId : undefined }) });
+      const response = await fetch("/api/ai/analytics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: analysisScope,
+          section: analysisScope === "section" ? activeSection : undefined,
+          hteId: analysisScope === "hte" ? activeHteId : undefined,
+          studentId: analysisScope === "student" ? activeStudentId : undefined,
+        }),
+      });
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || "AI performance analysis could not be generated.");
+      if (!response.ok) {
+        setAiRetryable(Boolean(data?.retryable));
+        throw new Error(data?.error || "AI performance analysis could not be generated.");
+      }
       setAiInsights(data as AnalyticsAiResult);
-    } catch (reason) { setAiError(reason instanceof Error ? reason.message : "AI performance analysis could not be generated."); }
-    finally { setAiLoading(false); }
+    } catch (reason) {
+      setAiError(
+        reason instanceof Error
+          ? reason.message
+          : "AI performance analysis could not be generated.",
+      );
+    } finally {
+      setAiLoading(false);
+    }
   }
 
-  const scope = [user?.campus, user?.college, user?.scopeProgramNames?.join(", ") || user?.scopeProgramName || user?.scopeProgramCode].filter(Boolean).join(" · ");
-  return <>
-    <PageHeader title="Performance analytics" subtitle="Monitor internship performance, identify areas requiring attention, and review AI-assisted insights derived from verified PRAXIZ records." />
-    <div className="analytics-context" role="status"><ShieldCheck size={18} /><span><strong>{term ? `${term.academicYear} · ${term.term}` : "Current academic context"}</strong>{scope ? ` · ${scope}` : " · Authorized coordinator scope"}</span></div>
-    <section className="analytics-scope-panel" aria-labelledby="analysis-scope-heading"><div><span id="analysis-scope-heading">Analysis scope</span><div className="analytics-scope-tabs" role="group" aria-label="Analysis scope">{([['overall', 'Overall'], ['section', 'By Section'], ['hte', 'By HTE'], ['student', 'Individual Student']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={analysisScope === value} onClick={() => { setAnalysisScope(value); setAiInsights(null); setAiError(''); }}>{label}</button>)}</div></div>{analysisScope === 'section' && <label className="field field-compact"><span>Student section</span><select value={activeSection} onChange={event => { setSelectedSection(event.target.value); setAiInsights(null); }}><option value="" disabled>Select a section</option>{sectionOptions.map(item => <option key={item} value={item}>Section {item}</option>)}</select></label>}{analysisScope === 'hte' && <label className="field field-compact"><span>HTE organization</span><select value={activeHteId} onChange={event => { setSelectedHteId(event.target.value); setAiInsights(null); }}><option value="" disabled>Select an authorized HTE</option>{hteOptions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}{analysisScope === 'student' && <label className="field field-compact"><span>Student intern</span><select value={activeStudentId} onChange={event => { setSelectedStudentId(event.target.value); setAiInsights(null); }}><option value="" disabled>Select an authorized student</option>{studentOptions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}</section>
-    {error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}
-    {loading ? <div className="analytics-loading" role="status" aria-label="Loading analytics"><span /><span /><span /></div> : !hasData ? <EmptyAction icon={BarChart3} title="No analytics available yet" copy="There are currently no active internship records in the selected coordinator scope." /> : <>
-      <section className="card analytics-overview"><div className="card-title"><div><h2>Performance overview</h2><p className="muted-note">Verified records in your authorized scope.</p></div><StatusBadge status={concerns.length ? "Needs Attention" : "Good Standing"} /></div><div className="analytics-metric-grid">{metrics.map(metric => <article className="analytics-metric" key={metric.label}><div className="analytics-metric-icon">{metric.label.startsWith("Attendance") ? <CheckCircle2 /> : metric.label.startsWith("Daily") ? <FileText /> : metric.label.startsWith("Evaluation") ? <Star /> : <FileCheck2 />}</div><div><span>{metric.label}</span><strong>{displayValue(metric)}</strong><small>{metric.detail}</small>{metric.value !== null && <ProgressBar value={metric.value} />}</div></article>)}<article className="analytics-metric"><div className="analytics-metric-icon"><UsersRound /></div><div><span>Interns requiring attention</span><strong>{concerns.length}</strong><small>{assignedRows.length ? `of ${assignedRows.length} active interns` : "No active interns"}</small></div></article></div></section>
-      <section className="card analytics-visualizations"><div className="card-title"><div><h2>Performance visualizations</h2><p className="muted-note">A compact view of verified workflow completion.</p></div></div><div className="analytics-bars" role="img" aria-label="Verified workflow completion indicators">{metrics.map(metric => <div className="analytics-bar-row" key={metric.label}><span>{metric.label}</span><div><i style={{ width: `${metric.value ?? 0}%` }} /></div><b>{displayValue(metric)}</b></div>)}</div></section>
-      <section className="analytics-distribution-grid"><article className="card"><div className="card-title"><div><h2>Interns by section</h2><p className="muted-note">Academic grouping for monitoring and grade preparation.</p></div></div><div className="horizontal-bars">{sectionDistribution.map(([label, value]) => <div key={label}><span>Section {label}</span><b style={{ width: `${value / distributionMax * 100}%` }} /><em>{value}</em></div>)}</div></article><article className="card"><div className="card-title"><div><h2>Interns by HTE</h2><p className="muted-note">Placement distribution within the selected scope.</p></div></div><div className="horizontal-bars">{hteDistribution.map(([label, value]) => <div key={label}><span>{label}</span><b style={{ width: `${value / distributionMax * 100}%` }} /><em>{value}</em></div>)}</div></article></section>
-      <section className="card analytics-risks"><div className="card-title"><div><h2>Risks &amp; exceptions</h2><p className="muted-note">Deterministic rules identify where coordinator review may be needed.</p></div></div>{ruleBasedRisks.length ? <div className="risk-list">{ruleBasedRisks.map(risk => <article className="risk-row" key={risk.indicator}><div><strong>{risk.indicator}</strong><p>{risk.message}</p></div><StatusBadge status={risk.severity === "high" ? "Needs Attention" : "Monitor"} /><Link className="button button-secondary" href={risk.href}>{risk.action}</Link></article>)}</div> : <p className="muted-note">No configured concern threshold was triggered.</p>}</section>
-      <section className="card ai-insights-card"><div className="card-title"><div><h2>AI Performance Insights</h2><p className="muted-note">AI-assisted interpretation of verified PRAXIZ internship indicators.</p></div><ActionButton onClick={generateAiInsights} disabled={aiLoading || !hasData}>{aiLoading ? "Analyzing…" : aiInsights ? "Regenerate insights" : "Generate AI insights"}</ActionButton></div>{aiError && <div className="ai-error" role="alert"><AlertTriangle size={16} /><span>{aiError}</span><button className="table-link" onClick={() => void generateAiInsights()} disabled={aiLoading}>Try again</button></div>}{aiLoading && <div className="ai-loading-state" role="status" aria-live="polite"><span className="skeleton-line" /><span className="skeleton-line short" /><span className="skeleton-line" /><p>Analyzing verified indicators… PRAXIZ AI is interpreting the current monitoring data.</p></div>}{!aiInsights && !aiLoading && !aiError && <p className="muted-note">Generate an AI-assisted analysis of the current attendance, Weekly Log, HTE evaluation, and document-compliance indicators.</p>}{aiInsights && !aiLoading && <div className="ai-results"><section><h3>Overall assessment</h3><p>{aiInsights.summary}</p></section><section><h3>Key observations</h3>{aiInsights.patterns.length ? <ul className="observation-list">{aiInsights.patterns.map((pattern, index) => <li key={`pattern-${index}`}>{pattern}</li>)}</ul> : <p className="muted-note">No additional pattern was identified from the available verified indicators.</p>}</section><section><h3>Recommended actions</h3>{aiInsights.recommendations.length ? <ol className="recommendation-list">{aiInsights.recommendations.map((recommendation, index) => <li key={`recommendation-${index}`}><span>{recommendation}</span>{index === 0 && ruleBasedRisks[0] && <Link className="text-link" href={ruleBasedRisks[0].href}>Open workflow</Link>}</li>)}</ol> : <p className="muted-note">No additional coordinator follow-up recommendation was generated.</p>}</section></div>}<div className="ai-disclaimer"><ShieldCheck size={18} /><p><strong>AI-assisted interpretation.</strong> Verified PRAXIZ records, configured indicators, rule-based alerts, and Internship Coordinator decisions remain authoritative.</p></div></section>
-    </>}
-  </>;
+  const scope = [
+    user?.campus,
+    user?.college,
+    user?.scopeProgramNames?.join(", ") ||
+      user?.scopeProgramName ||
+      user?.scopeProgramCode,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <>
+      <PageHeader
+        title="Performance analytics"
+        subtitle="Monitor internship performance, identify areas requiring attention, and review AI-assisted insights derived from verified PRAXIZ records."
+      />
+      <div className="analytics-context" role="status">
+        <ShieldCheck size={18} />
+        <span>
+          <strong>
+            {term
+              ? `${term.academicYear} · ${term.term}`
+              : "Current academic context"}
+          </strong>
+          {scope ? ` · ${scope}` : " · Authorized coordinator scope"}
+        </span>
+      </div>
+      <section
+        className="analytics-scope-panel"
+        aria-labelledby="analysis-scope-heading"
+      >
+        <div>
+          <span id="analysis-scope-heading">Analysis scope</span>
+          <div
+            className="analytics-scope-tabs"
+            role="group"
+            aria-label="Analysis scope"
+          >
+            {(
+              [
+                ["overall", "Overall"],
+                ["section", "By Section"],
+                ["hte", "By HTE"],
+                ["student", "Individual Student"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={analysisScope === value}
+                onClick={() => {
+                  setAnalysisScope(value);
+                  setAiInsights(null);
+                  setAiError("");
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {analysisScope === "section" && (
+          <label className="field field-compact">
+            <span>Student section</span>
+            <select
+              value={activeSection}
+              onChange={(event) => {
+                setSelectedSection(event.target.value);
+                setAiInsights(null);
+              }}
+            >
+              <option value="" disabled>
+                Select a section
+              </option>
+              {sectionOptions.map((item) => (
+                <option key={item} value={item}>
+                  Section {item}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {analysisScope === "hte" && (
+          <label className="field field-compact">
+            <span>HTE organization</span>
+            <select
+              value={activeHteId}
+              onChange={(event) => {
+                setSelectedHteId(event.target.value);
+                setAiInsights(null);
+              }}
+            >
+              <option value="" disabled>
+                Select an authorized HTE
+              </option>
+              {hteOptions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {analysisScope === "student" && (
+          <label className="field field-compact">
+            <span>Student intern</span>
+            <select
+              value={activeStudentId}
+              onChange={(event) => {
+                setSelectedStudentId(event.target.value);
+                setAiInsights(null);
+              }}
+            >
+              <option value="" disabled>
+                Select an authorized student
+              </option>
+              {studentOptions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </section>
+      {error && (
+        <p className="form-error" role="alert">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      {loading ? (
+        <div
+          className="analytics-loading"
+          role="status"
+          aria-label="Loading analytics"
+        >
+          <span />
+          <span />
+          <span />
+        </div>
+      ) : !hasData ? (
+        <EmptyAction
+          icon={BarChart3}
+          title="No analytics available yet"
+          copy="There are currently no active internship records in the selected coordinator scope."
+        />
+      ) : (
+        <>
+          <section className="card analytics-overview">
+            <div className="card-title">
+              <div>
+                <h2>Performance overview</h2>
+                <p className="muted-note">
+                  Verified records in your authorized scope.
+                </p>
+              </div>
+              <StatusBadge
+                status={concerns.length ? "Needs Attention" : "Good Standing"}
+              />
+            </div>
+            <div className="analytics-metric-grid">
+              {metrics.map((metric) => (
+                <article className="analytics-metric" key={metric.label}>
+                  <div className="analytics-metric-icon">
+                    {metric.label.startsWith("Attendance") ? (
+                      <CheckCircle2 />
+                    ) : metric.label.startsWith("Daily") ? (
+                      <FileText />
+                    ) : metric.label.startsWith("Evaluation") ? (
+                      <Star />
+                    ) : (
+                      <FileCheck2 />
+                    )}
+                  </div>
+                  <div>
+                    <span>{metric.label}</span>
+                    <strong>{displayValue(metric)}</strong>
+                    <small>{metric.detail}</small>
+                    {metric.value !== null && (
+                      <ProgressBar value={metric.value} />
+                    )}
+                  </div>
+                </article>
+              ))}
+              <article className="analytics-metric">
+                <div className="analytics-metric-icon">
+                  <UsersRound />
+                </div>
+                <div>
+                  <span>Interns requiring attention</span>
+                  <strong>{concerns.length}</strong>
+                  <small>
+                    {assignedRows.length
+                      ? `of ${assignedRows.length} active interns`
+                      : "No active interns"}
+                  </small>
+                </div>
+              </article>
+            </div>
+          </section>
+          <section className="card analytics-visualizations">
+            <div className="card-title">
+              <div>
+                <h2>Performance visualizations</h2>
+                <p className="muted-note">
+                  A compact view of verified workflow completion.
+                </p>
+              </div>
+            </div>
+            <div
+              className="analytics-bars"
+              role="img"
+              aria-label="Verified workflow completion indicators"
+            >
+              {metrics.map((metric) => (
+                <div className="analytics-bar-row" key={metric.label}>
+                  <span>{metric.label}</span>
+                  <div>
+                    <i style={{ width: `${metric.value ?? 0}%` }} />
+                  </div>
+                  <b>{displayValue(metric)}</b>
+                </div>
+              ))}
+            </div>
+          </section>
+          <section className="analytics-distribution-grid">
+            <article className="card">
+              <div className="card-title">
+                <div>
+                  <h2>Interns by section</h2>
+                  <p className="muted-note">
+                    Academic grouping for monitoring and grade preparation.
+                  </p>
+                </div>
+              </div>
+              <div className="horizontal-bars">
+                {sectionDistribution.map(([label, value]) => (
+                  <div key={label}>
+                    <span>Section {label}</span>
+                    <b
+                      style={{ width: `${(value / distributionMax) * 100}%` }}
+                    />
+                    <em>{value}</em>
+                  </div>
+                ))}
+              </div>
+            </article>
+            <article className="card">
+              <div className="card-title">
+                <div>
+                  <h2>Interns by HTE</h2>
+                  <p className="muted-note">
+                    Placement distribution within the selected scope.
+                  </p>
+                </div>
+              </div>
+              <div className="horizontal-bars">
+                {hteDistribution.map(([label, value]) => (
+                  <div key={label}>
+                    <span>{label}</span>
+                    <b
+                      style={{ width: `${(value / distributionMax) * 100}%` }}
+                    />
+                    <em>{value}</em>
+                  </div>
+                ))}
+              </div>
+            </article>
+          </section>
+          <section className="card analytics-risks">
+            <div className="card-title">
+              <div>
+                <h2>Risks &amp; exceptions</h2>
+                <p className="muted-note">
+                  Deterministic rules identify where coordinator review may be
+                  needed.
+                </p>
+              </div>
+            </div>
+            {ruleBasedRisks.length ? (
+              <div className="risk-list">
+                {ruleBasedRisks.map((risk) => (
+                  <article className="risk-row" key={risk.indicator}>
+                    <div>
+                      <strong>{risk.indicator}</strong>
+                      <p>{risk.message}</p>
+                    </div>
+                    <StatusBadge
+                      status={
+                        risk.severity === "high" ? "Needs Attention" : "Monitor"
+                      }
+                    />
+                    <Link className="button button-secondary" href={risk.href}>
+                      {risk.action}
+                    </Link>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="muted-note">
+                No configured concern threshold was triggered.
+              </p>
+            )}
+          </section>
+          <section className="card ai-insights-card">
+            <div className="card-title">
+              <div>
+                <h2>AI Performance Insights</h2>
+                <p className="muted-note">
+                  AI-assisted interpretation of verified PRAXIZ internship
+                  indicators.
+                </p>
+              </div>
+              <ActionButton
+                onClick={generateAiInsights}
+                disabled={aiLoading || !hasData}
+              >
+                {aiLoading
+                  ? "Analyzing…"
+                  : aiInsights
+                    ? "Regenerate insights"
+                    : "Generate AI insights"}
+              </ActionButton>
+            </div>
+            {aiError && (
+              <div className="ai-error" role="alert">
+                <AlertTriangle size={16} />
+                <span>{aiError}</span>
+                {aiRetryable && <button
+                  className="table-link"
+                  onClick={() => void generateAiInsights()}
+                  disabled={aiLoading}
+                >
+                  Try again
+                </button>}
+              </div>
+            )}
+            {aiLoading && (
+              <div className="ai-thinking ai-insights-thinking" role="status" aria-live="polite">
+                <Sparkles size={18} aria-hidden="true" />
+                <div><strong>PRAXIZ AI</strong><span>Analyzing verified internship indicators…</span><span className="ai-thinking-wave" aria-hidden="true"><i /><i /><i /><i /></span></div>
+              </div>
+            )}
+            {!aiInsights && !aiLoading && !aiError && (
+              <p className="muted-note">
+                Generate an AI-assisted analysis of the current attendance,
+                Weekly Log, HTE evaluation, and document-compliance indicators.
+              </p>
+            )}
+            {aiInsights && !aiLoading && (
+              <div className="ai-results">
+                <section>
+                  <h3>Overall assessment</h3>
+                  <p>{aiInsights.summary}</p>
+                </section>
+                <section>
+                  <h3>Key observations</h3>
+                  {aiInsights.patterns.length ? (
+                    <ul className="observation-list">
+                      {aiInsights.patterns.map((pattern, index) => (
+                        <li key={`pattern-${index}`}>{pattern}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="muted-note">
+                      No additional pattern was identified from the available
+                      verified indicators.
+                    </p>
+                  )}
+                </section>
+                <section>
+                  <h3>Recommended actions</h3>
+                  {aiInsights.recommendations.length ? (
+                    <ol className="recommendation-list">
+                      {aiInsights.recommendations.map(
+                        (recommendation, index) => (
+                          <li key={`recommendation-${index}`}>
+                            <span>{recommendation}</span>
+                            {index === 0 && ruleBasedRisks[0] && (
+                              <Link
+                                className="text-link"
+                                href={ruleBasedRisks[0].href}
+                              >
+                                Open workflow
+                              </Link>
+                            )}
+                          </li>
+                        ),
+                      )}
+                    </ol>
+                  ) : (
+                    <p className="muted-note">
+                      No additional coordinator follow-up recommendation was
+                      generated.
+                    </p>
+                  )}
+                </section>
+              </div>
+            )}
+            <div className="ai-disclaimer">
+              <ShieldCheck size={18} />
+              <p>
+                <strong>AI-assisted interpretation.</strong> Verified PRAXIZ
+                records, configured indicators, rule-based alerts, and
+                Internship Coordinator decisions remain authoritative.
+              </p>
+            </div>
+          </section>
+        </>
+      )}
+    </>
+  );
 }
 
 function ReportsPage() {
@@ -2470,77 +7490,478 @@ function ReportsPage() {
   const [section, setSection] = useState("All");
   useEffect(() => {
     let active = true;
-    void Promise.all([internshipService.listCoordinatorInterns(), attendanceService.listLiveHistory(), documentService.listLive(), evaluationService.listLive()])
-      .then(([i,a,d,e]) => { if (active) { setInterns(i); setAttendance(a); setDocuments(d); setEvaluations(e); } })
-      .catch(reason => { if (active) setError(userError(reason, "Report data could not be loaded.")); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    void Promise.all([
+      internshipService.listCoordinatorInterns(),
+      attendanceService.listLiveHistory(),
+      documentService.listLive(),
+      evaluationService.listLive(),
+    ])
+      .then(([i, a, d, e]) => {
+        if (active) {
+          setInterns(i);
+          setAttendance(a);
+          setDocuments(d);
+          setEvaluations(e);
+        }
+      })
+      .catch((reason) => {
+        if (active)
+          setError(userError(reason, "Report data could not be loaded."));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
   let headers: string[];
-  let reportRows: Array<{ id: string; status: string; cells: Array<string | number> }>;
+  let reportRows: Array<{
+    id: string;
+    status: string;
+    cells: Array<string | number>;
+  }>;
   if (type === "Attendance") {
-    headers = ["Student", "Date", "Time In", "Time Out", "Verified Hours", "Status", "Reviewer", "Remarks"];
-    reportRows = attendance.map(r => ({ id: r.id, status: r.status, cells: [r.studentName, r.date, r.timeIn, r.timeOut, r.hours, r.status, r.verifiedBy, r.remarks] }));
+    headers = [
+      "Student",
+      "Date",
+      "Time In",
+      "Time Out",
+      "Verified Hours",
+      "Status",
+      "Reviewer",
+      "Remarks",
+    ];
+    reportRows = attendance.map((r) => ({
+      id: r.id,
+      status: r.status,
+      cells: [
+        r.studentName,
+        r.date,
+        r.timeIn,
+        r.timeOut,
+        r.hours,
+        r.status,
+        r.verifiedBy,
+        r.remarks,
+      ],
+    }));
   } else if (type === "Document compliance") {
-    headers = ["Student", "Requirement", "Phase", "Due", "Status", "File", "Feedback"];
-    reportRows = documents.map(r => ({ id: r.id, status: r.status, cells: [r.studentName, r.templateName, r.phase, r.dueAt, r.status, r.fileName, r.latestFeedback] }));
+    headers = [
+      "Student",
+      "Requirement",
+      "Phase",
+      "Due",
+      "Status",
+      "File",
+      "Feedback",
+    ];
+    reportRows = documents.map((r) => ({
+      id: r.id,
+      status: r.status,
+      cells: [
+        r.studentName,
+        r.templateName,
+        r.phase,
+        r.dueAt,
+        r.status,
+        r.fileName,
+        r.latestFeedback,
+      ],
+    }));
   } else if (type === "Evaluations") {
-    headers = ["Student", "Template", "Evaluator", "Status", "Rating period", "Rated criteria", "Finalized", "Remarks"];
-    reportRows = evaluations.map(r => ({ id: r.id, status: r.status, cells: [r.studentName, r.templateName, r.evaluatorName, r.status, r.context.ratingPeriod || "", r.criteria.filter(c => c.score > 0).length + "/" + r.criteria.length, r.status === "Finalized" ? r.reviewedAt : "", r.overallRemarks] }));
+    headers = [
+      "Student",
+      "Template",
+      "Evaluator",
+      "Status",
+      "Rating period",
+      "Rated criteria",
+      "Finalized",
+      "Remarks",
+    ];
+    reportRows = evaluations.map((r) => ({
+      id: r.id,
+      status: r.status,
+      cells: [
+        r.studentName,
+        r.templateName,
+        r.evaluatorName,
+        r.status,
+        r.context.ratingPeriod || "",
+        r.criteria.filter((c) => c.score > 0).length + "/" + r.criteria.length,
+        r.status === "Finalized" ? r.reviewedAt : "",
+        r.overallRemarks,
+      ],
+    }));
   } else {
-    headers = ["Student", "Campus", "Program", "Section", "HTE", "Verified Hours", "Required Hours", "Attendance verification %", "Requirements", "Status"];
-    reportRows = interns.filter(r => (campus === "All" || r.campus === campus) && (program === "All" || r.program === program) && (section === "All" || r.section === section)).map((r, i) => ({ id: r.studentUserId || String(i), status: r.status, cells: [r.name,r.campus,r.program,r.section ?? "Not recorded",r.hte,r.hours,r.requiredHours ?? "",r.attendance,r.requirements,r.status] }));
+    headers = [
+      "Student",
+      "Campus",
+      "Program",
+      "Section",
+      "HTE",
+      "Verified Hours",
+      "Required Hours",
+      "Attendance verification %",
+      "Requirements",
+      "Status",
+    ];
+    reportRows = interns
+      .filter(
+        (r) =>
+          (campus === "All" || r.campus === campus) &&
+          (program === "All" || r.program === program) &&
+          (section === "All" || r.section === section),
+      )
+      .map((r, i) => ({
+        id: r.studentUserId || String(i),
+        status: r.status,
+        cells: [
+          r.name,
+          r.campus,
+          r.program,
+          r.section ?? "Not recorded",
+          r.hte,
+          r.hours,
+          r.requiredHours ?? "",
+          r.attendance,
+          r.requirements,
+          r.status,
+        ],
+      }));
   }
-  const statuses = [...new Set(reportRows.map(r => r.status))];
-  const visible = reportRows.filter(r => (status === "All" || r.status === status) && r.cells.join(" ").toLowerCase().includes(search.trim().toLowerCase()));
-  function chooseType(value: string) { setType(value); setStatus("All"); setSearch(""); setSection("All"); }
-  function exportReport() { downloadCsv("praxiz-" + type.toLowerCase().replaceAll(" ", "-") + "-" + new Date().toISOString().slice(0,10) + ".csv", headers, visible.map(r => r.cells)); }
-  return <><PageHeader title="Reports" subtitle="Review and export authorized records. Each report uses its own live data source." />
-    {error && <p className="form-error" role="alert">{error}</p>}
-    <section className="card report-filters"><h2>Report filters</h2><p className="muted-note">Academic scope: {user?.college || user?.scopeProgramName || "your active role assignment"}. Database permissions apply to every result. These reports include all visible assignment terms.</p>
-      <div className="report-filter-grid"><label className="field"><span>Report type</span><select value={type} onChange={e => chooseType(e.target.value)}>{["Internship progress","Attendance","Document compliance","Evaluations"].map(t => <option key={t}>{t}</option>)}</select></label>
-      <label className="field"><span>Status</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="All">All statuses</option>{statuses.map(s => <option key={s} value={s}>{s}</option>)}</select></label>
-      <label className="field"><span>Search report</span><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Student or report detail" /></label>
-      {type === "Internship progress" && <><label className="field"><span>Campus</span><select value={campus} onChange={e => setCampus(e.target.value)}><option value="All">All authorized campuses</option>{[...new Set(interns.map(r => r.campus))].map(c => <option key={c}>{c}</option>)}</select></label><label className="field"><span>Program</span><select value={program} onChange={e => setProgram(e.target.value)}><option value="All">All authorized programs</option>{[...new Set(interns.map(r => r.program))].map(p => <option key={p}>{p}</option>)}</select></label><label className="field"><span>Section</span><select value={section} onChange={e => setSection(e.target.value)}><option value="All">All sections</option>{STUDENT_SECTION_OPTIONS.map(value => <option key={value} value={value}>Section {value}</option>)}</select></label></>}
-      </div></section>
-    <section className="card table-card"><div className="card-title"><div><h2>{type}</h2><p>{loading ? "Loading records…" : visible.length + " matching records"}</p></div><ActionButton icon={Download} disabled={loading || !!error || !visible.length} onClick={exportReport}>Export filtered CSV</ActionButton></div><div className="table-scroll"><table className="data-table"><thead><tr>{headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{visible.map(r => <tr key={r.id}>{r.cells.map((c,i) => <td key={i}>{c || "—"}</td>)}</tr>)}{!loading && !visible.length && <tr><td colSpan={headers.length}>No authorized records match these filters.</td></tr>}</tbody></table></div></section>
-    {type === "Evaluations" && <p className="muted-note">Individual criterion ratings are available in the finalized PDF on the Evaluations page. No percentage is calculated for the official PSU form.</p>}
-  </>;
+  const statuses = [...new Set(reportRows.map((r) => r.status))];
+  const visible = reportRows.filter(
+    (r) =>
+      (status === "All" || r.status === status) &&
+      r.cells.join(" ").toLowerCase().includes(search.trim().toLowerCase()),
+  );
+  function chooseType(value: string) {
+    setType(value);
+    setStatus("All");
+    setSearch("");
+    setSection("All");
+  }
+  function exportReport() {
+    downloadCsv(
+      "praxiz-" +
+        type.toLowerCase().replaceAll(" ", "-") +
+        "-" +
+        new Date().toISOString().slice(0, 10) +
+        ".csv",
+      headers,
+      visible.map((r) => r.cells),
+    );
+  }
+  return (
+    <>
+      <PageHeader
+        title="Reports"
+        subtitle="Review and export authorized records. Each report uses its own live data source."
+      />
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <section className="card report-filters">
+        <h2>Report filters</h2>
+        <p className="muted-note">
+          Academic scope:{" "}
+          {user?.college ||
+            user?.scopeProgramName ||
+            "your active role assignment"}
+          . Database permissions apply to every result. These reports include
+          all visible assignment terms.
+        </p>
+        <div className="report-filter-grid">
+          <label className="field">
+            <span>Report type</span>
+            <select value={type} onChange={(e) => chooseType(e.target.value)}>
+              {[
+                "Internship progress",
+                "Attendance",
+                "Document compliance",
+                "Evaluations",
+              ].map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Status</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="All">All statuses</option>
+              {statuses.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Search report</span>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Student or report detail"
+            />
+          </label>
+          {type === "Internship progress" && (
+            <>
+              <label className="field">
+                <span>Campus</span>
+                <select
+                  value={campus}
+                  onChange={(e) => setCampus(e.target.value)}
+                >
+                  <option value="All">All authorized campuses</option>
+                  {[...new Set(interns.map((r) => r.campus))].map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Program</span>
+                <select
+                  value={program}
+                  onChange={(e) => setProgram(e.target.value)}
+                >
+                  <option value="All">All authorized programs</option>
+                  {[...new Set(interns.map((r) => r.program))].map((p) => (
+                    <option key={p}>{p}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Section</span>
+                <select
+                  value={section}
+                  onChange={(e) => setSection(e.target.value)}
+                >
+                  <option value="All">All sections</option>
+                  {STUDENT_SECTION_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      Section {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+        </div>
+      </section>
+      <section className="card table-card">
+        <div className="card-title">
+          <div>
+            <h2>{type}</h2>
+            <p>
+              {loading
+                ? "Loading records…"
+                : visible.length + " matching records"}
+            </p>
+          </div>
+          <ActionButton
+            icon={Download}
+            disabled={loading || !!error || !visible.length}
+            onClick={exportReport}
+          >
+            Export filtered CSV
+          </ActionButton>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {headers.map((h) => (
+                  <th key={h}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((r) => (
+                <tr key={r.id}>
+                  {r.cells.map((c, i) => (
+                    <td key={i}>{c || "—"}</td>
+                  ))}
+                </tr>
+              ))}
+              {!loading && !visible.length && (
+                <tr>
+                  <td colSpan={headers.length}>
+                    No authorized records match these filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {type === "Evaluations" && (
+        <p className="muted-note">
+          Individual criterion ratings are available in the finalized PDF on the
+          Evaluations page. No percentage is calculated for the official PSU
+          form.
+        </p>
+      )}
+    </>
+  );
 }
 
-function FeedbackDialog({ assignments, close, onSaved }: { assignments: EvaluationAssignment[]; close: () => void; onSaved: () => void }) {
+function FeedbackDialog({
+  assignments,
+  close,
+  onSaved,
+}: {
+  assignments: EvaluationAssignment[];
+  close: () => void;
+  onSaved: () => void;
+}) {
   const [assignmentId, setAssignmentId] = useState(assignments[0]?.id ?? "");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setLoading(true); setError("");
-    try { await feedbackService.create({ assignmentId, subject, message }); onSaved(); }
-    catch (reason) { setError(userError(reason, "Feedback could not be saved.")); setLoading(false); }
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      await feedbackService.create({ assignmentId, subject, message });
+      onSaved();
+    } catch (reason) {
+      setError(userError(reason, "Feedback could not be saved."));
+      setLoading(false);
+    }
   }
-  return <Dialog title="Create internship feedback" onClose={close} busy={loading}><InfoCallout icon={MessageSquareText}><p>Feedback is permanently associated with the selected internship assignment and its authorized reviewers.</p></InfoCallout><form onSubmit={submit}><label className="field"><span>Internship assignment *</span><select required value={assignmentId} onChange={(event) => setAssignmentId(event.target.value)}><option value="" disabled>Select an intern</option>{assignments.map((item) => <option key={item.id} value={item.id}>{item.studentName}</option>)}</select></label><label className="field"><span>Subject *</span><input required minLength={3} maxLength={160} value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="Concise follow-up topic" /></label><label className="field"><span>Feedback *</span><textarea required minLength={3} maxLength={5000} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Give specific, constructive, and actionable guidance…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !assignmentId}>{loading ? "Saving…" : "Save feedback"}</ActionButton></div></form></Dialog>;
+  return (
+    <Dialog title="Create internship feedback" onClose={close} busy={loading}>
+      <InfoCallout icon={MessageSquareText}>
+        <p>
+          Feedback is permanently associated with the selected internship
+          assignment and its authorized reviewers.
+        </p>
+      </InfoCallout>
+      <form onSubmit={submit}>
+        <label className="field">
+          <span>Internship assignment *</span>
+          <select
+            required
+            value={assignmentId}
+            onChange={(event) => setAssignmentId(event.target.value)}
+          >
+            <option value="" disabled>
+              Select an intern
+            </option>
+            {assignments.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.studentName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Subject *</span>
+          <input
+            required
+            minLength={3}
+            maxLength={160}
+            value={subject}
+            onChange={(event) => setSubject(event.target.value)}
+            placeholder="Concise follow-up topic"
+          />
+        </label>
+        <label className="field">
+          <span>Feedback *</span>
+          <textarea
+            required
+            minLength={3}
+            maxLength={5000}
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            placeholder="Give specific, constructive, and actionable guidance…"
+          />
+        </label>
+        {error && (
+          <p className="form-error">
+            <AlertTriangle size={16} /> {error}
+          </p>
+        )}
+        <div className="modal-actions">
+          <ActionButton variant="secondary" onClick={close}>
+            Cancel
+          </ActionButton>
+          <ActionButton type="submit" disabled={loading || !assignmentId}>
+            {loading ? "Saving…" : "Save feedback"}
+          </ActionButton>
+        </div>
+      </form>
+    </Dialog>
+  );
 }
 
-function FeedbackDetailDialog({ record, close }: { record: FeedbackRecord; close: () => void }) {
-  const created = new Intl.DateTimeFormat("en-PH", { dateStyle: "long", timeStyle: "short", timeZone: "Asia/Manila" }).format(new Date(record.createdAt));
-  return <Dialog title="Feedback details" protectChanges={false} onClose={close}>
-    <article className="feedback-detail">
-      <header className="feedback-detail-heading">
-        <span className="feedback-detail-icon" aria-hidden="true"><MessageSquareText size={22} /></span>
-        <div><span className="feedback-detail-kicker">Internship feedback</span><h3>{record.subject}</h3><p>{record.studentName}</p></div>
-        <StatusBadge status={record.status} />
-      </header>
-      <dl className="feedback-detail-meta">
-        <div><dt>From</dt><dd>{record.authorName}</dd></div>
-        <div><dt>Role</dt><dd>{record.authorRole}</dd></div>
-        <div><dt>Date</dt><dd><time dateTime={record.createdAt}>{created}</time></dd></div>
-        <div><dt>Read status</dt><dd><StatusBadge status={record.readStatus} /></dd></div>
-      </dl>
-      <section className="feedback-detail-message" aria-labelledby="feedback-message-heading"><h4 id="feedback-message-heading">Message</h4><p className="preserve-text">{record.message}</p></section>
-    </article>
-    <div className="modal-actions"><ActionButton onClick={close}>Close</ActionButton></div>
-  </Dialog>;
+function FeedbackDetailDialog({
+  record,
+  close,
+}: {
+  record: FeedbackRecord;
+  close: () => void;
+}) {
+  const created = new Intl.DateTimeFormat("en-PH", {
+    dateStyle: "long",
+    timeStyle: "short",
+    timeZone: "Asia/Manila",
+  }).format(new Date(record.createdAt));
+  return (
+    <Dialog title="Feedback details" protectChanges={false} onClose={close}>
+      <article className="feedback-detail">
+        <header className="feedback-detail-heading">
+          <span className="feedback-detail-icon" aria-hidden="true">
+            <MessageSquareText size={22} />
+          </span>
+          <div>
+            <span className="feedback-detail-kicker">Internship feedback</span>
+            <h3>{record.subject}</h3>
+            <p>{record.studentName}</p>
+          </div>
+          <StatusBadge status={record.status} />
+        </header>
+        <dl className="feedback-detail-meta">
+          <div>
+            <dt>From</dt>
+            <dd>{record.authorName}</dd>
+          </div>
+          <div>
+            <dt>Role</dt>
+            <dd>{record.authorRole}</dd>
+          </div>
+          <div>
+            <dt>Date</dt>
+            <dd>
+              <time dateTime={record.createdAt}>{created}</time>
+            </dd>
+          </div>
+          <div>
+            <dt>Read status</dt>
+            <dd>
+              <StatusBadge status={record.readStatus} />
+            </dd>
+          </div>
+        </dl>
+        <section
+          className="feedback-detail-message"
+          aria-labelledby="feedback-message-heading"
+        >
+          <h4 id="feedback-message-heading">Message</h4>
+          <p className="preserve-text">{record.message}</p>
+        </section>
+      </article>
+      <div className="modal-actions">
+        <ActionButton onClick={close}>Close</ActionButton>
+      </div>
+    </Dialog>
+  );
 }
 
 function FeedbackPage() {
@@ -2552,30 +7973,208 @@ function FeedbackPage() {
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<FeedbackRecord | null>(null);
   const canCreate = user?.role === "coordinator" || user?.role === "hte";
-  const openFeedback = useCallback(async (item: FeedbackRecord) => {
-    setSelected(item);
-    if (user?.role !== 'student' || item.readStatus === 'Read') return;
-    try {
-      await feedbackService.markRead(item.id);
-      setRecords(current => current.map(record => record.id === item.id ? { ...record, readAt: new Date().toISOString(), readStatus: 'Read' } : record));
-      setSelected(current => current?.id === item.id ? { ...current, readAt: new Date().toISOString(), readStatus: 'Read' } : current);
-    } catch (reason) { setError(userError(reason, 'Feedback could not be marked as read.')); }
-  }, [user?.role]);
+  const openFeedback = useCallback(
+    async (item: FeedbackRecord) => {
+      setSelected(item);
+      if (user?.role !== "student" || item.readStatus === "Read") return;
+      try {
+        await feedbackService.markRead(item.id);
+        setRecords((current) =>
+          current.map((record) =>
+            record.id === item.id
+              ? {
+                  ...record,
+                  readAt: new Date().toISOString(),
+                  readStatus: "Read",
+                }
+              : record,
+          ),
+        );
+        setSelected((current) =>
+          current?.id === item.id
+            ? {
+                ...current,
+                readAt: new Date().toISOString(),
+                readStatus: "Read",
+              }
+            : current,
+        );
+      } catch (reason) {
+        setError(userError(reason, "Feedback could not be marked as read."));
+      }
+    },
+    [user?.role],
+  );
   const load = useCallback(async () => {
     try {
-      const [items, options] = await Promise.all([feedbackService.listLive(), canCreate ? evaluationService.listAssignments() : Promise.resolve([])]);
-      setRecords(items); setAssignments(options);
-      const requested = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("feedback");
-      if (requested) { const requestedItem = items.find(item => item.id === requested); if (requestedItem) void openFeedback(requestedItem); }
+      const [items, options] = await Promise.all([
+        feedbackService.listLive(),
+        canCreate ? evaluationService.listAssignments() : Promise.resolve([]),
+      ]);
+      setRecords(items);
+      setAssignments(options);
+      const requested =
+        typeof window === "undefined"
+          ? null
+          : new URLSearchParams(window.location.search).get("feedback");
+      if (requested) {
+        const requestedItem = items.find((item) => item.id === requested);
+        if (requestedItem) void openFeedback(requestedItem);
+      }
+    } catch (reason) {
+      setError(userError(reason, "Feedback records could not be loaded."));
+    } finally {
+      setLoading(false);
     }
-    catch (reason) { setError(userError(reason, "Feedback records could not be loaded.")); }
-    finally { setLoading(false); }
   }, [canCreate, openFeedback]);
-  useEffect(() => { void Promise.resolve().then(load); }, [load]);
-  return <><PageHeader title="Feedback & follow-up" subtitle={canCreate ? "Assignment-bound guidance visible only to authorized participants." : "Read feedback recorded for your internship assignment."} action={canCreate ? <ActionButton icon={Plus} disabled={loading || assignments.length === 0} onClick={() => setAdding(true)}>New feedback</ActionButton> : undefined} />{error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Open" value={String(records.filter((item) => item.status === "Open").length)} icon={MessageSquareText} tone="orange" /><StatCard label="In progress" value={String(records.filter((item) => item.status === "In Progress").length)} icon={Clock3} tone="violet" /><StatCard label="Resolved" value={String(records.filter((item) => item.status === "Resolved").length)} icon={CheckCircle2} tone="green" /></div><section className="card table-card"><h2>{loading ? "Loading feedback…" : "Feedback records"}</h2><div className="table-scroll"><table className="data-table"><thead><tr><th>Student</th><th>Subject</th><th>Feedback</th><th>Author</th><th>Author role</th><th>Date and time</th><th className="feedback-status-cell">Status</th><th>Actions</th></tr></thead><tbody>{records.map((item) => <tr key={item.id}><td><b>{item.studentName}</b></td><td><b>{item.subject}</b></td><td><span className="feedback-preview">{item.message}</span></td><td>{item.authorName}</td><td>{item.authorRole}</td><td><time dateTime={item.createdAt}>{new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" }).format(new Date(item.createdAt))}</time></td><td className="feedback-status-cell"><StatusBadge status={item.readStatus} /></td><td><button className="table-link" aria-label={`View feedback: ${item.subject}`} onClick={() => void openFeedback(item)}><Eye size={16} />View</button></td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={8}>No feedback has been recorded for your authorized assignments.</td></tr>}</tbody></table></div></section>{adding && <FeedbackDialog assignments={assignments} close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}{selected && <FeedbackDetailDialog record={selected} close={() => setSelected(null)} />}</>;
+  useEffect(() => {
+    void Promise.resolve().then(load);
+  }, [load]);
+  return (
+    <>
+      <PageHeader
+        title="Feedback & follow-up"
+        subtitle={
+          canCreate
+            ? "Assignment-bound guidance visible only to authorized participants."
+            : "Read feedback recorded for your internship assignment."
+        }
+        action={
+          canCreate ? (
+            <ActionButton
+              icon={Plus}
+              disabled={loading || assignments.length === 0}
+              onClick={() => setAdding(true)}
+            >
+              New feedback
+            </ActionButton>
+          ) : undefined
+        }
+      />
+      {error && (
+        <p className="form-error" role="alert">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <div className="stats-grid three">
+        <StatCard
+          label="Open"
+          value={String(
+            records.filter((item) => item.status === "Open").length,
+          )}
+          icon={MessageSquareText}
+          tone="orange"
+        />
+        <StatCard
+          label="In progress"
+          value={String(
+            records.filter((item) => item.status === "In Progress").length,
+          )}
+          icon={Clock3}
+          tone="violet"
+        />
+        <StatCard
+          label="Resolved"
+          value={String(
+            records.filter((item) => item.status === "Resolved").length,
+          )}
+          icon={CheckCircle2}
+          tone="green"
+        />
+      </div>
+      <section className="card table-card">
+        <h2>{loading ? "Loading feedback…" : "Feedback records"}</h2>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Subject</th>
+                <th>Feedback</th>
+                <th>Author</th>
+                <th>Author role</th>
+                <th>Date and time</th>
+                <th className="feedback-status-cell">Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <b>{item.studentName}</b>
+                  </td>
+                  <td>
+                    <b>{item.subject}</b>
+                  </td>
+                  <td>
+                    <span className="feedback-preview">{item.message}</span>
+                  </td>
+                  <td>{item.authorName}</td>
+                  <td>{item.authorRole}</td>
+                  <td>
+                    <time dateTime={item.createdAt}>
+                      {new Intl.DateTimeFormat("en-PH", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                        timeZone: "Asia/Manila",
+                      }).format(new Date(item.createdAt))}
+                    </time>
+                  </td>
+                  <td className="feedback-status-cell">
+                    <StatusBadge status={item.readStatus} />
+                  </td>
+                  <td>
+                    <button
+                      className="table-link"
+                      aria-label={`View feedback: ${item.subject}`}
+                      onClick={() => void openFeedback(item)}
+                    >
+                      <Eye size={16} />
+                      View
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && records.length === 0 && (
+                <tr>
+                  <td colSpan={8}>
+                    No feedback has been recorded for your authorized
+                    assignments.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {adding && (
+        <FeedbackDialog
+          assignments={assignments}
+          close={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            void load();
+          }}
+        />
+      )}
+      {selected && (
+        <FeedbackDetailDialog
+          record={selected}
+          close={() => setSelected(null)}
+        />
+      )}
+    </>
+  );
 }
 
-function UserAccessDialog({ account, close }: { account: UserAccountRecord; close: () => void }) {
+function UserAccessDialog({
+  account,
+  close,
+}: {
+  account: UserAccountRecord;
+  close: () => void;
+}) {
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -2595,42 +8194,351 @@ function UserAccessDialog({ account, close }: { account: UserAccountRecord; clos
     }
   }
 
-  return <Dialog title={`Manage access for ${account.name}`} onClose={close}><InfoCallout icon={LockKeyhole}><p>Review the account identity before starting access recovery.</p></InfoCallout><dl className="info-list"><div><dt>Email</dt><dd>{account.email}</dd></div><div><dt>Role</dt><dd>{account.role}</dd></div><div><dt>Reference</dt><dd>{account.reference}</dd></div><div><dt>Status</dt><dd>{account.status}</dd></div></dl>
-    {sent && <div className="inline-success"><CheckCircle2 /><div><strong>Reset link sent</strong><p>Supabase sent a secure password-reset link to {account.email}.</p></div></div>}
-    {confirming && !sent && <div className="access-recovery-warning"><AlertTriangle size={19} /><p><strong>Send a password-reset email?</strong><span>The link goes only to {account.email}. The administrator cannot view or choose the user’s password.</span></p></div>}
-    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <div className="modal-actions"><ActionButton variant="secondary" disabled={sending} onClick={close}>{sent ? "Done" : "Cancel"}</ActionButton>{!sent && !confirming && <ActionButton icon={Send} onClick={() => setConfirming(true)}>Send password reset</ActionButton>}{!sent && confirming && <ActionButton disabled={sending} onClick={() => void sendReset()}>{sending ? "Sending…" : "Confirm and send"}</ActionButton>}</div>
-  </Dialog>;
+  return (
+    <Dialog title={`Manage access for ${account.name}`} onClose={close}>
+      <InfoCallout icon={LockKeyhole}>
+        <p>Review the account identity before starting access recovery.</p>
+      </InfoCallout>
+      <dl className="info-list">
+        <div>
+          <dt>Email</dt>
+          <dd>{account.email}</dd>
+        </div>
+        <div>
+          <dt>Role</dt>
+          <dd>{account.role}</dd>
+        </div>
+        <div>
+          <dt>Reference</dt>
+          <dd>{account.reference}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>{account.status}</dd>
+        </div>
+      </dl>
+      {sent && (
+        <div className="inline-success">
+          <CheckCircle2 />
+          <div>
+            <strong>Reset link sent</strong>
+            <p>
+              Supabase sent a secure password-reset link to {account.email}.
+            </p>
+          </div>
+        </div>
+      )}
+      {confirming && !sent && (
+        <div className="access-recovery-warning">
+          <AlertTriangle size={19} />
+          <p>
+            <strong>Send a password-reset email?</strong>
+            <span>
+              The link goes only to {account.email}. The administrator cannot
+              view or choose the user’s password.
+            </span>
+          </p>
+        </div>
+      )}
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <div className="modal-actions">
+        <ActionButton variant="secondary" disabled={sending} onClick={close}>
+          {sent ? "Done" : "Cancel"}
+        </ActionButton>
+        {!sent && !confirming && (
+          <ActionButton icon={Send} onClick={() => setConfirming(true)}>
+            Send password reset
+          </ActionButton>
+        )}
+        {!sent && confirming && (
+          <ActionButton disabled={sending} onClick={() => void sendReset()}>
+            {sending ? "Sending…" : "Confirm and send"}
+          </ActionButton>
+        )}
+      </div>
+    </Dialog>
+  );
 }
 
-function ProvisionAccountDialog({ accountRole, hte, close, onCreated }: { accountRole: 'coordinator' | 'hte'; hte?: PartnerHteRecord; close: () => void; onCreated?: () => void }) {
-  const [fullName, setFullName] = useState(''); const [email, setEmail] = useState(''); const [campusId, setCampusId] = useState(''); const [collegeId, setCollegeId] = useState(''); const [programIds, setProgramIds] = useState<string[]>([]);
-  const [referenceNumber, setReferenceNumber] = useState('');
-  const [institutionalOptions, setInstitutionalOptions] = useState<Awaited<ReturnType<typeof institutionalService.loadRegistrationInstitutionalOptions>> | null>(null); const [loading, setLoading] = useState(accountRole === 'coordinator'); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+function ProvisionAccountDialog({
+  accountRole,
+  hte,
+  close,
+  onCreated,
+}: {
+  accountRole: "coordinator" | "hte" | "placement";
+  hte?: PartnerHteRecord;
+  close: () => void;
+  onCreated?: () => void;
+}) {
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [campusId, setCampusId] = useState("");
+  const [collegeId, setCollegeId] = useState("");
+  const [programIds, setProgramIds] = useState<string[]>([]);
+  const [externalHteId, setExternalHteId] = useState("");
+  const [institutionalOptions, setInstitutionalOptions] = useState<Awaited<
+    ReturnType<typeof institutionalService.loadRegistrationInstitutionalOptions>
+  > | null>(null);
+  const [loading, setLoading] = useState(accountRole === "coordinator");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   useEffect(() => {
-    if (accountRole !== 'coordinator') return;
+    if (accountRole !== "coordinator") return;
     let active = true;
-    void institutionalService.loadRegistrationInstitutionalOptions().then(result => { if (active) setInstitutionalOptions(result); }).catch(reason => { if (active) setError(userError(reason, 'Campuses and academic programs could not be loaded.')); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    void institutionalService
+      .loadRegistrationInstitutionalOptions()
+      .then((result) => {
+        if (active) setInstitutionalOptions(result);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(
+            userError(
+              reason,
+              "Campuses and academic programs could not be loaded.",
+            ),
+          );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [accountRole]);
   const campuses = institutionalOptions?.campuses ?? [];
-  const colleges = institutionalOptions && campusId ? unitsForCampus(institutionalOptions.units, campusId) : [];
-  const programs: ProgramChoice[] = institutionalOptions && collegeId
-    ? programsForCollege(institutionalOptions.units, institutionalOptions.programs, collegeId).map(program => ({ id: program.id, code: program.code, name: program.name }))
-    : [];
+  const colleges =
+    institutionalOptions && campusId
+      ? unitsForCampus(institutionalOptions.units, campusId)
+      : [];
+  const programs: ProgramChoice[] =
+    institutionalOptions && collegeId
+      ? programsForCollege(
+          institutionalOptions.units,
+          institutionalOptions.programs,
+          collegeId,
+        ).map((program) => ({
+          id: program.id,
+          code: program.code,
+          name: program.name,
+        }))
+      : [];
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError('');
+    event.preventDefault();
+    setBusy(true);
+    setError("");
     try {
-      const { data: sessionData, error: sessionError } = await createSupabaseBrowserClient().auth.getSession();
-      if (sessionError || !sessionData.session?.access_token) throw new Error('Your sign-in session has expired. Please sign in again before provisioning an account.');
-      const response = await fetch('/api/accounts/provision', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionData.session.access_token}` }, body: JSON.stringify({ role: accountRole, fullName, email, campusId, collegeId, programIds, hteId: hte?.id, referenceNumber }) });
-      const result = await response.json() as { error?: string; message?: string };
-      if (!response.ok) throw new Error(result.error || 'The account invitation could not be created.');
-      setNotice(result.message || 'Invitation sent.'); onCreated?.();
-    } catch (reason) { setError(userError(reason)); } finally { setBusy(false); }
+      const { data: sessionData, error: sessionError } =
+        await createSupabaseBrowserClient().auth.getSession();
+      if (sessionError || !sessionData.session?.access_token)
+        throw new Error(
+          "Your sign-in session has expired. Please sign in again before provisioning an account.",
+        );
+      const response = await fetch("/api/accounts/provision", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({
+          role: accountRole,
+          fullName,
+          email,
+          campusId,
+          collegeId,
+          programIds,
+          hteId: hte?.id,
+          externalHteId,
+        }),
+      });
+      const result = (await response.json()) as {
+        error?: string;
+        message?: string;
+      };
+      if (!response.ok)
+        throw new Error(
+          result.error || "The account invitation could not be created.",
+        );
+      setNotice(result.message || "Invitation sent.");
+      onCreated?.();
+    } catch (reason) {
+      setError(userError(reason));
+    } finally {
+      setBusy(false);
+    }
   }
-  const label = accountRole === 'coordinator' ? 'Internship Coordinator' : 'HTE Representative';
-  return <Dialog title={`Create ${label} account`} onClose={close} busy={busy} wide><InfoCallout icon={ShieldCheck}><p>This secure server-side invitation creates the authorized role. The recipient sets their own password and signs in through the universal email-and-password form.</p></InfoCallout>{hte && <p><strong>Partner HTE:</strong> {hte.name}</p>}{notice ? <div className="inline-success"><CheckCircle2 /><div><strong>Invitation created</strong><p>{notice}</p></div></div> : <form onSubmit={submit}><div className="two-fields"><label className="field"><span>Full name *</span><input required minLength={3} maxLength={180} value={fullName} onChange={event => setFullName(event.target.value)} /></label><label className="field"><span>Email address *</span><input required type="email" maxLength={180} value={email} onChange={event => setEmail(event.target.value)} /></label></div>{accountRole === 'hte' && <label className="field"><span>Representative reference number *</span><input required minLength={3} maxLength={64} autoCapitalize="characters" spellCheck={false} value={referenceNumber} onChange={event => setReferenceNumber(event.target.value.toUpperCase())} placeholder="Official HTE or university-issued identifier" /><small>Use the real identifier issued for this representative. It will appear in administrator registration records.</small></label>}{accountRole === 'coordinator' && <><div className="two-fields"><label className="field"><span>Campus *</span><select required value={campusId} disabled={loading || !institutionalOptions} onChange={event => { setCampusId(event.target.value); setCollegeId(''); setProgramIds([]); }}><option value="" disabled>{loading ? 'Loading campuses…' : 'Select campus'}</option>{campuses.map(campus => <option key={campus.id} value={campus.id}>{campus.shortName || campus.name}</option>)}</select></label><label className="field"><span>College / academic unit *</span><select required value={collegeId} disabled={!campusId} onChange={event => { setCollegeId(event.target.value); setProgramIds([]); }}><option value="" disabled>Select college or unit</option>{colleges.map(college => <option key={college.id} value={college.id}>{college.shortName || college.name} — {college.name}</option>)}</select></label></div><div className="field"><span>Authorized programs *</span><ProgramMultiSelect options={programs} value={programIds} onChange={setProgramIds} /></div></>}{error && <p className="form-error" role="alert"><AlertTriangle size={16} />{error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={busy || loading || (accountRole === 'hte' && !referenceNumber.trim()) || (accountRole === 'coordinator' && (!campusId || !collegeId || !programIds.length))}>{busy ? 'Sending invitation…' : `Create ${label}`}</ActionButton></div></form>}</Dialog>;
+  const label =
+    accountRole === "coordinator"
+      ? "Internship Coordinator"
+      : accountRole === "placement"
+        ? "Placement Head"
+        : "HTE Representative";
+  return (
+    <Dialog title={`Create ${label} account`} onClose={close} busy={busy} wide>
+      <InfoCallout icon={ShieldCheck}>
+        <p>
+          This secure server-side invitation creates the authorized role. The
+          recipient sets their own password and signs in through the universal
+          email-and-password form.
+        </p>
+      </InfoCallout>
+      {hte && (
+        <p>
+          <strong>Partner HTE:</strong> {hte.name}
+        </p>
+      )}
+      {notice ? (
+        <div className="inline-success">
+          <CheckCircle2 />
+          <div>
+            <strong>Invitation created</strong>
+            <p>{notice}</p>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={submit}>
+          <div className="two-fields">
+            <label className="field">
+              <span>Full name *</span>
+              <input
+                required
+                minLength={3}
+                maxLength={180}
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>Email address *</span>
+              <input
+                required
+                type="email"
+                maxLength={180}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </label>
+          </div>
+          {accountRole === "hte" && (
+            <label className="field">
+              <span>Official HTE employee/reference ID (optional)</span>
+              <input
+                minLength={2}
+                maxLength={64}
+                autoCapitalize="characters"
+                spellCheck={false}
+                value={externalHteId}
+                onChange={(event) =>
+                  setExternalHteId(event.target.value.toUpperCase())
+                }
+                placeholder="Organization-issued identifier, if available"
+              />
+              <small>
+                PRAXIZ generates the unique HTER reference automatically. Use
+                this only for a separate identifier issued by the organization.
+              </small>
+            </label>
+          )}
+          {accountRole === "placement" && (
+            <div className="provisioning-scope-card" role="note">
+              <BriefcaseBusiness size={20} aria-hidden="true" />
+              <div>
+                <strong>Institution-wide scope</strong>
+                <span>All active Partido State University campuses</span>
+              </div>
+            </div>
+          )}
+          {accountRole === "coordinator" && (
+            <>
+              <div className="two-fields">
+                <label className="field">
+                  <span>Campus *</span>
+                  <select
+                    required
+                    value={campusId}
+                    disabled={loading || !institutionalOptions}
+                    onChange={(event) => {
+                      setCampusId(event.target.value);
+                      setCollegeId("");
+                      setProgramIds([]);
+                    }}
+                  >
+                    <option value="" disabled>
+                      {loading ? "Loading campuses…" : "Select campus"}
+                    </option>
+                    {campuses.map((campus) => (
+                      <option key={campus.id} value={campus.id}>
+                        {campus.shortName || campus.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>College / academic unit *</span>
+                  <select
+                    required
+                    value={collegeId}
+                    disabled={!campusId}
+                    onChange={(event) => {
+                      setCollegeId(event.target.value);
+                      setProgramIds([]);
+                    }}
+                  >
+                    <option value="" disabled>
+                      Select college or unit
+                    </option>
+                    {colleges.map((college) => (
+                      <option key={college.id} value={college.id}>
+                        {college.shortName || college.name} — {college.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {accountRole === "coordinator" && (
+                <div className="field">
+                  <span>Authorized programs *</span>
+                  <ProgramMultiSelect
+                    options={programs}
+                    value={programIds}
+                    onChange={setProgramIds}
+                  />
+                </div>
+              )}
+            </>
+          )}
+          {error && (
+            <p className="form-error" role="alert">
+              <AlertTriangle size={16} />
+              {error}
+            </p>
+          )}
+          <div className="modal-actions">
+            <ActionButton variant="secondary" onClick={close}>
+              Cancel
+            </ActionButton>
+            <ActionButton
+              type="submit"
+              disabled={
+                busy ||
+                loading ||
+                (accountRole === "coordinator" &&
+                  (!campusId || !collegeId || !programIds.length))
+              }
+            >
+              {busy ? "Sending invitation…" : `Create ${label}`}
+            </ActionButton>
+          </div>
+        </form>
+      )}
+    </Dialog>
+  );
 }
 
 function UserAccountsPage() {
@@ -2638,75 +8546,1365 @@ function UserAccountsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [roleFilter, setRoleFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<UserAccountRecord | null>(null);
-  const [provisioning, setProvisioning] = useState(false);
+  const [provisioning, setProvisioning] = useState<
+    "coordinator" | "placement" | null
+  >(() => {
+    if (typeof window === "undefined") return null;
+    const requested = new URLSearchParams(window.location.search).get("create");
+    return requested === "coordinator" || requested === "placement"
+      ? requested
+      : null;
+  });
 
   useEffect(() => {
     let active = true;
-    void adminService.listUserAccounts().then((result) => {
-      if (active) setRecords(result);
-    }).catch((reason) => {
-      if (active) setError(userError(reason, "User accounts could not be loaded."));
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => { active = false; };
+    void adminService
+      .listUserAccounts()
+      .then((result) => {
+        if (active) setRecords(result);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(userError(reason, "User accounts could not be loaded."));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const visibleRecords = records.filter((record) => (statusFilter === "All" || record.status === statusFilter) && (!search || `${record.name} ${record.email} ${record.role} ${record.reference} ${record.status}`.toLowerCase().includes(search.toLowerCase())));
-  return <><PageHeader title="User accounts" subtitle="View live identities and help users recover access without exposing or replacing their passwords." action={<div className="inline-actions user-account-actions"><ActionButton icon={Plus} onClick={() => setProvisioning(true)}>Create Internship Coordinator</ActionButton><Link className="button button-secondary" href="/admin/registrations"><UserCheck size={18} /> Review registrations</Link></div>} />
-    <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Safe access recovery:</strong> administrators can send a one-time reset link to the registered email address, but cannot view or set a user’s password.</p></div>
-    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading accounts…" : `${visibleRecords.length} account${visibleRecords.length === 1 ? "" : "s"}`}</h2><div className="filter-bar"><select aria-label="Account status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="All">All statuses</option>{[...new Set(records.map(r => r.status))].map(status => <option key={status} value={status}>{status}</option>)}</select><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, or reference…" /></label></div></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Reference</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleRecords.map((record) => <tr key={record.id}><td><b>{record.name}</b></td><td className="email-cell" title={record.email}>{record.email}</td><td>{record.role}</td><td>{record.reference}</td><td><StatusBadge status={record.status} /></td><td><button className="table-link" onClick={() => setSelected(record)}>Manage access</button></td></tr>)}{!loading && visibleRecords.length === 0 && <tr><td colSpan={6}>No live user accounts match this view.</td></tr>}</tbody></table></div></section>
-    {selected && <UserAccessDialog account={selected} close={() => setSelected(null)} />}
-    {provisioning && <ProvisionAccountDialog accountRole="coordinator" close={() => setProvisioning(false)} />}
-  </>;
+  const visibleRecords = records.filter(
+    (record) =>
+      (statusFilter === "All" || record.status === statusFilter) &&
+      (roleFilter === "All" || record.role === roleFilter) &&
+      (!search ||
+        `${record.name} ${record.email} ${record.role} ${record.reference} ${record.status}`
+          .toLowerCase()
+          .includes(search.toLowerCase())),
+  );
+  return (
+    <>
+      <PageHeader
+        title="User accounts"
+        subtitle="View live identities and help users recover access without exposing or replacing their passwords."
+        action={
+          <div className="inline-actions user-account-actions">
+            <Link
+              className="button button-secondary"
+              href="/admin/registrations"
+            >
+              <UserCheck size={18} /> Review registrations
+            </Link>
+            <details className="create-account-menu">
+              <summary className="button button-primary">
+                <Plus size={18} /> Create account <ChevronRight size={16} />
+              </summary>
+              <div>
+                <button onClick={() => setProvisioning("coordinator")}>
+                  Internship Coordinator
+                </button>
+                <button onClick={() => setProvisioning("placement")}>
+                  Placement Head
+                </button>
+              </div>
+            </details>
+          </div>
+        }
+      />
+      <div className="verification-principle">
+        <ShieldCheck size={20} />
+        <p>
+          <strong>Safe access recovery:</strong> administrators can send a
+          one-time reset link to the registered email address, but cannot view
+          or set a user’s password.
+        </p>
+      </div>
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <section className="card table-card">
+        <div className="card-title">
+          <h2>
+            {loading
+              ? "Loading accounts…"
+              : `${visibleRecords.length} account${visibleRecords.length === 1 ? "" : "s"}`}
+          </h2>
+          <div className="filter-bar">
+            <select
+              aria-label="Account role"
+              value={roleFilter}
+              onChange={(event) => setRoleFilter(event.target.value)}
+            >
+              <option value="All">All roles</option>
+              {[...new Set(records.map((record) => record.role))].map((role) => (
+                <option key={role} value={role}>
+                  {role}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Account status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="All">All statuses</option>
+              {[...new Set(records.map((r) => r.status))].map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="Search name, email, role, or reference…"
+              label="Search user accounts"
+            />
+          </div>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Reference</th>
+                <th>ID</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRecords.map((record) => (
+                <tr key={record.id}>
+                  <td className="account-user-cell">
+                    <b>{record.name}</b>
+                    <small className="email-cell" title={record.email}>
+                      {record.email}
+                    </small>
+                  </td>
+                  <td>{record.role}</td>
+                  <td>{record.reference}</td>
+                  <td className="technical-id" title={record.id}>
+                    {record.id.slice(0, 8)}
+                  </td>
+                  <td>
+                    <StatusBadge status={record.status} />
+                  </td>
+                  <td>
+                    <button
+                      className="table-link"
+                      onClick={() => setSelected(record)}
+                    >
+                      {record.role === "No active role"
+                        ? "Assign access →"
+                        : "Manage access"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && visibleRecords.length === 0 && (
+                <tr>
+                  <td colSpan={6}>No live user accounts match this view.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {selected && (
+        <UserAccessDialog account={selected} close={() => setSelected(null)} />
+      )}
+      {provisioning && (
+        <ProvisionAccountDialog
+          accountRole={provisioning}
+          close={() => setProvisioning(null)}
+        />
+      )}
+    </>
+  );
 }
 
-function PartnerHteDialog({ close, onSaved }: { close: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState({ name: "", registrationNumber: "", industry: "", address: "", city: "", province: "", email: "", phone: "" });
-  const [loading, setLoading] = useState(false); const [error, setError] = useState("");
-  const field = (key: keyof typeof form) => (event: ChangeEvent<HTMLInputElement>) => setForm((current) => ({ ...current, [key]: event.target.value }));
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setLoading(true); setError(""); try { await coordinatorService.createPartnerHte(form); onSaved(); } catch (reason) { setError(userError(reason, "The HTE could not be created.")); setLoading(false); } }
-  return <Dialog title="Add partner HTE" onClose={close} busy={loading} wide><InfoCallout icon={BriefcaseBusiness}><p>New organizations begin as Pending and require administrator verification before they can receive internship assignments.</p></InfoCallout><form onSubmit={submit}><label className="field"><span>Legal organization name *</span><input required value={form.name} onChange={field("name")} /></label><div className="two-fields"><label className="field"><span>Registration number</span><input value={form.registrationNumber} onChange={field("registrationNumber")} /></label><label className="field"><span>Industry</span><input value={form.industry} onChange={field("industry")} /></label></div><label className="field"><span>Address *</span><input required value={form.address} onChange={field("address")} /></label><div className="two-fields"><label className="field"><span>City / municipality</span><input value={form.city} onChange={field("city")} /></label><label className="field"><span>Province</span><input value={form.province} onChange={field("province")} /></label></div><div className="two-fields"><label className="field"><span>Contact email</span><input type="email" value={form.email} onChange={field("email")} /></label><label className="field"><span>Contact phone</span><input value={form.phone} onChange={field("phone")} /></label></div>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading}>{loading ? "Saving…" : "Create pending HTE"}</ActionButton></div></form></Dialog>;
+function PartnerHteDialog({
+  close,
+  onSaved,
+}: {
+  close: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: "",
+    registrationNumber: "",
+    industry: "",
+    address: "",
+    city: "",
+    province: "",
+    email: "",
+    phone: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const field =
+    (key: keyof typeof form) => (event: ChangeEvent<HTMLInputElement>) =>
+      setForm((current) => ({ ...current, [key]: event.target.value }));
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      await coordinatorService.createPartnerHte(form);
+      onSaved();
+    } catch (reason) {
+      setError(userError(reason, "The HTE could not be created."));
+      setLoading(false);
+    }
+  }
+  return (
+    <Dialog title="Add partner HTE" onClose={close} busy={loading} wide>
+      <InfoCallout icon={BriefcaseBusiness}>
+        <p>
+          New organizations begin as Pending and require administrator
+          verification before they can receive internship assignments.
+        </p>
+      </InfoCallout>
+      <form onSubmit={submit}>
+        <label className="field">
+          <span>Legal organization name *</span>
+          <input required value={form.name} onChange={field("name")} />
+        </label>
+        <div className="two-fields">
+          <label className="field">
+            <span>Registration number</span>
+            <input
+              value={form.registrationNumber}
+              onChange={field("registrationNumber")}
+            />
+          </label>
+          <label className="field">
+            <span>Industry</span>
+            <input value={form.industry} onChange={field("industry")} />
+          </label>
+        </div>
+        <label className="field">
+          <span>Address *</span>
+          <input required value={form.address} onChange={field("address")} />
+        </label>
+        <div className="two-fields">
+          <label className="field">
+            <span>City / municipality</span>
+            <input value={form.city} onChange={field("city")} />
+          </label>
+          <label className="field">
+            <span>Province</span>
+            <input value={form.province} onChange={field("province")} />
+          </label>
+        </div>
+        <div className="two-fields">
+          <label className="field">
+            <span>Contact email</span>
+            <input type="email" value={form.email} onChange={field("email")} />
+          </label>
+          <label className="field">
+            <span>Contact phone</span>
+            <input value={form.phone} onChange={field("phone")} />
+          </label>
+        </div>
+        {error && (
+          <p className="form-error">
+            <AlertTriangle size={16} /> {error}
+          </p>
+        )}
+        <div className="modal-actions">
+          <ActionButton variant="secondary" onClick={close}>
+            Cancel
+          </ActionButton>
+          <ActionButton type="submit" disabled={loading}>
+            {loading ? "Saving…" : "Create pending HTE"}
+          </ActionButton>
+        </div>
+      </form>
+    </Dialog>
+  );
 }
 
 function PartnerHtesPage() {
-  const [selected, setSelected] = useState<PartnerHteRecord | null>(null); const [status, setStatus] = useState("All");
-  const [records, setRecords] = useState<PartnerHteRecord[]>([]); const [search, setSearch] = useState(""); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [adding, setAdding] = useState(false); const [provisioning, setProvisioning] = useState<PartnerHteRecord | null>(null);
-  const load = useCallback(async () => { try { setRecords(await coordinatorService.listPartnerHtes()); } catch (reason) { setError(userError(reason, "Partner HTEs could not be loaded.")); } finally { setLoading(false); } }, []);
-  useEffect(() => { void Promise.resolve().then(load); }, [load]);
-  const shown = records.filter((item) => (status === "All" || item.status === status) && (!search || `${item.name} ${item.representative} ${item.industry} ${item.location} ${item.status}`.toLowerCase().includes(search.toLowerCase())));
-  return <><PageHeader title="Partner HTEs" subtitle="Verified and pending organizations available within the authorized internship workflow." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Add partner HTE</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card partner-hte-card"><div className="card-title"><h2>{loading ? "Loading organizations…" : `${shown.length} organization${shown.length === 1 ? "" : "s"}`}</h2><label className="field field-compact"><span>Verification status</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="All">All</option>{[...new Set(["Verified", "Pending", "Rejected", ...records.map(r => r.status)])].map(s => <option key={s} value={s}>{s}</option>)}</select></label><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search organizations…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Representative</th><th>Assigned interns</th><th>Verification</th><th>Actions</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.representative}</td><td>{item.assignedInterns}</td><td><StatusBadge status={item.status} /></td><td><div className="inline-actions"><button className="table-link" onClick={() => setSelected(item)}><Eye size={16} />View details</button>{item.status === 'Verified' && <button className="button button-primary button-small table-primary-action" onClick={() => setProvisioning(item)}><Plus size={16} />Create HTE Representative</button>}</div></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={5}>No real HTE organization matches this view.</td></tr>}</tbody></table></div></section>{selected && <Dialog title={selected.name} onClose={() => setSelected(null)}><dl className="info-list"><div><dt>Representative</dt><dd>{selected.representative}</dd></div><div><dt>Industry</dt><dd>{selected.industry}</dd></div><div><dt>Location</dt><dd>{selected.location}</dd></div><div><dt>Assigned interns</dt><dd>{selected.assignedInterns}</dd></div><div><dt>Verification</dt><dd>{selected.status}</dd></div></dl></Dialog>}{adding && <PartnerHteDialog close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}{provisioning && <ProvisionAccountDialog accountRole="hte" hte={provisioning} close={() => setProvisioning(null)} onCreated={() => void load()} />}</>;
+  const [selected, setSelected] = useState<PartnerHteRecord | null>(null);
+  const [status, setStatus] = useState("All");
+  const [records, setRecords] = useState<PartnerHteRecord[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [provisioning, setProvisioning] = useState<PartnerHteRecord | null>(
+    null,
+  );
+  const load = useCallback(async () => {
+    try {
+      setRecords(await coordinatorService.listPartnerHtes());
+    } catch (reason) {
+      setError(userError(reason, "Partner HTEs could not be loaded."));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void Promise.resolve().then(load);
+  }, [load]);
+  const shown = records.filter(
+    (item) =>
+      (status === "All" || item.status === status) &&
+      (!search ||
+        `${item.name} ${item.representative} ${item.industry} ${item.location} ${item.status}`
+          .toLowerCase()
+          .includes(search.toLowerCase())),
+  );
+  return (
+    <>
+      <PageHeader
+        title="Partner HTEs"
+        subtitle="Verified and pending organizations available within the authorized internship workflow."
+        action={
+          <ActionButton icon={Plus} onClick={() => setAdding(true)}>
+            Add partner HTE
+          </ActionButton>
+        }
+      />
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <section className="card table-card partner-hte-card">
+        <div className="card-title">
+          <h2>
+            {loading
+              ? "Loading organizations…"
+              : `${shown.length} organization${shown.length === 1 ? "" : "s"}`}
+          </h2>
+          <label className="field field-compact">
+            <span>Verification status</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="All">All</option>
+              {[
+                ...new Set([
+                  "Verified",
+                  "Pending",
+                  "Rejected",
+                  ...records.map((r) => r.status),
+                ]),
+              ].map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="table-search">
+            <Search size={17} />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search organizations…"
+            />
+          </label>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Organization</th>
+                <th>Representative</th>
+                <th>Assigned interns</th>
+                <th>Verification</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <b>{item.name}</b>
+                  </td>
+                  <td>{item.representative}</td>
+                  <td>{item.assignedInterns}</td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
+                  <td>
+                    <div className="inline-actions">
+                      <button
+                        className="table-link"
+                        onClick={() => setSelected(item)}
+                      >
+                        <Eye size={16} />
+                        View details
+                      </button>
+                      {item.status === "Verified" && (
+                        <button
+                          className="button button-primary button-small table-primary-action"
+                          onClick={() => setProvisioning(item)}
+                        >
+                          <Plus size={16} />
+                          Create HTE Representative
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!loading && shown.length === 0 && (
+                <tr>
+                  <td colSpan={5}>
+                    No real HTE organization matches this view.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {selected && (
+        <Dialog title={selected.name} onClose={() => setSelected(null)}>
+          <dl className="info-list">
+            <div>
+              <dt>Representative</dt>
+              <dd>{selected.representative}</dd>
+            </div>
+            <div>
+              <dt>Industry</dt>
+              <dd>{selected.industry}</dd>
+            </div>
+            <div>
+              <dt>Location</dt>
+              <dd>{selected.location}</dd>
+            </div>
+            <div>
+              <dt>Assigned interns</dt>
+              <dd>{selected.assignedInterns}</dd>
+            </div>
+            <div>
+              <dt>Verification</dt>
+              <dd>{selected.status}</dd>
+            </div>
+          </dl>
+        </Dialog>
+      )}
+      {adding && (
+        <PartnerHteDialog
+          close={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            void load();
+          }}
+        />
+      )}
+      {provisioning && (
+        <ProvisionAccountDialog
+          accountRole="hte"
+          hte={provisioning}
+          close={() => setProvisioning(null)}
+          onCreated={() => void load()}
+        />
+      )}
+    </>
+  );
 }
 
-function AssignmentDialog({ close, onSaved }: { close: () => void; onSaved: () => void }) {
-  const [options, setOptions] = useState<AssignmentOptions>({ students: [], htes: [], terms: [] }); const [studentId, setStudentId] = useState(""); const [hteId, setHteId] = useState(""); const [termId, setTermId] = useState(""); const [hours, setHours] = useState(""); const [requirementConfigured, setRequirementConfigured] = useState(false); const [requirementLoading, setRequirementLoading] = useState(false); const [startDate, setStartDate] = useState(""); const [endDate, setEndDate] = useState(""); const [submitForApproval, setSubmitForApproval] = useState(true); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
-  useEffect(() => { let active = true; void coordinatorService.getAssignmentOptions().then((result) => { if (!active) return; setOptions(result); setStudentId(result.students[0]?.id ?? ""); setHteId(result.htes[0]?.id ?? ""); setTermId(result.terms[0]?.id ?? ""); const term = result.terms[0]; if (term) { setStartDate(term.startsOn); setEndDate(term.endsOn); } }).catch((reason) => { if (active) setError(userError(reason, "Assignment choices could not be loaded.")); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
-  useEffect(() => { if (!studentId || !termId) return; let active = true; queueMicrotask(() => { if (active) setRequirementLoading(true); }); void coordinatorService.getRequirementConfig(studentId, termId).then(value => { if (!active) return; setRequirementConfigured(value !== null); setHours(value === null ? "" : String(value)); }).catch(reason => { if (active) setError(userError(reason, "Required-hour configuration could not be loaded.")); }).finally(() => { if (active) setRequirementLoading(false); }); return () => { active = false; }; }, [studentId, termId]);
-  function chooseTerm(id: string) { setRequirementLoading(true); setTermId(id); const term = options.terms.find((item) => item.id === id); if (term) { setStartDate(term.startsOn); setEndDate(term.endsOn); } }
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setLoading(true); setError(""); try { const requiredHours = Number(hours); if (!requirementConfigured) await coordinatorService.saveRequirementConfig(studentId, termId, requiredHours); await coordinatorService.createAssignment({ studentUserId: studentId, hteId, academicTermId: termId, requiredHours, startDate, expectedEndDate: endDate, submitForApproval }); onSaved(); } catch (reason) { setError(userError(reason, "The assignment could not be created.")); setLoading(false); } }
-  const selectedStudent = options.students.find(item => item.id === studentId);
-  return <Dialog title="Create internship assignment" onClose={close} busy={loading} wide><InfoCallout icon={ListChecks}><p>Students are limited to your program; only verified HTEs with an active representative are eligible. Activating an assignment makes it available to the student immediately; drafts remain private until you activate them.</p></InfoCallout>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<form onSubmit={submit}><label className="field"><span>Student intern *</span><select required value={studentId} onChange={(event) => setStudentId(event.target.value)}><option value="" disabled>Select student</option>{options.students.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="field"><span>Student ID</span><input readOnly value={selectedStudent?.studentNumber || ""} placeholder={loading ? "Loading…" : "Select a student"} /></label><label className="field"><span>Verified HTE *</span><select required value={hteId} onChange={(event) => setHteId(event.target.value)}><option value="" disabled>Select HTE</option>{options.htes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="field"><span>Academic term *</span><select required value={termId} onChange={(event) => chooseTerm(event.target.value)}><option value="" disabled>Select term</option>{options.terms.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>{!requirementLoading && !requirementConfigured && studentId && termId && <div className="requirement-setup-notice"><AlertTriangle size={18} /><div><strong>Required hours are not configured</strong><p>Set the hours for this term, program, and {selectedStudent?.section ? `Section ${selectedStudent.section}` : "student cohort"}. This value will be saved before the assignment and snapshotted onto it.</p></div></div>}<div className="two-fields"><label className="field"><span>Required hours *</span><input required type="number" min="1" max="2000" value={hours} onChange={(event) => { setHours(event.target.value); if (requirementConfigured) setRequirementConfigured(false); }} placeholder={requirementLoading ? "Loading configuration…" : "Enter required hours"} disabled={requirementLoading} /><small>{requirementConfigured ? "Loaded from the scoped requirement configuration." : "Applies to this academic term, program, and Section."}</small></label><label className="field"><span>Workflow</span><select value={submitForApproval ? "approval" : "draft"} onChange={(event) => setSubmitForApproval(event.target.value === "approval")}><option value="approval">Activate assignment</option><option value="draft">Save as draft</option></select></label></div><div className="two-fields"><label className="field"><span>Start date *</span><input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label className="field"><span>Expected end date *</span><input required type="date" min={startDate || undefined} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label></div><div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || requirementLoading || !studentId || !hteId || !termId || !Number(hours)}>{loading ? "Please wait…" : "Create assignment"}</ActionButton></div></form></Dialog>;
+function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
+  const [records, setRecords] = useState<HteDailyHourConfig[]>([]);
+  const [terms, setTerms] = useState<AcademicTerm[]>([]);
+  const [htes, setHtes] = useState<PartnerHteRecord[]>([]);
+  const [hteId, setHteId] = useState("");
+  const [termId, setTermId] = useState("");
+  const [hours, setHours] = useState("");
+  const [effectiveFrom, setEffectiveFrom] = useState("");
+  const [effectiveTo, setEffectiveTo] = useState("");
+  const [reason, setReason] = useState("");
+  const [applyToActive, setApplyToActive] = useState(false);
+  const [confirmApply, setConfirmApply] = useState(false);
+  const [configurationSearch, setConfigurationSearch] = useState("");
+  const [configurationTerm, setConfigurationTerm] = useState("All");
+  const [configurationStatus, setConfigurationStatus] = useState("All");
+  const [selectedConfiguration, setSelectedConfiguration] = useState<HteDailyHourConfig | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const [configured, termRows] = await Promise.all([
+        hteWorkSetupService.list(),
+        institutionalService.listAcademicTerms(),
+      ]);
+      setRecords(configured);
+      setTerms(
+        termRows.filter((term) => term.configurationStatus !== "Finalized"),
+      );
+      if (admin) {
+        const organizations = await coordinatorService.listPartnerHtes();
+        setHtes(organizations);
+        setHteId((current) => current || organizations[0]?.id || "");
+      } else setHteId(await hteWorkSetupService.getMyHteId());
+    } catch (reasonValue) {
+      setError(userError(reasonValue, "HTE work setup could not be loaded."));
+    }
+  }, [admin]);
+  useEffect(() => {
+    void Promise.resolve().then(load);
+  }, [load]);
+  const scopedRecords = admin
+    ? records
+    : records.filter((record) => record.hteId === hteId);
+  const visible = scopedRecords.filter(
+    (record) =>
+      (configurationStatus === "All" || record.status === configurationStatus) &&
+      (configurationTerm === "All" || record.termLabel === configurationTerm) &&
+      (!configurationSearch.trim() ||
+        `${record.hteName} ${record.termLabel}`
+          .toLowerCase()
+          .includes(configurationSearch.trim().toLowerCase())),
+  );
+  const todayParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const todayInManila = `${todayParts.find((part) => part.type === "year")?.value}-${todayParts.find((part) => part.type === "month")?.value}-${todayParts.find((part) => part.type === "day")?.value}`;
+  const currentTermId = terms.find((term) => term.isCurrent)?.id ?? null;
+  const applicableRecords = records
+    .filter(
+      (record) =>
+        record.hteId === hteId &&
+        record.status === "Active" &&
+        record.effectiveFrom <= todayInManila &&
+        (!record.effectiveTo || record.effectiveTo >= todayInManila) &&
+        (!record.academicTermId || record.academicTermId === currentTermId),
+    )
+    .sort((left, right) => {
+      const leftTermRank = left.academicTermId === currentTermId ? 1 : 0;
+      const rightTermRank = right.academicTermId === currentTermId ? 1 : 0;
+      return rightTermRank - leftTermRank || right.effectiveFrom.localeCompare(left.effectiveFrom) || right.updatedAt.localeCompare(left.updatedAt);
+    });
+  const active = applicableRecords[0];
+  const overlappingCurrentSetup = applicableRecords.length > 1;
+  const configuredHtes = new Set(
+    records.filter((record) => record.status === "Active").map((record) => record.hteId),
+  ).size;
+  function validateWorkSetup() {
+    const parsedHours = Number(hours);
+    if (!hteId) return "Select an HTE organization before saving.";
+    if (!Number.isFinite(parsedHours) || parsedHours < 0.25 || parsedHours > 24) {
+      return "Daily required hours must be between 0.25 and 24.";
+    }
+    if (!effectiveFrom) return "Select the date when this configuration takes effect.";
+    if (effectiveTo && effectiveTo < effectiveFrom) {
+      return "The effective-to date cannot be earlier than the effective-from date.";
+    }
+    if (admin && reason.trim().length < 5) {
+      return "Enter a clear correction reason of at least 5 characters for the audit trail.";
+    }
+    return "";
+  }
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    const validationError = validateWorkSetup();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    if (applyToActive) {
+      setConfirmApply(true);
+      return;
+    }
+    await saveWorkSetup();
+  }
+  async function saveWorkSetup() {
+    if (busy) return;
+    const validationError = validateWorkSetup();
+    if (validationError) {
+      setError(validationError);
+      setConfirmApply(false);
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await hteWorkSetupService.save({
+        hteId,
+        academicTermId: termId || undefined,
+        dailyRequiredHours: Number(hours),
+        effectiveFrom,
+        effectiveTo: effectiveTo || undefined,
+        correctionReason: admin ? reason : undefined,
+        applyToActiveAssignments: applyToActive,
+      });
+      setNotice(
+        applyToActive
+          ? "Daily required hours saved and explicitly applied to current active assignments. Completed and historical assignments are unchanged."
+          : "Daily required hours saved for future assignments. Historical and current assignment snapshots are unchanged.",
+      );
+      setHours("");
+      setReason("");
+      setApplyToActive(false);
+      setConfirmApply(false);
+      await load();
+    } catch (reasonValue) {
+      setError(
+        userError(reasonValue, "Daily required hours could not be saved."),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <PageHeader
+        title={admin ? "HTE Work Configurations" : "Internship work setup"}
+        subtitle={
+          admin
+            ? "Oversee organization-level daily-hour configurations and record corrections with a reason."
+            : "Set the daily required hours used by every representative of your HTE. Total internship hours remain coordinator-owned."
+        }
+      />
+      {notice && (
+        <p className="inline-success" role="status">
+          <CheckCircle2 size={17} />
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          <AlertTriangle size={17} />
+          {error}
+        </p>
+      )}
+      {admin && (
+        <>
+          <div className="stats-grid three hte-configuration-summary">
+            <StatCard label="Configured HTEs" value={String(configuredHtes)} icon={CheckCircle2} tone="green" />
+            <StatCard label="Missing configuration" value={String(Math.max(0, htes.length - configuredHtes))} icon={AlertTriangle} tone="orange" />
+            <StatCard label="Active term" value={terms.find((term) => term.isCurrent)?.term || "Not configured"} icon={CalendarCheck2} />
+          </div>
+          <section className="card hte-configuration-filters" aria-label="HTE configuration filters">
+            <SearchInput
+              value={configurationSearch}
+              onChange={setConfigurationSearch}
+              placeholder="Search HTE…"
+              label="Search HTE configurations"
+            />
+            <label className="field field-compact">
+              <span>Academic term</span>
+              <select value={configurationTerm} onChange={(event) => setConfigurationTerm(event.target.value)}>
+                <option value="All">All terms</option>
+                {[...new Set(records.map((record) => record.termLabel))].map((label) => <option key={label}>{label}</option>)}
+              </select>
+            </label>
+            <label className="field field-compact">
+              <span>Configuration status</span>
+              <select value={configurationStatus} onChange={(event) => setConfigurationStatus(event.target.value)}>
+                <option value="All">All statuses</option>
+                <option value="Active">Configured</option>
+                <option value="Retired">Superseded</option>
+              </select>
+            </label>
+          </section>
+        </>
+      )}
+      <div className={`work-setup-stack ${admin ? "work-setup-stack-admin" : ""}`}>
+        <section className="card work-setup-current" aria-labelledby="current-work-setup-heading">
+          <div className="card-title">
+            <h2 id="current-work-setup-heading">Current setup</h2>
+            <StatusBadge status={active ? "Configured" : "Not configured"} />
+          </div>
+          {active ? (
+            <>
+            {overlappingCurrentSetup && (
+              <p className="form-error" role="alert">
+                <AlertTriangle size={17} /> Multiple configurations currently apply. PRAXIZ is showing the most specific, most recent effective configuration; an administrator should review the overlap.
+              </p>
+            )}
+            <dl className="info-list work-setup-meta">
+              <div>
+                <dt>HTE</dt>
+                <dd>{active.hteName}</dd>
+              </div>
+              <div>
+                <dt>Daily required hours</dt>
+                <dd>{active.dailyRequiredHours} hours</dd>
+              </div>
+              <div>
+                <dt>Academic term</dt>
+                <dd>{active.termLabel}</dd>
+              </div>
+              <div>
+                <dt>Effective period</dt>
+                <dd>
+                  {active.effectiveFrom} – {active.effectiveTo || "No end date"}
+                </dd>
+              </div>
+              <div>
+                <dt>Configured by</dt>
+                <dd>{active.configuredBy}</dd>
+              </div>
+              <div>
+                <dt>Last updated</dt>
+                <dd>{formatTimestamp(active.updatedAt)}</dd>
+              </div>
+            </dl>
+            </>
+          ) : (
+            <div className="setup-task">
+              <AlertTriangle size={20} />
+              <div>
+                <strong>Daily required hours are not configured</strong>
+                <p>
+                  Save the organization-owned daily-hour value before new internship
+                  assignments are created. PRAXIZ will not assume an eight-hour day.
+                </p>
+              </div>
+            </div>
+          )}
+        </section>
+        <section className="card work-setup-editor" aria-labelledby="work-setup-editor-heading">
+          <div className="card-title">
+            <div>
+              <h2 id="work-setup-editor-heading">{admin ? "Record an authorized correction" : "Configure daily required hours"}</h2>
+              <p className="muted-note">Daily hours belong to the HTE. Effective dates determine which future assignments inherit the value.</p>
+            </div>
+          </div>
+          <form className="work-setup-form" onSubmit={submit} noValidate>
+            <div className="work-setup-form-row work-setup-form-row-primary">
+              {admin && (
+                <label className="field">
+                  <span>HTE organization *</span>
+                  <select required value={hteId} onChange={(event) => setHteId(event.target.value)}>
+                    <option value="" disabled>Select HTE</option>
+                    {htes.map((hte) => <option key={hte.id} value={hte.id}>{hte.name}</option>)}
+                  </select>
+                </label>
+              )}
+              <label className="field">
+                <span>Academic term (optional)</span>
+                <select value={termId} onChange={(event) => setTermId(event.target.value)}>
+                  <option value="">All terms in effective period</option>
+                  {terms.map((term) => <option key={term.id} value={term.id}>{term.academicYear} · {term.term}</option>)}
+                </select>
+              </label>
+              {!admin && (
+                <label className="field">
+                  <span>Daily required hours *</span>
+                  <input required type="number" inputMode="decimal" min="0.25" max="24" step="0.25" value={hours} onChange={(event) => setHours(event.target.value)} placeholder="Enter hours" />
+                </label>
+              )}
+            </div>
+            <div className={`work-setup-form-row ${admin ? "work-setup-form-row-three" : "work-setup-form-row-two"}`}>
+              {admin && (
+                <label className="field">
+                  <span>Daily required hours *</span>
+                  <input required type="number" inputMode="decimal" min="0.25" max="24" step="0.25" value={hours} onChange={(event) => setHours(event.target.value)} placeholder="Enter hours" />
+                </label>
+              )}
+              <label className="field">
+                <span>Effective from *</span>
+                <input required type="date" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>Effective to (optional)</span>
+                <input type="date" min={effectiveFrom || undefined} value={effectiveTo} onChange={(event) => setEffectiveTo(event.target.value)} />
+              </label>
+            </div>
+            <label className="work-setup-option">
+              <input aria-label={admin ? "Apply this correction to matching active assignments" : "Apply this value to matching active assignments"} type="checkbox" checked={applyToActive} onChange={(event) => setApplyToActive(event.target.checked)} />
+              <span>
+                <strong>{admin ? "Apply this correction to matching active assignments" : "Apply this value to matching active assignments"}</strong>
+                <small>{admin ? "Leave unchecked to apply this corrected configuration only to future internship assignments. Historical and completed assignments will not be changed." : "Leave unchecked to use this configuration for future internship assignments only. Historical and completed assignments will not be changed."}</small>
+              </span>
+            </label>
+            {admin && (
+              <label className="field work-setup-reason">
+                <span>Correction reason *</span>
+                <textarea required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain the authorized correction for the audit trail." />
+              </label>
+            )}
+            <div className="work-setup-actions">
+              <ActionButton type="submit" loading={busy} disabled={busy || !hteId || !hours || !effectiveFrom || (admin && reason.trim().length < 5)}>
+                {admin ? "Save correction" : "Save work setup"}
+              </ActionButton>
+            </div>
+          </form>
+        </section>
+      </div>
+      <section className="card table-card work-setup-history">
+        <div className="card-title">
+          <h2>Configuration history</h2>
+          <span>{visible.length} versions</span>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>HTE</th>
+                <th>Term</th>
+                <th>Daily hours</th>
+                <th>Effective period</th>
+                <th>Status</th>
+                <th>Configured by</th>
+                <th>Reason</th>
+                <th>Last updated</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((record) => (
+                <tr key={record.id}>
+                  <td>{record.hteName}</td>
+                  <td>{record.termLabel}</td>
+                  <td>{record.dailyRequiredHours}</td>
+                  <td>
+                    {record.effectiveFrom} –{" "}
+                    {record.effectiveTo || "Open-ended"}
+                  </td>
+                  <td>
+                    <StatusBadge status={record.status} />
+                  </td>
+                  <td>{record.configuredBy}</td>
+                  <td>{record.correctionReason || (records.filter((item) => item.hteId === record.hteId && item.updatedAt < record.updatedAt).length === 0 ? "Initial configuration" : "Not provided")}</td>
+                  <td>{formatTimestamp(record.updatedAt)}</td>
+                  <td className="table-actions">
+                    <button className="table-link" onClick={() => setSelectedConfiguration(record)}>View details</button>
+                    {admin && <button className="table-link" onClick={() => setHteId(record.hteId)}>Correct / Override</button>}
+                  </td>
+                </tr>
+              ))}
+              {visible.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="table-empty">
+                    No daily-hours configuration has been recorded yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {confirmApply && (
+        <Dialog
+          title="Apply daily hours to active assignments?"
+          onClose={() => setConfirmApply(false)}
+          busy={busy}
+          protectChanges={false}
+        >
+          <dl className="info-list requirement-confirmation-summary">
+            <div><dt>HTE</dt><dd>{htes.find((hte) => hte.id === hteId)?.name ?? active?.hteName ?? "Your HTE organization"}</dd></div>
+            <div><dt>Academic term</dt><dd>{terms.find((term) => term.id === termId)?.term ?? "All terms in effective period"}</dd></div>
+            <div><dt>Daily required hours</dt><dd>{hours} hours</dd></div>
+            <div><dt>Effective from</dt><dd>{effectiveFrom}</dd></div>
+          </dl>
+          <InfoCallout icon={ShieldCheck}>
+            <p>Only matching current active assignment snapshots will change. Completed and historical records remain unchanged.</p>
+          </InfoCallout>
+          <div className="modal-actions">
+            <ActionButton variant="secondary" onClick={() => setConfirmApply(false)}>Cancel</ActionButton>
+            <ActionButton disabled={busy} onClick={() => void saveWorkSetup()}>{busy ? "Saving…" : "Apply and save"}</ActionButton>
+          </div>
+        </Dialog>
+      )}
+      {selectedConfiguration && (
+        <Dialog
+          title="Daily-hours configuration details"
+          onClose={() => setSelectedConfiguration(null)}
+          protectChanges={false}
+        >
+          <dl className="info-list">
+            <div><dt>HTE organization</dt><dd>{selectedConfiguration.hteName}</dd></div>
+            <div><dt>Academic term</dt><dd>{selectedConfiguration.termLabel}</dd></div>
+            <div><dt>Daily required hours</dt><dd>{selectedConfiguration.dailyRequiredHours} hours</dd></div>
+            <div><dt>Effective from</dt><dd>{selectedConfiguration.effectiveFrom}</dd></div>
+            <div><dt>Effective to</dt><dd>{selectedConfiguration.effectiveTo || "Open-ended"}</dd></div>
+            <div><dt>Status</dt><dd><StatusBadge status={selectedConfiguration.status} /></dd></div>
+            <div><dt>Configured by</dt><dd>{selectedConfiguration.configuredBy}</dd></div>
+            <div><dt>Reason</dt><dd>{selectedConfiguration.correctionReason || (records.filter((item) => item.hteId === selectedConfiguration.hteId && item.updatedAt < selectedConfiguration.updatedAt).length === 0 ? "Initial configuration" : "Not provided")}</dd></div>
+            <div><dt>Last updated</dt><dd>{formatTimestamp(selectedConfiguration.updatedAt)}</dd></div>
+          </dl>
+        </Dialog>
+      )}
+    </>
+  );
+}
+
+function AssignmentDialog({
+  close,
+  onSaved,
+}: {
+  close: () => void;
+  onSaved: () => void;
+}) {
+  const [options, setOptions] = useState<AssignmentOptions>({
+    students: [],
+    htes: [],
+    terms: [],
+  });
+  const [studentId, setStudentId] = useState("");
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [hteId, setHteId] = useState("");
+  const [termId, setTermId] = useState("");
+  const [hours, setHours] = useState("");
+  const [requirementConfigured, setRequirementConfigured] = useState(false);
+  const [requirementLoading, setRequirementLoading] = useState(false);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [submitForApproval, setSubmitForApproval] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    void coordinatorService
+      .getAssignmentOptions()
+      .then((result) => {
+        if (!active) return;
+        setOptions(result);
+        setStudentId(result.students[0]?.id ?? "");
+        setSelectedStudentIds(result.students[0]?.id ? [result.students[0].id] : []);
+        setHteId(result.htes[0]?.id ?? "");
+        setTermId(result.terms[0]?.id ?? "");
+        const term = result.terms[0];
+        if (term) {
+          setStartDate(term.startsOn);
+          setEndDate(term.endsOn);
+        }
+      })
+      .catch((reason) => {
+        if (active)
+          setError(
+            userError(reason, "Assignment choices could not be loaded."),
+          );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (bulkMode || !studentId || !termId) return;
+    let active = true;
+    queueMicrotask(() => {
+      if (active) setRequirementLoading(true);
+    });
+    void coordinatorService
+      .getRequirementConfig(studentId, termId)
+      .then((value) => {
+        if (!active) return;
+        setRequirementConfigured(value !== null);
+        setHours(value === null ? "" : String(value));
+      })
+      .catch((reason) => {
+        if (active)
+          setError(
+            userError(
+              reason,
+              "Required-hour configuration could not be loaded.",
+            ),
+          );
+      })
+      .finally(() => {
+        if (active) setRequirementLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [bulkMode, studentId, termId]);
+  function chooseTerm(id: string) {
+    setRequirementLoading(true);
+    setTermId(id);
+    const term = options.terms.find((item) => item.id === id);
+    if (term) {
+      setStartDate(term.startsOn);
+      setEndDate(term.endsOn);
+    }
+  }
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      if (bulkMode) {
+        if (selectedStudentIds.length < 2) {
+          throw new Error("Select at least two Student Interns for bulk assignment.");
+        }
+        const requirements = await Promise.all(
+          selectedStudentIds.map(async (id) => ({
+            id,
+            hours: await coordinatorService.getRequirementConfig(id, termId),
+          })),
+        );
+        const missing = requirements
+          .filter((item) => item.hours === null)
+          .map((item) => options.students.find((student) => student.id === item.id)?.label ?? item.id);
+        if (missing.length) {
+          throw new Error(`Configure required hours for these Student Interns before bulk assignment: ${missing.join(", ")}.`);
+        }
+        await coordinatorService.createAssignmentsBulk(
+          requirements.map((item) => ({
+            studentUserId: item.id,
+            hteId,
+            academicTermId: termId,
+            requiredHours: Number(item.hours),
+            startDate,
+            expectedEndDate: endDate,
+            submitForApproval,
+          })),
+        );
+        onSaved();
+        return;
+      }
+      const requiredHours = Number(hours);
+      if (!requirementConfigured)
+        await coordinatorService.saveRequirementConfig(
+          studentId,
+          termId,
+          requiredHours,
+        );
+      await coordinatorService.createAssignment({
+        studentUserId: studentId,
+        hteId,
+        academicTermId: termId,
+        requiredHours,
+        startDate,
+        expectedEndDate: endDate,
+        submitForApproval,
+      });
+      onSaved();
+    } catch (reason) {
+      setError(userError(reason, "The assignment could not be created."));
+      setLoading(false);
+    }
+  }
+  const selectedStudent = options.students.find(
+    (item) => item.id === studentId,
+  );
+  return (
+    <Dialog
+      title="Create internship assignment"
+      onClose={close}
+      busy={loading}
+      wide
+    >
+      <InfoCallout icon={ListChecks}>
+        <p>
+          Students are limited to your program; only verified HTEs with an
+          active representative are eligible. Activating an assignment makes it
+          available to the student immediately; drafts remain private until you
+          activate them.
+        </p>
+      </InfoCallout>
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <form onSubmit={submit}>
+        <label className="work-setup-option assignment-bulk-choice" aria-label="Bulk assignment mode">
+          <input
+            type="checkbox"
+            checked={bulkMode}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setBulkMode(enabled);
+              setSelectedStudentIds(studentId ? [studentId] : []);
+              setError("");
+            }}
+          />
+          <span>
+            <strong>Assign multiple Student Interns</strong>
+            <small>Each selected student is validated independently and receives their own scoped requirement snapshot. The entire batch is rolled back if any assignment fails.</small>
+          </span>
+        </label>
+        {bulkMode ? (
+          <fieldset className="assignment-student-picker">
+            <legend>Student Interns *</legend>
+            <p>Select 2–50 eligible students from your authorized program scope.</p>
+            <div>
+              {options.students.map((item) => (
+                <label key={item.id}>
+                  <input
+                    aria-label={`Select ${item.label} for bulk assignment`}
+                    type="checkbox"
+                    checked={selectedStudentIds.includes(item.id)}
+                    onChange={(event) => setSelectedStudentIds((current) =>
+                      event.target.checked
+                        ? [...new Set([...current, item.id])]
+                        : current.filter((id) => id !== item.id))}
+                  />
+                  <span><strong>{item.label}</strong><small>{item.studentNumber}{item.section ? ` · Section ${item.section}` : ""}</small></span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ) : (<>
+        <label className="field">
+          <span>Student intern *</span>
+          <select
+            required
+            value={studentId}
+            onChange={(event) => setStudentId(event.target.value)}
+          >
+            <option value="" disabled>
+              Select student
+            </option>
+            {options.students.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Student ID</span>
+          <input
+            readOnly
+            value={selectedStudent?.studentNumber || ""}
+            placeholder={loading ? "Loading…" : "Select a student"}
+          />
+        </label>
+        </>)}
+        <label className="field">
+          <span>Verified HTE *</span>
+          <select
+            required
+            value={hteId}
+            onChange={(event) => setHteId(event.target.value)}
+          >
+            <option value="" disabled>
+              Select HTE
+            </option>
+            {options.htes.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Academic term *</span>
+          <select
+            required
+            value={termId}
+            onChange={(event) => chooseTerm(event.target.value)}
+          >
+            <option value="" disabled>
+              Select term
+            </option>
+            {options.terms.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!bulkMode && !requirementLoading &&
+          !requirementConfigured &&
+          studentId &&
+          termId && (
+            <div className="requirement-setup-notice">
+              <AlertTriangle size={18} />
+              <div>
+                <strong>Required hours are not configured</strong>
+                <p>
+                  Set the hours for this term, program, and{" "}
+                  {selectedStudent?.section
+                    ? `Section ${selectedStudent.section}`
+                    : "student cohort"}
+                  . This value will be saved before the assignment and
+                  snapshotted onto it.
+                </p>
+              </div>
+            </div>
+          )}
+        <div className="two-fields">
+          {bulkMode ? (
+            <div className="requirement-setup-notice">
+              <ShieldCheck size={18} />
+              <div>
+                <strong>Individual requirement snapshots</strong>
+                <p>PRAXIZ will resolve the authorized term/program/Section requirement for every selected student before creating any assignment.</p>
+              </div>
+            </div>
+          ) : (
+          <label className="field">
+            <span>Required hours *</span>
+            <input
+              required
+              type="number"
+              min="1"
+              max="2000"
+              value={hours}
+              onChange={(event) => {
+                setHours(event.target.value);
+                if (requirementConfigured) setRequirementConfigured(false);
+              }}
+              placeholder={
+                requirementLoading
+                  ? "Loading configuration…"
+                  : "Enter required hours"
+              }
+              disabled={requirementLoading}
+            />
+            <small>
+              {requirementConfigured
+                ? "Loaded from the scoped requirement configuration."
+                : "Applies to this academic term, program, and Section."}
+            </small>
+          </label>
+          )}
+          <label className="field">
+            <span>Workflow</span>
+            <select
+              value={submitForApproval ? "approval" : "draft"}
+              onChange={(event) =>
+                setSubmitForApproval(event.target.value === "approval")
+              }
+            >
+              <option value="approval">Activate assignment</option>
+              <option value="draft">Save as draft</option>
+            </select>
+          </label>
+        </div>
+        <div className="two-fields">
+          <label className="field">
+            <span>Start date *</span>
+            <input
+              required
+              type="date"
+              value={startDate}
+              onChange={(event) => setStartDate(event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Expected end date *</span>
+            <input
+              required
+              type="date"
+              min={startDate || undefined}
+              value={endDate}
+              onChange={(event) => setEndDate(event.target.value)}
+            />
+          </label>
+        </div>
+        <div className="modal-actions">
+          <ActionButton variant="secondary" onClick={close}>
+            Cancel
+          </ActionButton>
+          <ActionButton
+            type="submit"
+            disabled={
+              loading ||
+              requirementLoading ||
+              (bulkMode ? selectedStudentIds.length < 2 : !studentId) ||
+              !hteId ||
+              !termId ||
+              (!bulkMode && !Number(hours))
+            }
+          >
+            {loading ? "Please wait…" : bulkMode ? `Create ${selectedStudentIds.length} assignments` : "Create assignment"}
+          </ActionButton>
+        </div>
+      </form>
+    </Dialog>
+  );
 }
 
 function AssignmentsPage() {
-  const [rows, setRows] = useState<Intern[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [adding, setAdding] = useState(false);
-  const load = useCallback(async () => { try { setRows(await internshipService.listCoordinatorInterns()); } catch (reason) { setError(userError(reason, "Assignments could not be loaded.")); } finally { setLoading(false); } }, []);
-  useEffect(() => { void Promise.resolve().then(load); }, [load]);
-  const assignedRows = rows.filter((row) => row.status !== "Awaiting Assignment");
-  return <><PageHeader title="Internship assignments" subtitle="Create and monitor placements for students inside your academic-program scope." action={<ActionButton icon={Plus} onClick={() => setAdding(true)}>Create assignment</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><h2>{loading ? "Loading assignments…" : `${assignedRows.length} assignment${assignedRows.length === 1 ? "" : "s"}`}</h2><InternTable rows={assignedRows} emptyMessage={!loading && !error ? "No internship assignments have been created for this program." : undefined} /></section>{adding && <AssignmentDialog close={() => setAdding(false)} onSaved={() => { setAdding(false); void load(); }} />}</>;
+  const [rows, setRows] = useState<Intern[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const load = useCallback(async () => {
+    try {
+      setRows(await internshipService.listCoordinatorInterns());
+    } catch (reason) {
+      setError(userError(reason, "Assignments could not be loaded."));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void Promise.resolve().then(load);
+  }, [load]);
+  const assignedRows = rows.filter(
+    (row) => row.status !== "Awaiting Assignment",
+  );
+  return (
+    <>
+      <PageHeader
+        title="Internship assignments"
+        subtitle="Create and monitor placements for students inside your academic-program scope."
+        action={
+          <ActionButton icon={Plus} onClick={() => setAdding(true)}>
+            Create assignment
+          </ActionButton>
+        }
+      />
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <section className="card table-card">
+        <h2>
+          {loading
+            ? "Loading assignments…"
+            : `${assignedRows.length} assignment${assignedRows.length === 1 ? "" : "s"}`}
+        </h2>
+        <InternTable
+          rows={assignedRows}
+          emptyMessage={
+            !loading && !error
+              ? "No internship assignments have been created for this program."
+              : undefined
+          }
+        />
+      </section>
+      {adding && (
+        <AssignmentDialog
+          close={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            void load();
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 function RequirementsSetupPage() {
   const [records, setRecords] = useState<RequirementConfigRecord[]>([]);
-  const [options, setOptions] = useState<AssignmentOptions>({ students: [], htes: [], terms: [] });
-  const [programs, setPrograms] = useState<Awaited<ReturnType<typeof coordinatorService.getScope>>>([]);
+  const [options, setOptions] = useState<AssignmentOptions>({
+    students: [],
+    htes: [],
+    terms: [],
+  });
+  const [programs, setPrograms] = useState<
+    Awaited<ReturnType<typeof coordinatorService.getScope>>
+  >([]);
   const [termId, setTermId] = useState("");
   const [programId, setProgramId] = useState("");
   const [section, setSection] = useState("");
   const [hours, setHours] = useState("");
+  const [applyToCurrentAssignments, setApplyToCurrentAssignments] =
+    useState(false);
   const [pendingSave, setPendingSave] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -2714,38 +9912,520 @@ function RequirementsSetupPage() {
   const [notice, setNotice] = useState("");
   const load = useCallback(async () => {
     try {
-      const [configurationRows, assignmentOptions, scopeRows] = await Promise.all([coordinatorService.listRequirementConfigs(), coordinatorService.getAssignmentOptions(), coordinatorService.getScope()]);
-      setRecords(configurationRows); setOptions(assignmentOptions); setPrograms(scopeRows);
-      setTermId(current => current || assignmentOptions.terms[0]?.id || "");
-      setProgramId(current => current || scopeRows[0]?.id || "");
-    } catch (reason) { setError(userError(reason, "Internship requirements could not be loaded.")); }
-    finally { setLoading(false); }
+      const [configurationRows, assignmentOptions, scopeRows] =
+        await Promise.all([
+          coordinatorService.listRequirementConfigs(),
+          coordinatorService.getAssignmentOptions(),
+          coordinatorService.getScope(),
+        ]);
+      setRecords(configurationRows);
+      setOptions(assignmentOptions);
+      setPrograms(scopeRows);
+      setTermId((current) => current || assignmentOptions.terms[0]?.id || "");
+      setProgramId((current) => current || scopeRows[0]?.id || "");
+    } catch (reason) {
+      setError(
+        userError(reason, "Internship requirements could not be loaded."),
+      );
+    } finally {
+      setLoading(false);
+    }
   }, []);
-  useEffect(() => { void Promise.resolve().then(load); }, [load]);
-  const existing = records.find(record => record.academicTermId === termId && record.academicProgramId === programId && (record.section ?? "") === section);
-  function prepareSave(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!Number(hours)) return; if (existing && existing.requiredHours !== Number(hours)) setPendingSave(true); else void save(); }
-  async function save() {
-    setSaving(true); setError("");
-    try { await coordinatorService.saveRequirementScope({ academicTermId: termId, academicProgramId: programId, section: section || undefined, requiredHours: Number(hours) }); await load(); setPendingSave(false); setNotice("Required-hour configuration saved. Existing assignments were not changed."); }
-    catch (reason) { setError(userError(reason, "The requirement configuration could not be saved.")); }
-    finally { setSaving(false); }
+  useEffect(() => {
+    void Promise.resolve().then(load);
+  }, [load]);
+  const existing = records.find(
+    (record) =>
+      record.academicTermId === termId &&
+      record.academicProgramId === programId &&
+      (record.section ?? "") === section,
+  );
+  function prepareSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!Number(hours)) return;
+    if (applyToCurrentAssignments || (existing && existing.requiredHours !== Number(hours)))
+      setPendingSave(true);
+    else void save();
   }
-  useEffect(() => { if (!existing) return; queueMicrotask(() => setHours(String(existing.requiredHours))); }, [existing]);
-  return <><PageHeader title="Internship requirements" subtitle="Configure required hours by academic term, authorized program, and optional Section. Each new assignment receives a historical snapshot." />{notice && <p className="form-success" role="status"><CheckCircle2 size={16} /> {notice}</p>}{error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}<section className="card requirement-setup-card"><div><h2>Requirement setup</h2><p className="muted-note">Choose “All sections” for a program-wide cohort or select A–E for a Section-specific requirement.</p></div><form className="requirement-setup-form" onSubmit={prepareSave}><label className="field"><span>Academic term</span><select required value={termId} onChange={event => { setTermId(event.target.value); setHours(""); }}><option value="" disabled>Select term</option>{options.terms.map(term => <option key={term.id} value={term.id}>{term.label}</option>)}</select></label><label className="field"><span>Program</span><select required value={programId} onChange={event => { setProgramId(event.target.value); setHours(""); }}><option value="" disabled>Select program</option>{programs.map(program => <option key={program.id} value={program.id}>{program.code} · {program.name}</option>)}</select></label><label className="field"><span>Section</span><select value={section} onChange={event => { setSection(event.target.value); setHours(""); }}><option value="">All sections</option>{STUDENT_SECTION_OPTIONS.map(value => <option key={value} value={value}>Section {value}</option>)}</select></label><label className="field"><span>Required hours</span><input required type="number" min="1" max="2000" value={hours} onChange={event => setHours(event.target.value)} placeholder="e.g. 400" /></label><ActionButton type="submit" disabled={loading || saving || !termId || !programId || !Number(hours)}>{saving ? "Saving…" : existing ? "Update configuration" : "Save configuration"}</ActionButton></form></section><section className="card table-card"><div className="card-title"><h2>Configured requirements</h2><span>{loading ? "Loading…" : `${records.length} scope${records.length === 1 ? "" : "s"}`}</span></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Academic term</th><th>Program</th><th>Section</th><th>Required hours</th><th>Last updated</th></tr></thead><tbody>{records.map(record => <tr key={record.id}><td>{record.termLabel}</td><td>{record.programLabel}</td><td>{record.section ? `Section ${record.section}` : "All sections"}</td><td><strong>{record.requiredHours}</strong></td><td>{formatTimestamp(record.updatedAt)}</td></tr>)}{!loading && !records.length && <tr><td className="table-empty" colSpan={5}><p>No required-hour configuration exists yet. Use the setup form above before creating assignments.</p></td></tr>}</tbody></table></div></section>{pendingSave && existing && <Dialog title="Update required hours?" protectChanges={false} busy={saving} onClose={() => setPendingSave(false)}><p>This changes the configuration from <strong>{existing.requiredHours}</strong> to <strong>{hours}</strong> hours for future assignments in this scope.</p><InfoCallout icon={ShieldCheck}><p>Existing internship assignments keep their original required-hour snapshot and are not rewritten.</p></InfoCallout><div className="modal-actions"><ActionButton variant="secondary" onClick={() => setPendingSave(false)}>Cancel</ActionButton><ActionButton onClick={() => void save()}>{saving ? "Saving…" : "Update future assignments"}</ActionButton></div></Dialog>}</>;
+  async function save() {
+    setSaving(true);
+    setError("");
+    try {
+      const result = await coordinatorService.saveRequirementScope({
+        academicTermId: termId,
+        academicProgramId: programId,
+        section: section || undefined,
+        requiredHours: Number(hours),
+        applyToCurrentAssignments,
+      });
+      await load();
+      setPendingSave(false);
+      setNotice(
+        applyToCurrentAssignments
+          ? `Required-hour configuration saved and applied to ${result.updatedAssignments} current active assignment${result.updatedAssignments === 1 ? "" : "s"}. Completed and historical records were preserved.`
+          : "Required-hour configuration saved. Existing assignments were not changed.",
+      );
+    } catch (reason) {
+      setError(
+        userError(reason, "The requirement configuration could not be saved."),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+  useEffect(() => {
+    if (!existing) return;
+    queueMicrotask(() => setHours(String(existing.requiredHours)));
+  }, [existing]);
+  return (
+    <>
+      <PageHeader
+        title="Internship requirements"
+        subtitle="Configure required hours by academic term, authorized program, and optional Section. Each new assignment receives a historical snapshot."
+      />
+      {notice && (
+        <p className="form-success" role="status">
+          <CheckCircle2 size={16} /> {notice}
+        </p>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <section className="card requirement-setup-card">
+        <div>
+          <h2>Requirement setup</h2>
+          <p className="muted-note">
+            Choose “All sections” for a program-wide cohort or select A–E for a
+            Section-specific requirement.
+          </p>
+        </div>
+        <form className="requirement-setup-form" onSubmit={prepareSave}>
+          <label className="field">
+            <span>Academic term</span>
+            <select
+              required
+              value={termId}
+              onChange={(event) => {
+                setTermId(event.target.value);
+                setHours("");
+              }}
+            >
+              <option value="" disabled>
+                Select term
+              </option>
+              {options.terms.map((term) => (
+                <option key={term.id} value={term.id}>
+                  {term.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Program</span>
+            <select
+              required
+              value={programId}
+              onChange={(event) => {
+                setProgramId(event.target.value);
+                setHours("");
+              }}
+            >
+              <option value="" disabled>
+                Select program
+              </option>
+              {programs.map((program) => (
+                <option key={program.id} value={program.id}>
+                  {program.code} · {program.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Section</span>
+            <select
+              value={section}
+              onChange={(event) => {
+                setSection(event.target.value);
+                setHours("");
+              }}
+            >
+              <option value="">All sections</option>
+              {STUDENT_SECTION_OPTIONS.map((value) => (
+                <option key={value} value={value}>
+                  Section {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Required hours</span>
+            <input
+              required
+              type="number"
+              min="1"
+              max="2000"
+              value={hours}
+              onChange={(event) => setHours(event.target.value)}
+              placeholder="Enter total hours"
+            />
+          </label>
+          <label className="checkbox-row requirement-apply-choice">
+            <input
+              type="checkbox"
+              checked={applyToCurrentAssignments}
+              onChange={(event) =>
+                setApplyToCurrentAssignments(event.target.checked)
+              }
+            />
+            <span>
+              Apply this requirement to matching current active assignments
+            </span>
+          </label>
+          <p className="muted-note requirement-apply-note">
+            Completed, cancelled, and historical assignment snapshots are never
+            rewritten.
+          </p>
+          <ActionButton
+            type="submit"
+            disabled={
+              loading || saving || !termId || !programId || !Number(hours)
+            }
+          >
+            {saving
+              ? "Saving…"
+              : existing
+                ? "Update configuration"
+                : "Save configuration"}
+          </ActionButton>
+        </form>
+      </section>
+      <section className="card table-card">
+        <div className="card-title">
+          <h2>Configured requirements</h2>
+          <span>
+            {loading
+              ? "Loading…"
+              : `${records.length} scope${records.length === 1 ? "" : "s"}`}
+          </span>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Academic term</th>
+                <th>Program</th>
+                <th>Section</th>
+                <th>Required hours</th>
+                <th>Last updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((record) => (
+                <tr key={record.id}>
+                  <td>{record.termLabel}</td>
+                  <td>{record.programLabel}</td>
+                  <td>
+                    {record.section
+                      ? `Section ${record.section}`
+                      : "All sections"}
+                  </td>
+                  <td>
+                    <strong>{record.requiredHours}</strong>
+                  </td>
+                  <td>{formatTimestamp(record.updatedAt)}</td>
+                </tr>
+              ))}
+              {!loading && !records.length && (
+                <tr>
+                  <td className="table-empty" colSpan={5}>
+                    <p>
+                      No required-hour configuration exists yet. Use the setup
+                      form above before creating assignments.
+                    </p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {pendingSave && (
+        <Dialog
+          title={applyToCurrentAssignments ? "Apply required hours to active assignments?" : "Update required hours?"}
+          protectChanges={false}
+          busy={saving}
+          onClose={() => setPendingSave(false)}
+        >
+          <dl className="info-list requirement-confirmation-summary">
+            <div><dt>Academic term</dt><dd>{options.terms.find((term) => term.id === termId)?.label ?? "Selected term"}</dd></div>
+            <div><dt>Program</dt><dd>{programs.find((program) => program.id === programId)?.code ?? "Selected program"}</dd></div>
+            <div><dt>Section</dt><dd>{section ? `Section ${section}` : "All sections"}</dd></div>
+            <div><dt>Required hours</dt><dd>{hours} hours</dd></div>
+          </dl>
+          {existing && existing.requiredHours !== Number(hours) && <p>
+            This changes the configuration from <strong>{existing.requiredHours}</strong> to <strong>{hours}</strong> hours for this scope.
+          </p>}
+          <InfoCallout icon={ShieldCheck}>
+            <p>
+              {applyToCurrentAssignments
+                ? "Matching current active assignments will receive the new requirement. Completed, cancelled, and historical records remain unchanged, and the update is audited."
+                : "This applies only to future assignments. Every existing assignment keeps its original required-hour snapshot."}
+            </p>
+          </InfoCallout>
+          <div className="modal-actions">
+            <ActionButton
+              variant="secondary"
+              onClick={() => setPendingSave(false)}
+            >
+              Cancel
+            </ActionButton>
+            <ActionButton onClick={() => void save()}>
+              {saving
+                ? "Saving…"
+                : applyToCurrentAssignments
+                  ? "Update configuration and active assignments"
+                  : "Update future assignments"}
+            </ActionButton>
+          </div>
+        </Dialog>
+      )}
+    </>
+  );
 }
 
 function RolesPage() {
-  const [records, setRecords] = useState<RolePolicyRecord[]>([]); const [selected, setSelected] = useState<RolePolicyRecord | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
-  useEffect(() => { let active = true; void adminService.listRolePolicies().then((items) => { if (active) setRecords(items); }).catch((reason) => { if (active) setError(userError(reason, "Role policies could not be loaded.")); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
-  return <><PageHeader title="Roles & access" subtitle="Read-only view of the existing roles, assignments, and permission architecture." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><h2>{loading ? "Loading role policies…" : `${records.length} configured roles`}</h2><div className="table-scroll"><table className="data-table"><thead><tr><th>Role</th><th>Description</th><th>Scope</th><th>Active assignments</th><th>Status</th><th>Policy</th></tr></thead><tbody>{records.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.description}</td><td>{item.scope}</td><td>{item.accounts}</td><td><StatusBadge status={item.active ? "Configured" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelected(item)}>Review policy</button></td></tr>)}{!loading && records.length === 0 && <tr><td colSpan={5}>No roles are configured.</td></tr>}</tbody></table></div></section>{selected && <Dialog title={`${selected.name} policy`} onClose={() => setSelected(null)} busy={loading}><InfoCallout icon={ShieldCheck}><p>{selected.description}</p></InfoCallout><p className="form-hint">Scope: {selected.scope}. This is the live permission policy; changes require an audited database administration workflow.</p><dl className="info-list">{selected.permissions.map((permission) => <div key={permission.code}><dt>{permission.code}</dt><dd>{permission.description || "Permission enabled for this role."}</dd></div>)}</dl><div className="modal-actions"><ActionButton onClick={() => setSelected(null)}>Done</ActionButton></div></Dialog>}</>;
+  const [records, setRecords] = useState<RolePolicyRecord[]>([]);
+  const [selected, setSelected] = useState<RolePolicyRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    void adminService
+      .listRolePolicies()
+      .then((items) => {
+        if (active) setRecords(items);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(userError(reason, "Role policies could not be loaded."));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  return (
+    <>
+      <PageHeader
+        title="Roles & access"
+        subtitle="Read-only view of the existing roles, assignments, and permission architecture."
+      />
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <section className="card table-card">
+        <h2>
+          {loading
+            ? "Loading role policies…"
+            : `${records.length} configured roles`}
+        </h2>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Role</th>
+                <th>Description</th>
+                <th>Scope</th>
+                <th>Active assignments</th>
+                <th>Status</th>
+                <th>Policy</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <b>{item.name}</b>
+                  </td>
+                  <td>{item.description}</td>
+                  <td>{item.scope}</td>
+                  <td>{item.accounts}</td>
+                  <td>
+                    <StatusBadge
+                      status={item.active ? "Configured" : "Inactive"}
+                    />
+                  </td>
+                  <td>
+                    <button
+                      className="table-link"
+                      onClick={() => setSelected(item)}
+                    >
+                      Review policy
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && records.length === 0 && (
+                <tr>
+                  <td colSpan={5}>No roles are configured.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {selected && (
+        <Dialog
+          title={`${selected.name} policy`}
+          onClose={() => setSelected(null)}
+          busy={loading}
+        >
+          <InfoCallout icon={ShieldCheck}>
+            <p>{selected.description}</p>
+          </InfoCallout>
+          <p className="form-hint">
+            Scope: {selected.scope}. This is the live permission policy; changes
+            require an audited database administration workflow.
+          </p>
+          <dl className="info-list">
+            {selected.permissions.map((permission) => (
+              <div key={permission.code}>
+                <dt>{permission.code}</dt>
+                <dd>
+                  {permission.description ||
+                    "Permission enabled for this role."}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <div className="modal-actions">
+            <ActionButton onClick={() => setSelected(null)}>Done</ActionButton>
+          </div>
+        </Dialog>
+      )}
+    </>
+  );
 }
 
 function AuditLogsPage() {
-  const [records, setRecords] = useState<AuditLogRecord[]>([]); const [search, setSearch] = useState(""); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
-  useEffect(() => { let active = true; void adminService.listAuditLogs().then((items) => { if (active) setRecords(items); }).catch((reason) => { if (active) setError(userError(reason, "Audit history could not be loaded.")); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
-  const shown = records.filter((item) => !search || `${item.action} ${item.actor} ${item.entity}`.toLowerCase().includes(search.toLowerCase()));
-  function exportAudit() { downloadCsv(`praxiz-audit-${new Date().toISOString().slice(0, 10)}.csv`, ["Action", "Actor", "Entity", "Occurred At", "Metadata"], shown.map((item) => [item.action, item.actor, item.entity, item.occurredAt, JSON.stringify(item.metadata)])); }
-  return <><PageHeader title="Audit logs" subtitle="Immutable production events from the existing PRAXIZ audit mechanism." action={<ActionButton icon={Download} disabled={loading || shown.length === 0} onClick={exportAudit}>Export audit</ActionButton>} />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<section className="card table-card"><div className="card-title"><h2>{loading ? "Loading audit events…" : `${shown.length} event${shown.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search action, actor, or entity…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Actions</th><th>Actor</th><th>Entity</th><th>Timestamp</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.action}</b></td><td>{item.actor}</td><td>{item.entity}</td><td>{formatTimestamp(item.occurredAt)}</td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={4}>No recorded audit event matches this view.</td></tr>}</tbody></table></div></section></>;
+  const [records, setRecords] = useState<AuditLogRecord[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    void adminService
+      .listAuditLogs()
+      .then((items) => {
+        if (active) setRecords(items);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(userError(reason, "Audit history could not be loaded."));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const shown = records.filter(
+    (item) =>
+      !search ||
+      `${item.action} ${item.actor} ${item.entity}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+  );
+  function exportAudit() {
+    downloadCsv(
+      `praxiz-audit-${new Date().toISOString().slice(0, 10)}.csv`,
+      ["Action", "Actor", "Entity", "Occurred At", "Metadata"],
+      shown.map((item) => [
+        item.action,
+        item.actor,
+        item.entity,
+        item.occurredAt,
+        JSON.stringify(item.metadata),
+      ]),
+    );
+  }
+  return (
+    <>
+      <PageHeader
+        title="Audit logs"
+        subtitle="Immutable production events from the existing PRAXIZ audit mechanism."
+        action={
+          <ActionButton
+            icon={Download}
+            disabled={loading || shown.length === 0}
+            onClick={exportAudit}
+          >
+            Export audit
+          </ActionButton>
+        }
+      />
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <section className="card table-card">
+        <div className="card-title">
+          <h2>
+            {loading
+              ? "Loading audit events…"
+              : `${shown.length} event${shown.length === 1 ? "" : "s"}`}
+          </h2>
+          <label className="table-search">
+            <Search size={17} />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search action, actor, or entity…"
+            />
+          </label>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Actions</th>
+                <th>Actor</th>
+                <th>Entity</th>
+                <th>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <b>{item.action}</b>
+                  </td>
+                  <td>{item.actor}</td>
+                  <td>{item.entity}</td>
+                  <td>{formatTimestamp(item.occurredAt)}</td>
+                </tr>
+              ))}
+              {!loading && shown.length === 0 && (
+                <tr>
+                  <td colSpan={4}>
+                    No recorded audit event matches this view.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  );
 }
 
 function SupportInboxPage() {
@@ -2756,65 +10436,238 @@ function SupportInboxPage() {
   const [error, setError] = useState("");
   const load = useCallback(async () => {
     setError("");
-    try { setRecords(await adminService.listContactMessages()); }
-    catch (reason) { setError(userError(reason, "Support messages could not be loaded.")); }
-    finally { setLoading(false); }
+    try {
+      setRecords(await adminService.listContactMessages());
+    } catch (reason) {
+      setError(userError(reason, "Support messages could not be loaded."));
+    } finally {
+      setLoading(false);
+    }
   }, []);
-  useEffect(() => { void Promise.resolve().then(load); }, [load]);
-  const shown = records.filter((item) => `${item.senderName} ${item.senderEmail} ${item.subject} ${item.message}`.toLowerCase().includes(search.trim().toLowerCase()));
+  useEffect(() => {
+    void Promise.resolve().then(load);
+  }, [load]);
+  const shown = records.filter((item) =>
+    `${item.senderName} ${item.senderEmail} ${item.subject} ${item.message}`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase()),
+  );
   async function open(item: ContactMessageRecord) {
     setSelected(item);
     if (item.status !== "New") return;
     try {
       await adminService.updateContactMessageStatus(item.id, "read");
-      setRecords((items) => items.map((record) => record.id === item.id ? { ...record, status: "Read" } : record));
+      setRecords((items) =>
+        items.map((record) =>
+          record.id === item.id ? { ...record, status: "Read" } : record,
+        ),
+      );
       setSelected({ ...item, status: "Read" });
-    } catch (reason) { setError(userError(reason, "The message read status could not be updated.")); }
+    } catch (reason) {
+      setError(
+        userError(reason, "The message read status could not be updated."),
+      );
+    }
   }
   async function resolve() {
     if (!selected) return;
     try {
       await adminService.updateContactMessageStatus(selected.id, "resolved");
-      setRecords((items) => items.map((record) => record.id === selected.id ? { ...record, status: "Resolved" } : record));
+      setRecords((items) =>
+        items.map((record) =>
+          record.id === selected.id
+            ? { ...record, status: "Resolved" }
+            : record,
+        ),
+      );
       setSelected({ ...selected, status: "Resolved" });
-    } catch (reason) { setError(userError(reason, "The message could not be marked resolved.")); }
+    } catch (reason) {
+      setError(userError(reason, "The message could not be marked resolved."));
+    }
   }
-  return <><PageHeader title="Support inbox" subtitle="Messages submitted through the public PRAXIZ contact form." />
-    {error && <p className="form-error" role="alert"><AlertTriangle size={16} /> {error}</p>}
-    <div className="stats-grid three"><StatCard label="New messages" value={String(records.filter((item) => item.status === "New").length)} icon={MessageSquareText} tone="orange" /><StatCard label="Read" value={String(records.filter((item) => item.status === "Read").length)} icon={Eye} /><StatCard label="Resolved" value={String(records.filter((item) => item.status === "Resolved").length)} icon={CheckCircle2} tone="green" /></div>
-    <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading support messages…" : `${shown.length} message${shown.length === 1 ? "" : "s"}`}</h2><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search sender, email, or subject…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Sender</th><th>Email</th><th>Subject</th><th>Received</th><th>Status</th><th>Actions</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.senderName}</b></td><td>{item.senderEmail}</td><td className="summary-cell">{item.subject}</td><td>{formatTimestamp(item.receivedAt)}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" onClick={() => void open(item)}><Eye size={16} />View</button></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={6}>No support messages match this view.</td></tr>}</tbody></table></div></section>
-    {selected && <Dialog title={selected.subject} onClose={() => setSelected(null)}><div className="feedback-detail"><header className="feedback-detail-heading"><span className="feedback-detail-icon"><MessageSquareText size={22} /></span><div><span className="feedback-detail-kicker">Contact message</span><h3>{selected.senderName}</h3><p>{selected.senderEmail}</p></div><StatusBadge status={selected.status} /></header><section className="feedback-detail-message"><h4>Message</h4><p className="preserve-text">{selected.message}</p></section><small>Received {formatTimestamp(selected.receivedAt)}</small><div className="modal-actions"><ActionButton variant="secondary" onClick={() => setSelected(null)}>Close</ActionButton>{selected.status !== "Resolved" && <ActionButton icon={CheckCircle2} onClick={() => void resolve()}>Mark resolved</ActionButton>}</div></div></Dialog>}
-  </>;
+  return (
+    <>
+      <PageHeader
+        title="Support inbox"
+        subtitle="Messages submitted through the public PRAXIZ contact form."
+      />
+      {error && (
+        <p className="form-error" role="alert">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <div className="stats-grid three">
+        <StatCard
+          label="New messages"
+          value={String(records.filter((item) => item.status === "New").length)}
+          icon={MessageSquareText}
+          tone="orange"
+        />
+        <StatCard
+          label="Read"
+          value={String(
+            records.filter((item) => item.status === "Read").length,
+          )}
+          icon={Eye}
+        />
+        <StatCard
+          label="Resolved"
+          value={String(
+            records.filter((item) => item.status === "Resolved").length,
+          )}
+          icon={CheckCircle2}
+          tone="green"
+        />
+      </div>
+      <section className="card table-card">
+        <div className="card-title">
+          <h2>
+            {loading
+              ? "Loading support messages…"
+              : `${shown.length} message${shown.length === 1 ? "" : "s"}`}
+          </h2>
+          <label className="table-search">
+            <Search size={17} />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search sender, email, or subject…"
+            />
+          </label>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Sender</th>
+                <th>Email</th>
+                <th>Subject</th>
+                <th>Received</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <b>{item.senderName}</b>
+                  </td>
+                  <td>{item.senderEmail}</td>
+                  <td className="summary-cell">{item.subject}</td>
+                  <td>{formatTimestamp(item.receivedAt)}</td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
+                  <td>
+                    <button
+                      className="table-link"
+                      onClick={() => void open(item)}
+                    >
+                      <Eye size={16} />
+                      View
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && shown.length === 0 && (
+                <tr>
+                  <td colSpan={6}>No support messages match this view.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {selected && (
+        <Dialog title={selected.subject} onClose={() => setSelected(null)}>
+          <div className="feedback-detail">
+            <header className="feedback-detail-heading">
+              <span className="feedback-detail-icon">
+                <MessageSquareText size={22} />
+              </span>
+              <div>
+                <span className="feedback-detail-kicker">Contact message</span>
+                <h3>{selected.senderName}</h3>
+                <p>{selected.senderEmail}</p>
+              </div>
+              <StatusBadge status={selected.status} />
+            </header>
+            <section className="feedback-detail-message">
+              <h4>Message</h4>
+              <p className="preserve-text">{selected.message}</p>
+            </section>
+            <small>Received {formatTimestamp(selected.receivedAt)}</small>
+            <div className="modal-actions">
+              <ActionButton
+                variant="secondary"
+                onClick={() => setSelected(null)}
+              >
+                Close
+              </ActionButton>
+              {selected.status !== "Resolved" && (
+                <ActionButton
+                  icon={CheckCircle2}
+                  onClick={() => void resolve()}
+                >
+                  Mark resolved
+                </ActionButton>
+              )}
+            </div>
+          </div>
+        </Dialog>
+      )}
+    </>
+  );
 }
 
 type MasterDataKind = "campus" | "college" | "program" | "term";
 
-function MasterDataDialog({ campuses: campusRows, colleges: collegeRows, academicYears, close, onCreated }: {
+function MasterDataDialog({
+  campuses: campusRows,
+  colleges: collegeRows,
+  academicYears,
+  close,
+  onCreated,
+  termOnly = false,
+}: {
   campuses: Campus[];
   colleges: College[];
   academicYears: AcademicYearRecord[];
   close: () => void;
   onCreated: () => Promise<void>;
+  termOnly?: boolean;
 }) {
-  const [kind, setKind] = useState<MasterDataKind>("program");
+  const [kind, setKind] = useState<MasterDataKind>(
+    termOnly ? "term" : "program",
+  );
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [shortName, setShortName] = useState("");
   const [municipality, setMunicipality] = useState("");
   const [campusId, setCampusId] = useState(campusRows[0]?.id ?? "");
-  const availableColleges = collegeRows.filter((college) => college.campusId === campusId);
+  const availableColleges = collegeRows.filter(
+    (college) => college.campusId === campusId,
+  );
   const [collegeId, setCollegeId] = useState(availableColleges[0]?.id ?? "");
-  const [academicYearId, setAcademicYearId] = useState(academicYears.find((year) => year.isCurrent)?.id ?? academicYears[0]?.id ?? "");
-  const [term, setTerm] = useState<"first_semester" | "second_semester" | "midyear">("second_semester");
+  const [academicYearId, setAcademicYearId] = useState(
+    academicYears.find((year) => year.isCurrent)?.id ??
+      academicYears[0]?.id ??
+      "",
+  );
+  const [term, setTerm] = useState<
+    "first_semester" | "second_semester" | "midyear"
+  >("second_semester");
   const [startsOn, setStartsOn] = useState("");
   const [endsOn, setEndsOn] = useState("");
-  const [isCurrent, setIsCurrent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   function selectCampus(value: string) {
     setCampusId(value);
-    setCollegeId(collegeRows.find((college) => college.campusId === value)?.id ?? "");
+    setCollegeId(
+      collegeRows.find((college) => college.campusId === value)?.id ?? "",
+    );
     setError("");
   }
 
@@ -2823,10 +10676,30 @@ function MasterDataDialog({ campuses: campusRows, colleges: collegeRows, academi
     setLoading(true);
     setError("");
     try {
-      if (kind === "campus") await institutionalService.createCampus({ code, name, shortName, municipality });
-      if (kind === "college") await institutionalService.createCollege({ campusId, code, name, shortName });
-      if (kind === "program") await institutionalService.createProgram({ collegeId, code, name });
-      if (kind === "term") await institutionalService.createAcademicTerm({ academicYearId, term, startsOn, endsOn, isCurrent });
+      if (kind === "campus")
+        await institutionalService.createCampus({
+          code,
+          name,
+          shortName,
+          municipality,
+        });
+      if (kind === "college")
+        await institutionalService.createCollege({
+          campusId,
+          code,
+          name,
+          shortName,
+        });
+      if (kind === "program")
+        await institutionalService.createProgram({ collegeId, code, name });
+      if (kind === "term")
+        await institutionalService.createAcademicTerm({
+          academicYearId,
+          term,
+          startsOn,
+          endsOn,
+          isCurrent: false,
+        });
       await onCreated();
       close();
     } catch (reason) {
@@ -2837,81 +10710,838 @@ function MasterDataDialog({ campuses: campusRows, colleges: collegeRows, academi
 
   const needsCode = kind !== "term";
   const needsShortName = kind === "campus" || kind === "college";
-  return <Dialog title="Add institutional record" onClose={close} busy={loading} wide><InfoCallout icon={Settings}><p>The record will be written to Supabase using the administrator-only Master Data policy and included in the audit trail.</p></InfoCallout><form onSubmit={submit}>
-    <label className="field"><span>Record type</span><select value={kind} onChange={(event) => setKind(event.target.value as MasterDataKind)}><option value="campus">Campus</option><option value="college">College</option><option value="program">Academic program</option><option value="term">Academic term</option></select></label>
-    {needsCode && <div className="two-fields"><label className="field"><span>Code</span><input required value={code} onChange={(event) => { setCode(event.target.value); setError(""); }} placeholder={kind === "campus" ? "PARSU-CAMPUS" : kind === "college" ? "CECS" : "BSIT"} /></label>{needsShortName && <label className="field"><span>Short name</span><input required value={shortName} onChange={(event) => setShortName(event.target.value)} placeholder={kind === "campus" ? "Campus name" : "College acronym"} /></label>}</div>}
-    {kind !== "term" && <label className="field"><span>Official name</span><input required value={name} onChange={(event) => setName(event.target.value)} placeholder={kind === "program" ? "Bachelor of Science in…" : "Enter the official name"} /></label>}
-    {kind === "campus" && <label className="field"><span>Municipality</span><input required value={municipality} onChange={(event) => setMunicipality(event.target.value)} placeholder="Municipality" /></label>}
-    {(kind === "college" || kind === "program") && <label className="field"><span>Campus</span><select required value={campusId} onChange={(event) => selectCampus(event.target.value)}><option value="" disabled>Select a campus</option>{campusRows.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></label>}
-    {kind === "program" && <><label className="field"><span>Owning college</span><select required value={collegeId} onChange={(event) => { setCollegeId(event.target.value); setError(""); }}><option value="" disabled>Select a college</option>{availableColleges.map((college) => <option key={college.id} value={college.id}>{college.shortName} · {college.name}</option>)}</select></label><p className="form-hint">Program codes must be unique within the selected college.</p></>}
-    {kind === "term" && <><label className="field"><span>Academic year</span><select required value={academicYearId} onChange={(event) => setAcademicYearId(event.target.value)}><option value="" disabled>Select an academic year</option>{academicYears.map((year) => <option key={year.id} value={year.id}>{year.label}{year.isCurrent ? " · Current" : ""}</option>)}</select></label><label className="field"><span>Term</span><select value={term} onChange={(event) => setTerm(event.target.value as typeof term)}><option value="first_semester">First Semester</option><option value="second_semester">Second Semester</option><option value="midyear">Midyear</option></select></label><div className="two-fields"><label className="field"><span>Starts on</span><input required type="date" value={startsOn} onChange={(event) => setStartsOn(event.target.value)} /></label><label className="field"><span>Ends on</span><input required type="date" min={startsOn || undefined} value={endsOn} onChange={(event) => setEndsOn(event.target.value)} /></label></div><div className="master-current-option"><input aria-label="Make this the current term" type="checkbox" checked={isCurrent} onChange={(event) => setIsCurrent(event.target.checked)} /><span><strong>Make this the current term</strong><small>This switches the active term across PRAXIZ after the record is created.</small></span></div></>}
-    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || (kind === "program" && !collegeId) || (kind === "term" && !academicYearId)}>{loading ? "Saving…" : "Create record"}</ActionButton></div>
-  </form></Dialog>;
+  return (
+    <Dialog
+      title="Add institutional record"
+      onClose={close}
+      busy={loading}
+      wide
+    >
+      <InfoCallout icon={Settings}>
+        <p>
+          The record will be written to Supabase using the administrator-only
+          Master Data policy and included in the audit trail.
+        </p>
+      </InfoCallout>
+      <form onSubmit={submit}>
+        {!termOnly && (
+          <label className="field">
+            <span>Record type</span>
+            <select
+              value={kind}
+              onChange={(event) =>
+                setKind(event.target.value as MasterDataKind)
+              }
+            >
+              <option value="campus">Campus</option>
+              <option value="college">College</option>
+              <option value="program">Academic program</option>
+              <option value="term">Academic term</option>
+            </select>
+          </label>
+        )}
+        {needsCode && (
+          <div className="two-fields">
+            <label className="field">
+              <span>Code</span>
+              <input
+                required
+                value={code}
+                onChange={(event) => {
+                  setCode(event.target.value);
+                  setError("");
+                }}
+                placeholder={
+                  kind === "campus"
+                    ? "PARSU-CAMPUS"
+                    : kind === "college"
+                      ? "CECS"
+                      : "BSIT"
+                }
+              />
+            </label>
+            {needsShortName && (
+              <label className="field">
+                <span>Short name</span>
+                <input
+                  required
+                  value={shortName}
+                  onChange={(event) => setShortName(event.target.value)}
+                  placeholder={
+                    kind === "campus" ? "Campus name" : "College acronym"
+                  }
+                />
+              </label>
+            )}
+          </div>
+        )}
+        {kind !== "term" && (
+          <label className="field">
+            <span>Official name</span>
+            <input
+              required
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={
+                kind === "program"
+                  ? "Bachelor of Science in…"
+                  : "Enter the official name"
+              }
+            />
+          </label>
+        )}
+        {kind === "campus" && (
+          <label className="field">
+            <span>Municipality</span>
+            <input
+              required
+              value={municipality}
+              onChange={(event) => setMunicipality(event.target.value)}
+              placeholder="Municipality"
+            />
+          </label>
+        )}
+        {(kind === "college" || kind === "program") && (
+          <label className="field">
+            <span>Campus</span>
+            <select
+              required
+              value={campusId}
+              onChange={(event) => selectCampus(event.target.value)}
+            >
+              <option value="" disabled>
+                Select a campus
+              </option>
+              {campusRows.map((campus) => (
+                <option key={campus.id} value={campus.id}>
+                  {campus.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {kind === "program" && (
+          <>
+            <label className="field">
+              <span>Owning college</span>
+              <select
+                required
+                value={collegeId}
+                onChange={(event) => {
+                  setCollegeId(event.target.value);
+                  setError("");
+                }}
+              >
+                <option value="" disabled>
+                  Select a college
+                </option>
+                {availableColleges.map((college) => (
+                  <option key={college.id} value={college.id}>
+                    {college.shortName} · {college.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="form-hint">
+              Program codes must be unique within the selected college.
+            </p>
+          </>
+        )}
+        {kind === "term" && (
+          <>
+            <label className="field">
+              <span>Academic year</span>
+              <select
+                required
+                value={academicYearId}
+                onChange={(event) => setAcademicYearId(event.target.value)}
+              >
+                <option value="" disabled>
+                  Select an academic year
+                </option>
+                {academicYears.map((year) => (
+                  <option key={year.id} value={year.id}>
+                    {year.label}
+                    {year.isCurrent ? " · Current" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Term</span>
+              <select
+                value={term}
+                onChange={(event) => setTerm(event.target.value as typeof term)}
+              >
+                <option value="first_semester">First Semester</option>
+                <option value="second_semester">Second Semester</option>
+                <option value="midyear">Midyear</option>
+              </select>
+            </label>
+            <div className="two-fields">
+              <label className="field">
+                <span>Starts on</span>
+                <input
+                  required
+                  type="date"
+                  value={startsOn}
+                  onChange={(event) => setStartsOn(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Ends on</span>
+                <input
+                  required
+                  type="date"
+                  min={startsOn || undefined}
+                  value={endsOn}
+                  onChange={(event) => setEndsOn(event.target.value)}
+                />
+              </label>
+            </div>
+            <p className="form-hint">
+              New academic terms are saved as Draft. Activate the term
+              explicitly from the lifecycle table after verifying its official
+              dates.
+            </p>
+          </>
+        )}
+        {error && (
+          <p className="form-error">
+            <AlertTriangle size={16} /> {error}
+          </p>
+        )}
+        <div className="modal-actions">
+          <ActionButton variant="secondary" onClick={close}>
+            Cancel
+          </ActionButton>
+          <ActionButton
+            type="submit"
+            disabled={
+              loading ||
+              (kind === "program" && !collegeId) ||
+              (kind === "term" && !academicYearId)
+            }
+          >
+            {loading ? "Saving…" : "Create record"}
+          </ActionButton>
+        </div>
+      </form>
+    </Dialog>
+  );
 }
 
-function AcademicTermEditDialog({ term, close, onSaved }: { term: AcademicTerm; close: () => void; onSaved: () => void }) {
+function AcademicTermEditDialog({
+  term,
+  close,
+  onSaved,
+}: {
+  term: AcademicTerm;
+  close: () => void;
+  onSaved: () => void;
+}) {
   const [startsOn, setStartsOn] = useState(term.startsOn);
   const [endsOn, setEndsOn] = useState(term.endsOn);
-  const [isCurrent, setIsCurrent] = useState(term.isCurrent);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setLoading(true); setError("");
-    try { await institutionalService.updateAcademicTerm({ id: term.id, startsOn, endsOn, isCurrent }); onSaved(); }
-    catch (reason) { setError(userError(reason, "The academic term could not be updated.")); setLoading(false); }
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      await institutionalService.updateAcademicTerm({
+        id: term.id,
+        startsOn,
+        endsOn,
+        isCurrent: term.isCurrent,
+      });
+      onSaved();
+    } catch (reason) {
+      setError(userError(reason, "The academic term could not be updated."));
+      setLoading(false);
+    }
   }
-  return <Dialog title="Edit academic term" onClose={close} busy={loading}><form onSubmit={submit}><p><strong>{term.academicYear} · {term.term}</strong></p><div className="two-fields"><label className="field"><span>Starts on</span><input required type="date" value={startsOn} onChange={event => setStartsOn(event.target.value)} /></label><label className="field"><span>Ends on</span><input required type="date" min={startsOn || undefined} value={endsOn} onChange={event => setEndsOn(event.target.value)} /></label></div><label className="master-current-option"><input aria-label="Use as current academic term" type="checkbox" checked={isCurrent} onChange={event => setIsCurrent(event.target.checked)} /><span><strong>Use as current term</strong><small>This updates the active registration and analytics context.</small></span></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading || !startsOn || !endsOn}>{loading ? "Saving…" : "Save dates"}</ActionButton></div></form></Dialog>;
+  return (
+    <Dialog title="Edit academic term" onClose={close} busy={loading}>
+      <form onSubmit={submit}>
+        <p>
+          <strong>
+            {term.academicYear} · {term.term}
+          </strong>
+        </p>
+        <div className="two-fields">
+          <label className="field">
+            <span>Starts on</span>
+            <input
+              required
+              type="date"
+              value={startsOn}
+              onChange={(event) => setStartsOn(event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Ends on</span>
+            <input
+              required
+              type="date"
+              min={startsOn || undefined}
+              value={endsOn}
+              onChange={(event) => setEndsOn(event.target.value)}
+            />
+          </label>
+        </div>
+        <p className="form-hint">
+          Editing dates does not activate or finalize a term. Use the explicit
+          lifecycle action after saving.
+        </p>
+        {error && (
+          <p className="form-error">
+            <AlertTriangle size={16} /> {error}
+          </p>
+        )}
+        <div className="modal-actions">
+          <ActionButton variant="secondary" onClick={close}>
+            Cancel
+          </ActionButton>
+          <ActionButton
+            type="submit"
+            disabled={loading || !startsOn || !endsOn}
+          >
+            {loading ? "Saving…" : "Save dates"}
+          </ActionButton>
+        </div>
+      </form>
+    </Dialog>
+  );
 }
 
 function MasterDataPage() {
-  const [options, setOptions] = useState<Awaited<ReturnType<typeof institutionalService.loadRegistrationInstitutionalOptions>> | null>(null);
-  const [terms, setTerms] = useState<Awaited<ReturnType<typeof institutionalService.listAcademicTerms>>>([]);
+  const [options, setOptions] = useState<Awaited<
+    ReturnType<typeof institutionalService.loadRegistrationInstitutionalOptions>
+  > | null>(null);
+  const [terms, setTerms] = useState<
+    Awaited<ReturnType<typeof institutionalService.listAcademicTerms>>
+  >([]);
   const [years, setYears] = useState<AcademicYearRecord[]>([]);
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState("");
   const [editingTerm, setEditingTerm] = useState<AcademicTerm | null>(null);
-  const [finalizingTerm, setFinalizingTerm] = useState<AcademicTerm | null>(null);
+  const [termTransition, setTermTransition] = useState<{
+    term: AcademicTerm;
+    next: "active" | "pending_closure" | "finalized";
+  } | null>(null);
   const [termBusy, setTermBusy] = useState(false);
   const loadAll = useCallback(async () => {
     try {
-      const [hierarchy, termRows, yearRows] = await Promise.all([institutionalService.loadRegistrationInstitutionalOptions(), institutionalService.listAcademicTerms(), institutionalService.listAcademicYears()]);
-      setOptions(hierarchy); setTerms(termRows); setYears(yearRows);
-    } catch (reason) { setError(userError(reason)); }
+      const endedCount = await institutionalService.detectEndedAcademicTerms();
+      const [hierarchy, termRows, yearRows] = await Promise.all([
+        institutionalService.loadRegistrationInstitutionalOptions(),
+        institutionalService.listAcademicTerms(),
+        institutionalService.listAcademicYears(),
+      ]);
+      setOptions(hierarchy);
+      setTerms(termRows);
+      setYears(yearRows);
+      if (endedCount > 0)
+        setNotice(
+          `${endedCount} ended academic term${endedCount === 1 ? " is" : "s are"} now Pending Closure. An administrator must still finalize each term explicitly.`,
+        );
+    } catch (reason) {
+      setError(userError(reason));
+    }
   }, []);
-  useEffect(() => { void Promise.resolve().then(loadAll); }, [loadAll]);
-  const colleges: College[] = options?.units.filter(unit => unit.unitType === "college").map(unit => ({ id: unit.id, campusId: unit.parentId || "", name: unit.name, shortName: unit.shortName || unit.name })) ?? [];
-  return <><PageHeader title="Institutional data" subtitle="Browse the actual campus, college, department and program hierarchy." action={<ActionButton icon={Plus} disabled={!options} onClick={() => setAdding(true)}>Add record</ActionButton>} />
-    {error && <p className="form-error" role="alert">{error}</p>}{notice && <p className="inline-success" role="status">{notice}</p>}
-    {options ? <InstitutionalBrowser options={options} terms={terms} onEditTerm={setEditingTerm} onFinalizeTerm={setFinalizingTerm} /> : <div className="card page-skeleton" role="status" aria-label="Loading institutional data"><span /><span /></div>}
-    {adding && options && <MasterDataDialog campuses={options.campuses} colleges={colleges} academicYears={years} close={() => setAdding(false)} onCreated={async () => { await loadAll(); setAdding(false); setNotice("Institutional record saved."); }} />}
-    {editingTerm && <AcademicTermEditDialog term={editingTerm} close={() => setEditingTerm(null)} onSaved={async () => { await loadAll(); setEditingTerm(null); setNotice("Academic term dates updated."); }} />}
-    {finalizingTerm && <Dialog title="Finalize academic term?" protectChanges={false} busy={termBusy} onClose={() => setFinalizingTerm(null)}><p><strong>{finalizingTerm.academicYear} · {finalizingTerm.term}</strong> will become read-only. Existing assignments and historical records will remain unchanged.</p><p className="form-hint">Confirm only after the start and end dates have been checked.</p><div className="modal-actions"><ActionButton variant="secondary" disabled={termBusy} onClick={() => setFinalizingTerm(null)}>Keep editable</ActionButton><ActionButton disabled={termBusy} onClick={() => { setTermBusy(true); setError(""); void institutionalService.finalizeAcademicTerm(finalizingTerm.id).then(async () => { await loadAll(); setFinalizingTerm(null); setNotice("Academic term finalized."); }).catch(reason => setError(userError(reason, "The academic term could not be finalized."))).finally(() => setTermBusy(false)); }}>{termBusy ? "Finalizing…" : "Finalize term"}</ActionButton></div></Dialog>}
-  </>;
+  useEffect(() => {
+    void Promise.resolve().then(loadAll);
+  }, [loadAll]);
+  const colleges: College[] =
+    options?.units
+      .filter((unit) => unit.unitType === "college")
+      .map((unit) => ({
+        id: unit.id,
+        campusId: unit.parentId || "",
+        name: unit.name,
+        shortName: unit.shortName || unit.name,
+      })) ?? [];
+  return (
+    <>
+      <PageHeader
+        title="Academic terms"
+        subtitle="Control official dates, activation, pending closure, and explicit finalization."
+        action={
+          <ActionButton
+            icon={Plus}
+            disabled={!options}
+            onClick={() => setAdding(true)}
+          >
+            Add academic term
+          </ActionButton>
+        }
+      />
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="inline-success" role="status">
+          {notice}
+        </p>
+      )}
+      {options ? (
+        <InstitutionalBrowser
+          terms={terms}
+          onEditTerm={setEditingTerm}
+          onTransitionTerm={(term, next) => setTermTransition({ term, next })}
+        />
+      ) : (
+        <div
+          className="card page-skeleton"
+          role="status"
+          aria-label="Loading academic terms"
+        >
+          <span />
+          <span />
+        </div>
+      )}
+      {adding && options && (
+        <MasterDataDialog
+          termOnly
+          campuses={options.campuses}
+          colleges={colleges}
+          academicYears={years}
+          close={() => setAdding(false)}
+          onCreated={async () => {
+            await loadAll();
+            setAdding(false);
+            setNotice("Academic term saved as Draft.");
+          }}
+        />
+      )}
+      {editingTerm && (
+        <AcademicTermEditDialog
+          term={editingTerm}
+          close={() => setEditingTerm(null)}
+          onSaved={async () => {
+            await loadAll();
+            setEditingTerm(null);
+            setNotice("Academic term dates updated.");
+          }}
+        />
+      )}
+      {termTransition && (
+        <Dialog
+          title={
+            termTransition.next === "finalized"
+              ? "Finalize academic term?"
+              : termTransition.next === "active"
+                ? "Activate academic term?"
+                : "Move term to Pending Closure?"
+          }
+          protectChanges={false}
+          busy={termBusy}
+          onClose={() => setTermTransition(null)}
+        >
+          <p>
+            <strong>
+              {termTransition.term.academicYear} · {termTransition.term.term}
+            </strong>
+            {termTransition.next === "finalized"
+              ? " will become read-only. Existing assignment snapshots and historical records remain unchanged."
+              : termTransition.next === "active"
+                ? " will become the current official term."
+                : " will remain editable until an administrator explicitly finalizes it."}
+          </p>
+          <p className="form-hint">
+            No lifecycle change is automatic. Confirm this authorized
+            administrative action.
+          </p>
+          <div className="modal-actions">
+            <ActionButton
+              variant="secondary"
+              disabled={termBusy}
+              onClick={() => setTermTransition(null)}
+            >
+              Cancel
+            </ActionButton>
+            <ActionButton
+              variant={
+                termTransition.next === "finalized" ? "danger" : "primary"
+              }
+              disabled={termBusy}
+              onClick={() => {
+                const pending = termTransition;
+                setTermBusy(true);
+                setError("");
+                void institutionalService
+                  .transitionAcademicTerm(pending.term.id, pending.next)
+                  .then(async () => {
+                    await loadAll();
+                    setTermTransition(null);
+                    setNotice(
+                      `Academic term moved to ${pending.next.replaceAll("_", " ")}.`,
+                    );
+                  })
+                  .catch((reason) =>
+                    setError(
+                      userError(
+                        reason,
+                        "The academic term status could not be changed.",
+                      ),
+                    ),
+                  )
+                  .finally(() => setTermBusy(false));
+              }}
+            >
+              {termBusy
+                ? "Updating…"
+                : termTransition.next === "finalized"
+                  ? "Finalize term"
+                  : termTransition.next === "active"
+                    ? "Activate term"
+                    : "Confirm Pending Closure"}
+            </ActionButton>
+          </div>
+        </Dialog>
+      )}
+    </>
+  );
 }
 
 function HteVerificationPage() {
-  const [applications, setApplications] = useState<RegistrationRecord[]>([]); const [organizations, setOrganizations] = useState<PartnerHteRecord[]>([]); const [search, setSearch] = useState(""); const [organizationStatus, setOrganizationStatus] = useState("Pending"); const [selected, setSelected] = useState<RegistrationRecord | null>(null); const [selectedOrganization, setSelectedOrganization] = useState<PartnerHteRecord | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
-  const load = useCallback(async () => { try { const [registrations, htes] = await Promise.all([registrationService.listLivePending(), coordinatorService.listPartnerHtes()]); setApplications(registrations.filter((item) => item.role === "HTE Representative")); setOrganizations(htes); } catch (reason) { setError(userError(reason, "HTE verification data could not be loaded.")); } finally { setLoading(false); } }, []);
-  useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  const [applications, setApplications] = useState<RegistrationRecord[]>([]);
+  const [organizations, setOrganizations] = useState<PartnerHteRecord[]>([]);
+  const [search, setSearch] = useState("");
+  const [organizationStatus, setOrganizationStatus] = useState("Pending");
+  const [selected, setSelected] = useState<RegistrationRecord | null>(null);
+  const [selectedOrganization, setSelectedOrganization] =
+    useState<PartnerHteRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const [registrations, htes] = await Promise.all([
+        registrationService.listLivePending(),
+        coordinatorService.listPartnerHtes(),
+      ]);
+      setApplications(
+        registrations.filter((item) => item.role === "HTE Representative"),
+      );
+      setOrganizations(htes);
+    } catch (reason) {
+      setError(userError(reason, "HTE verification data could not be loaded."));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void Promise.resolve().then(load);
+  }, [load]);
   const normalizedSearch = search.trim().toLowerCase();
-  const shown = applications.filter((item) => !normalizedSearch || `${item.name} ${item.email} ${item.reference} ${Object.values(item.details).join(" ")}`.toLowerCase().includes(normalizedSearch));
-  const pendingOrganizations = organizations.filter((item) => (organizationStatus === "All" || item.status === organizationStatus) && (!normalizedSearch || `${item.name} ${item.industry} ${item.location}`.toLowerCase().includes(normalizedSearch)));
-  return <><PageHeader title="HTE verification" subtitle="Review HTE account applications and pending partner organizations before they enter the assignment workflow." />{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="stats-grid three"><StatCard label="Pending accounts" value={String(applications.length)} icon={Clock3} tone="orange" /><StatCard label="Verified organizations" value={String(organizations.filter((item) => item.status === "Verified").length)} icon={ShieldCheck} tone="green" /><StatCard label="Pending organizations" value={String(organizations.filter((item) => item.status === "Pending").length)} icon={AlertTriangle} tone="red" /></div><section className="card table-card"><div className="card-title"><h2>{loading ? "Loading verification queue…" : "Partner organization verification"}</h2><label className="field field-compact"><span>Organization status</span><select value={organizationStatus} onChange={event => setOrganizationStatus(event.target.value)}><option value="All">All</option>{["Pending", "Verified", "Rejected"].map(status => <option key={status} value={status}>{status}</option>)}</select></label><label className="table-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search verification queue…" /></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Industry</th><th>Location</th><th>Representative</th><th>Assigned interns</th><th>Status</th><th>Actions</th></tr></thead><tbody>{pendingOrganizations.map((item) => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.industry}</td><td>{item.location}</td><td>{item.representative}</td><td>{item.assignedInterns}</td><td><StatusBadge status={item.status} /></td><td>{item.status === "Pending" ? <button className="table-link" onClick={() => setSelectedOrganization(item)}>Review</button> : <span className="muted-note">Reviewed</span>}</td></tr>)}{!loading && pendingOrganizations.length === 0 && <tr><td colSpan={6}>No partner organizations match these filters.</td></tr>}</tbody></table></div></section><section className="card table-card"><div className="card-title"><h2>{loading ? "Loading applications…" : "Pending HTE accounts"}</h2></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Organization</th><th>Applicant name</th><th>Email</th><th>Reference</th><th>Submitted</th><th>Status</th><th>Actions</th></tr></thead><tbody>{shown.map((item) => <tr key={item.id}><td><b>{item.details.organization_name || item.name}</b></td><td>{item.name}</td><td>{item.email}</td><td>{item.reference}</td><td>{item.submitted}</td><td><StatusBadge status={item.status} /></td><td><button className="table-link" disabled={!item.id || !["Pending", "Under Review"].includes(item.status)} onClick={() => setSelected(item)}>Review</button></td></tr>)}{!loading && shown.length === 0 && <tr><td colSpan={7}>No HTE account applications are awaiting review.</td></tr>}</tbody></table></div></section>{selectedOrganization && <HteOrganizationReviewDialog organization={selectedOrganization} close={() => setSelectedOrganization(null)} onReviewed={() => { setSelectedOrganization(null); void load(); }} />}{selected && <RegistrationReviewDialog application={selected} close={() => setSelected(null)} onReviewed={() => { setSelected(null); void load(); }} />}</>;
+  const shown = applications.filter(
+    (item) =>
+      !normalizedSearch ||
+      `${item.name} ${item.email} ${item.reference} ${Object.values(item.details).join(" ")}`
+        .toLowerCase()
+        .includes(normalizedSearch),
+  );
+  const pendingOrganizations = organizations.filter(
+    (item) =>
+      (organizationStatus === "All" || item.status === organizationStatus) &&
+      (!normalizedSearch ||
+        `${item.name} ${item.industry} ${item.location}`
+          .toLowerCase()
+          .includes(normalizedSearch)),
+  );
+  return (
+    <>
+      <PageHeader
+        title="HTE verification"
+        subtitle="Review HTE account applications and pending partner organizations before they enter the assignment workflow."
+      />
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <div className="stats-grid three">
+        <StatCard
+          label="Pending accounts"
+          value={String(applications.length)}
+          icon={Clock3}
+          tone="orange"
+        />
+        <StatCard
+          label="Verified organizations"
+          value={String(
+            organizations.filter((item) => item.status === "Verified").length,
+          )}
+          icon={ShieldCheck}
+          tone="green"
+        />
+        <StatCard
+          label="Pending organizations"
+          value={String(
+            organizations.filter((item) => item.status === "Pending").length,
+          )}
+          icon={AlertTriangle}
+          tone="red"
+        />
+      </div>
+      <section className="card table-card">
+        <div className="card-title">
+          <h2>
+            {loading
+              ? "Loading verification queue…"
+              : "Partner organization verification"}
+          </h2>
+          <label className="field field-compact">
+            <span>Organization status</span>
+            <select
+              value={organizationStatus}
+              onChange={(event) => setOrganizationStatus(event.target.value)}
+            >
+              <option value="All">All</option>
+              {["Pending", "Verified", "Rejected"].map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="table-search">
+            <Search size={17} />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search verification queue…"
+            />
+          </label>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Organization</th>
+                <th>Industry</th>
+                <th>Location</th>
+                <th>Representative</th>
+                <th>Assigned interns</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingOrganizations.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <b>{item.name}</b>
+                  </td>
+                  <td>{item.industry}</td>
+                  <td>{item.location}</td>
+                  <td>{item.representative}</td>
+                  <td>{item.assignedInterns}</td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
+                  <td>
+                    {item.status === "Pending" ? (
+                      <button
+                        className="table-link"
+                        onClick={() => setSelectedOrganization(item)}
+                      >
+                        Review
+                      </button>
+                    ) : (
+                      <span className="muted-note">Reviewed</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {!loading && pendingOrganizations.length === 0 && (
+                <tr>
+                  <td colSpan={6}>
+                    No partner organizations match these filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="card table-card">
+        <div className="card-title">
+          <h2>{loading ? "Loading applications…" : "Pending HTE accounts"}</h2>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Organization</th>
+                <th>Applicant name</th>
+                <th>Email</th>
+                <th>Reference</th>
+                <th>Submitted</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <b>{item.details.organization_name || item.name}</b>
+                  </td>
+                  <td>{item.name}</td>
+                  <td>{item.email}</td>
+                  <td>{item.reference}</td>
+                  <td>{item.submitted}</td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
+                  <td>
+                    <button
+                      className="table-link"
+                      disabled={
+                        !item.id ||
+                        !["Pending", "Under Review"].includes(item.status)
+                      }
+                      onClick={() => setSelected(item)}
+                    >
+                      Review
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && shown.length === 0 && (
+                <tr>
+                  <td colSpan={7}>
+                    No HTE account applications are awaiting review.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {selectedOrganization && (
+        <HteOrganizationReviewDialog
+          organization={selectedOrganization}
+          close={() => setSelectedOrganization(null)}
+          onReviewed={() => {
+            setSelectedOrganization(null);
+            void load();
+          }}
+        />
+      )}
+      {selected && (
+        <RegistrationReviewDialog
+          application={selected}
+          close={() => setSelected(null)}
+          onReviewed={() => {
+            setSelected(null);
+            void load();
+          }}
+        />
+      )}
+    </>
+  );
 }
 
-function HteOrganizationReviewDialog({ organization, close, onReviewed }: { organization: PartnerHteRecord; close: () => void; onReviewed: () => void }) {
+function HteOrganizationReviewDialog({
+  organization,
+  close,
+  onReviewed,
+}: {
+  organization: PartnerHteRecord;
+  close: () => void;
+  onReviewed: () => void;
+}) {
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   async function decide(decision: "verified" | "rejected") {
-    if (decision === "rejected" && !notes.trim()) { setError("A reason is required when rejecting an organization."); return; }
-    setLoading(true); setError("");
-    try { await adminService.reviewHteOrganization(organization.id, decision, notes); onReviewed(); }
-    catch (reason) { setError(userError(reason, "The organization decision could not be saved.")); setLoading(false); }
+    if (decision === "rejected" && !notes.trim()) {
+      setError("A reason is required when rejecting an organization.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      await adminService.reviewHteOrganization(
+        organization.id,
+        decision,
+        notes,
+      );
+      onReviewed();
+    } catch (reason) {
+      setError(
+        userError(reason, "The organization decision could not be saved."),
+      );
+      setLoading(false);
+    }
   }
-  return <Dialog title={`Review ${organization.name}`} onClose={close} busy={loading}><InfoCallout icon={ShieldCheck}><p>Verification makes this organization available for new internship assignments.</p></InfoCallout><dl className="info-list"><div><dt>Organization</dt><dd>{organization.name}</dd></div><div><dt>Industry</dt><dd>{organization.industry}</dd></div><div><dt>Location</dt><dd>{organization.location}</dd></div><div><dt>Representative</dt><dd>{organization.representative}</dd></div></dl><label className="field"><span>Administrator notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add verification notes or a rejection reason…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("verified")}>Verify organization</ActionButton><ActionButton variant="danger" disabled={loading || !notes.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></Dialog>;
+  return (
+    <Dialog
+      title={`Review ${organization.name}`}
+      onClose={close}
+      busy={loading}
+    >
+      <InfoCallout icon={ShieldCheck}>
+        <p>
+          Verification makes this organization available for new internship
+          assignments.
+        </p>
+      </InfoCallout>
+      <dl className="info-list">
+        <div>
+          <dt>Organization</dt>
+          <dd>{organization.name}</dd>
+        </div>
+        <div>
+          <dt>Industry</dt>
+          <dd>{organization.industry}</dd>
+        </div>
+        <div>
+          <dt>Location</dt>
+          <dd>{organization.location}</dd>
+        </div>
+        <div>
+          <dt>Representative</dt>
+          <dd>{organization.representative}</dd>
+        </div>
+      </dl>
+      <label className="field">
+        <span>Administrator notes</span>
+        <textarea
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+          placeholder="Add verification notes or a rejection reason…"
+        />
+      </label>
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      <div className="modal-actions">
+        <ActionButton
+          variant="secondary"
+          disabled={loading}
+          onClick={() => void decide("verified")}
+        >
+          Verify organization
+        </ActionButton>
+        <ActionButton
+          variant="danger"
+          disabled={loading || !notes.trim()}
+          onClick={() => void decide("rejected")}
+        >
+          Reject
+        </ActionButton>
+      </div>
+    </Dialog>
+  );
 }
 
 const documentTemplatePhaseLabels: Record<DocumentTemplatePhase, string> = {
@@ -2921,11 +11551,23 @@ const documentTemplatePhaseLabels: Record<DocumentTemplatePhase, string> = {
 };
 
 function formatTemplateFileTypes(mimeTypes: string[]): string {
-  const labels = mimeTypes.map((mime) => mime === "application/pdf" ? "PDF" : mime === "image/jpeg" ? "JPG" : mime === "image/png" ? "PNG" : mime);
+  const labels = mimeTypes.map((mime) =>
+    mime === "application/pdf"
+      ? "PDF"
+      : mime === "image/jpeg"
+        ? "JPG"
+        : mime === "image/png"
+          ? "PNG"
+          : mime,
+  );
   return labels.join(", ");
 }
 
-function DocumentTemplateDialog({ nextDisplayOrder, close, onCreated }: {
+function DocumentTemplateDialog({
+  nextDisplayOrder,
+  close,
+  onCreated,
+}: {
   nextDisplayOrder: number;
   close: () => void;
   onCreated: (provisionedAssignments: number) => Promise<void>;
@@ -2933,7 +11575,8 @@ function DocumentTemplateDialog({ nextDisplayOrder, close, onCreated }: {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [phase, setPhase] = useState<DocumentTemplatePhase>("pre_internship");
-  const [mimePreset, setMimePreset] = useState<DocumentTemplateMimePreset>("pdf_images");
+  const [mimePreset, setMimePreset] =
+    useState<DocumentTemplateMimePreset>("pdf_images");
   const [maxFileSizeMb, setMaxFileSizeMb] = useState("20");
   const [displayOrder, setDisplayOrder] = useState(String(nextDisplayOrder));
   const [isRequired, setIsRequired] = useState(true);
@@ -2960,26 +11603,190 @@ function DocumentTemplateDialog({ nextDisplayOrder, close, onCreated }: {
       await onCreated(result.provisionedAssignments);
       close();
     } catch (reason) {
-      setError(userError(reason, "The document template could not be created."));
+      setError(
+        userError(reason, "The document template could not be created."),
+      );
       setLoading(false);
     }
   }
 
-  return <Dialog title="Create document requirement template" onClose={close} busy={loading} wide><InfoCallout icon={FileCheck2}><p>This creates an auditable workflow template. If it is active, PRAXIZ also adds it to current approved and active internships.</p></InfoCallout><form onSubmit={submit}>
-    <div className="two-fields"><label className="field"><span>Workflow phase</span><select value={phase} onChange={(event) => setPhase(event.target.value as DocumentTemplatePhase)}><option value="pre_internship">Pre-Internship</option><option value="during_internship">During Internship</option><option value="post_internship">Post-Internship</option></select></label></div>
-    <label className="field"><span>Document name</span><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Medical Certificate" /></label>
-    <label className="field"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Explain what the student must submit…" /></label>
-    <div className="two-fields"><label className="field"><span>Accepted files</span><select value={mimePreset} onChange={(event) => setMimePreset(event.target.value as DocumentTemplateMimePreset)}><option value="pdf_images">PDF, JPG, and PNG</option><option value="pdf">PDF only</option></select></label><label className="field"><span>Maximum size (MB)</span><input required type="number" min="1" max="20" step="1" value={maxFileSizeMb} onChange={(event) => setMaxFileSizeMb(event.target.value)} /></label></div>
-    <label className="field"><span>Display order</span><input required type="number" min="0" step="1" value={displayOrder} onChange={(event) => setDisplayOrder(event.target.value)} /></label>
-    <label className="master-current-option"><input aria-label="Make this a required submission" type="checkbox" checked={isRequired} onChange={(event) => setIsRequired(event.target.checked)} /><span><strong>Required submission</strong><small>Required templates count toward the student’s document compliance.</small></span></label>
-    <label className="master-current-option"><input aria-label="Publish this requirement immediately" type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span><strong>Publish immediately</strong><small>Active templates are assigned to current approved and active internships when created.</small></span></label>
-    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading}>{loading ? "Creating…" : "Create requirement"}</ActionButton></div>
-  </form></Dialog>;
+  return (
+    <Dialog
+      title="Create document requirement template"
+      onClose={close}
+      busy={loading}
+      wide
+    >
+      <InfoCallout icon={FileCheck2}>
+        <p>
+          This creates an auditable workflow template. If it is active, PRAXIZ
+          also adds it to current approved and active internships.
+        </p>
+      </InfoCallout>
+      <form onSubmit={submit}>
+        <div className="two-fields">
+          <label className="field">
+            <span>Workflow phase</span>
+            <select
+              value={phase}
+              onChange={(event) =>
+                setPhase(event.target.value as DocumentTemplatePhase)
+              }
+            >
+              <option value="pre_internship">Pre-Internship</option>
+              <option value="during_internship">During Internship</option>
+              <option value="post_internship">Post-Internship</option>
+            </select>
+          </label>
+        </div>
+        <label className="field">
+          <span>Document name</span>
+          <input
+            required
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Medical Certificate"
+          />
+        </label>
+        <label className="field">
+          <span>Description</span>
+          <textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Explain what the student must submit…"
+          />
+        </label>
+        <div className="two-fields">
+          <label className="field">
+            <span>Accepted files</span>
+            <select
+              value={mimePreset}
+              onChange={(event) =>
+                setMimePreset(event.target.value as DocumentTemplateMimePreset)
+              }
+            >
+              <option value="pdf_images">PDF, JPG, and PNG</option>
+              <option value="pdf">PDF only</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Maximum size (MB)</span>
+            <input
+              required
+              type="number"
+              min="1"
+              max="20"
+              step="1"
+              value={maxFileSizeMb}
+              onChange={(event) => setMaxFileSizeMb(event.target.value)}
+            />
+          </label>
+        </div>
+        <label className="field">
+          <span>Display order</span>
+          <input
+            required
+            type="number"
+            min="0"
+            step="1"
+            value={displayOrder}
+            onChange={(event) => setDisplayOrder(event.target.value)}
+          />
+        </label>
+        <label className="master-current-option">
+          <input
+            aria-label="Make this a required submission"
+            type="checkbox"
+            checked={isRequired}
+            onChange={(event) => setIsRequired(event.target.checked)}
+          />
+          <span>
+            <strong>Required submission</strong>
+            <small>
+              Required templates count toward the student’s document compliance.
+            </small>
+          </span>
+        </label>
+        <label className="master-current-option">
+          <input
+            aria-label="Publish this requirement immediately"
+            type="checkbox"
+            checked={isActive}
+            onChange={(event) => setIsActive(event.target.checked)}
+          />
+          <span>
+            <strong>Publish immediately</strong>
+            <small>
+              Active templates are assigned to current approved and active
+              internships when created.
+            </small>
+          </span>
+        </label>
+        {error && (
+          <p className="form-error">
+            <AlertTriangle size={16} /> {error}
+          </p>
+        )}
+        <div className="modal-actions">
+          <ActionButton variant="secondary" disabled={loading} onClick={close}>
+            Cancel
+          </ActionButton>
+          <ActionButton type="submit" disabled={loading}>
+            {loading ? "Creating…" : "Create requirement"}
+          </ActionButton>
+        </div>
+      </form>
+    </Dialog>
+  );
 }
 
-function DocumentTemplateDetails({ template, close }: { template: DocumentTemplateRecord; close: () => void }) {
-  return <Dialog title={`View ${template.name}`} onClose={close}><InfoCallout icon={FileCheck2}><p>{template.description || "No description has been provided."}</p></InfoCallout><dl className="info-list"><div><dt>Code</dt><dd>{template.code}</dd></div><div><dt>Workflow phase</dt><dd>{documentTemplatePhaseLabels[template.phase]}</dd></div><div><dt>Requirement</dt><dd>{template.isRequired ? "Required" : "Optional"}</dd></div><div><dt>Accepted files</dt><dd>{formatTemplateFileTypes(template.allowedMimeTypes)}</dd></div><div><dt>Maximum size</dt><dd>{Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB</dd></div><div><dt>Display order</dt><dd>{template.displayOrder}</dd></div><div><dt>Status</dt><dd>{template.isActive ? "Published" : "Inactive"}</dd></div></dl><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></Dialog>;
+function DocumentTemplateDetails({
+  template,
+  close,
+}: {
+  template: DocumentTemplateRecord;
+  close: () => void;
+}) {
+  return (
+    <Dialog title={`View ${template.name}`} onClose={close}>
+      <InfoCallout icon={FileCheck2}>
+        <p>{template.description || "No description has been provided."}</p>
+      </InfoCallout>
+      <dl className="info-list">
+        <div>
+          <dt>Code</dt>
+          <dd>{template.code}</dd>
+        </div>
+        <div>
+          <dt>Workflow phase</dt>
+          <dd>{documentTemplatePhaseLabels[template.phase]}</dd>
+        </div>
+        <div>
+          <dt>Requirement</dt>
+          <dd>{template.isRequired ? "Required" : "Optional"}</dd>
+        </div>
+        <div>
+          <dt>Accepted files</dt>
+          <dd>{formatTemplateFileTypes(template.allowedMimeTypes)}</dd>
+        </div>
+        <div>
+          <dt>Maximum size</dt>
+          <dd>{Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB</dd>
+        </div>
+        <div>
+          <dt>Display order</dt>
+          <dd>{template.displayOrder}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>{template.isActive ? "Published" : "Inactive"}</dd>
+        </div>
+      </dl>
+      <div className="modal-actions">
+        <ActionButton onClick={close}>Done</ActionButton>
+      </div>
+    </Dialog>
+  );
 }
 
 const evaluationStageLabels: Record<EvaluationTemplateStage, string> = {
@@ -2988,17 +11795,39 @@ const evaluationStageLabels: Record<EvaluationTemplateStage, string> = {
   other: "Other",
 };
 
-const evaluatorTypeLabels: Record<EvaluationTemplateRecord["evaluatorType"], string> = {
+const evaluatorTypeLabels: Record<
+  EvaluationTemplateRecord["evaluatorType"],
+  string
+> = {
   hte: "HTE representative",
   coordinator: "Retired historical form",
   faculty: "Retired historical form",
 };
 
-function newEvaluationCriterion(index: number): EvaluationTemplateCriterionInput {
-  return { code: "", label: "", description: "", weight: 0, minimumScore: 1, maximumScore: 5, displayOrder: (index + 1) * 10 };
+function newEvaluationCriterion(
+  index: number,
+): EvaluationTemplateCriterionInput {
+  return {
+    code: "",
+    label: "",
+    description: "",
+    weight: 0,
+    minimumScore: 1,
+    maximumScore: 5,
+    displayOrder: (index + 1) * 10,
+  };
 }
 
-function EvaluationTemplateDialog({ close, onCreated }: { close: () => void; onCreated: (result: { version: number; criteriaCount: number }) => Promise<void> }) {
+function EvaluationTemplateDialog({
+  close,
+  onCreated,
+}: {
+  close: () => void;
+  onCreated: (result: {
+    version: number;
+    criteriaCount: number;
+  }) => Promise<void>;
+}) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [stage, setStage] = useState<EvaluationTemplateStage>("final");
@@ -3008,10 +11837,20 @@ function EvaluationTemplateDialog({ close, onCreated }: { close: () => void; onC
   ]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const totalWeight = criteria.reduce((total, criterion) => total + Number(criterion.weight || 0), 0);
+  const totalWeight = criteria.reduce(
+    (total, criterion) => total + Number(criterion.weight || 0),
+    0,
+  );
 
-  function updateCriterion(index: number, changes: Partial<EvaluationTemplateCriterionInput>) {
-    setCriteria((current) => current.map((criterion, criterionIndex) => criterionIndex === index ? { ...criterion, ...changes } : criterion));
+  function updateCriterion(
+    index: number,
+    changes: Partial<EvaluationTemplateCriterionInput>,
+  ) {
+    setCriteria((current) =>
+      current.map((criterion, criterionIndex) =>
+        criterionIndex === index ? { ...criterion, ...changes } : criterion,
+      ),
+    );
     setError("");
   }
 
@@ -3020,8 +11859,19 @@ function EvaluationTemplateDialog({ close, onCreated }: { close: () => void; onC
     setLoading(true);
     setError("");
     try {
-      const result = await workflowTemplateService.createEvaluationTemplate({ code: "generated", name, description, stage, evaluatorType: "hte", isActive, criteria });
-      await onCreated({ version: result.version, criteriaCount: result.criteriaCount });
+      const result = await workflowTemplateService.createEvaluationTemplate({
+        code: "generated",
+        name,
+        description,
+        stage,
+        evaluatorType: "hte",
+        isActive,
+        criteria,
+      });
+      await onCreated({
+        version: result.version,
+        criteriaCount: result.criteriaCount,
+      });
       close();
     } catch (reason) {
       setError(userError(reason, "The evaluation form could not be created."));
@@ -3029,19 +11879,239 @@ function EvaluationTemplateDialog({ close, onCreated }: { close: () => void; onC
     }
   }
 
-  return <Dialog title="Create evaluation form" onClose={close} busy={loading} wide><InfoCallout icon={Star}><p>Create a custom scorecard only when its criteria and weighting have been institutionally approved. Use the official PSU form for standard internship evaluation. Publishing replaces the active form for the same evaluator role and stage; other roles and stages are unchanged.</p></InfoCallout><form onSubmit={submit}>
-    <div className="two-fields"><label className="field"><span>Form name</span><input required value={name} onChange={(event) => { setName(event.target.value); }} placeholder="Final HTE Evaluation" /></label></div>
-    <label className="field"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Explain when and how this form should be used…" /></label>
-    <div className="two-fields"><label className="field"><span>Evaluation stage</span><select value={stage} onChange={(event) => setStage(event.target.value as EvaluationTemplateStage)}><option value="midterm">Midterm</option><option value="final">Final</option><option value="other">Other</option></select></label><label className="field"><span>Evaluator</span><input value="Authorized HTE Representative" readOnly /></label></div>
-    <div className="criteria-builder"><div className="criteria-builder-heading"><div><strong>Scoring criteria</strong><small>Weights must total exactly 100%. Each criterion uses a 1–5 scale.</small></div><StatusBadge status={`${totalWeight}% total`} /></div>{criteria.map((criterion, index) => <fieldset className="criterion-builder-row" key={index}><legend>Criterion {index + 1}</legend><div className="criterion-builder-primary"><label className="field"><span>Name</span><input required value={criterion.label} onChange={(event) => updateCriterion(index, { label: event.target.value, code: normalizeEvaluationCode(event.target.value) })} placeholder="Communication" /></label><label className="field criterion-weight"><span>Weight (%)</span><input required type="number" min="1" max="100" step="1" value={criterion.weight || ""} onChange={(event) => updateCriterion(index, { weight: Number(event.target.value) })} /></label></div><label className="field"><span>Description</span><input value={criterion.description} onChange={(event) => updateCriterion(index, { description: event.target.value })} placeholder="What the evaluator should assess…" /></label><button type="button" className="table-link criterion-remove" disabled={criteria.length === 1} onClick={() => setCriteria((current) => current.filter((_, criterionIndex) => criterionIndex !== index))}>Remove criterion</button></fieldset>)}<button type="button" className="button button-secondary criterion-add" disabled={criteria.length >= 20} onClick={() => setCriteria((current) => [...current, newEvaluationCriterion(current.length)])}><Plus size={17} /> Add criterion</button></div>
-    <label className="master-current-option"><input aria-label="Publish this evaluation form immediately" type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} /><span><strong>Publish immediately</strong><small>This replaces the active form for the same evaluator and stage. Previous forms remain available for historical records.</small></span></label>
-    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    <div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={close}>Cancel</ActionButton><ActionButton type="submit" disabled={loading}>{loading ? "Creating…" : "Create evaluation form"}</ActionButton></div>
-  </form></Dialog>;
+  return (
+    <Dialog title="Create evaluation form" onClose={close} busy={loading} wide>
+      <InfoCallout icon={Star}>
+        <p>
+          Create a custom scorecard only when its criteria and weighting have
+          been institutionally approved. Use the official PSU form for standard
+          internship evaluation. Publishing replaces the active form for the
+          same evaluator role and stage; other roles and stages are unchanged.
+        </p>
+      </InfoCallout>
+      <form onSubmit={submit}>
+        <div className="two-fields">
+          <label className="field">
+            <span>Form name</span>
+            <input
+              required
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value);
+              }}
+              placeholder="Final HTE Evaluation"
+            />
+          </label>
+        </div>
+        <label className="field">
+          <span>Description</span>
+          <textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Explain when and how this form should be used…"
+          />
+        </label>
+        <div className="two-fields">
+          <label className="field">
+            <span>Evaluation stage</span>
+            <select
+              value={stage}
+              onChange={(event) =>
+                setStage(event.target.value as EvaluationTemplateStage)
+              }
+            >
+              <option value="midterm">Midterm</option>
+              <option value="final">Final</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Evaluator</span>
+            <input value="Authorized HTE Representative" readOnly />
+          </label>
+        </div>
+        <div className="criteria-builder">
+          <div className="criteria-builder-heading">
+            <div>
+              <strong>Scoring criteria</strong>
+              <small>
+                Weights must total exactly 100%. Each criterion uses a 1–5
+                scale.
+              </small>
+            </div>
+            <StatusBadge status={`${totalWeight}% total`} />
+          </div>
+          {criteria.map((criterion, index) => (
+            <fieldset className="criterion-builder-row" key={index}>
+              <legend>Criterion {index + 1}</legend>
+              <div className="criterion-builder-primary">
+                <label className="field">
+                  <span>Name</span>
+                  <input
+                    required
+                    value={criterion.label}
+                    onChange={(event) =>
+                      updateCriterion(index, {
+                        label: event.target.value,
+                        code: normalizeEvaluationCode(event.target.value),
+                      })
+                    }
+                    placeholder="Communication"
+                  />
+                </label>
+                <label className="field criterion-weight">
+                  <span>Weight (%)</span>
+                  <input
+                    required
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="1"
+                    value={criterion.weight || ""}
+                    onChange={(event) =>
+                      updateCriterion(index, {
+                        weight: Number(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+              </div>
+              <label className="field">
+                <span>Description</span>
+                <input
+                  value={criterion.description}
+                  onChange={(event) =>
+                    updateCriterion(index, { description: event.target.value })
+                  }
+                  placeholder="What the evaluator should assess…"
+                />
+              </label>
+              <button
+                type="button"
+                className="table-link criterion-remove"
+                disabled={criteria.length === 1}
+                onClick={() =>
+                  setCriteria((current) =>
+                    current.filter(
+                      (_, criterionIndex) => criterionIndex !== index,
+                    ),
+                  )
+                }
+              >
+                Remove criterion
+              </button>
+            </fieldset>
+          ))}
+          <button
+            type="button"
+            className="button button-secondary criterion-add"
+            disabled={criteria.length >= 20}
+            onClick={() =>
+              setCriteria((current) => [
+                ...current,
+                newEvaluationCriterion(current.length),
+              ])
+            }
+          >
+            <Plus size={17} /> Add criterion
+          </button>
+        </div>
+        <label className="master-current-option">
+          <input
+            aria-label="Publish this evaluation form immediately"
+            type="checkbox"
+            checked={isActive}
+            onChange={(event) => setIsActive(event.target.checked)}
+          />
+          <span>
+            <strong>Publish immediately</strong>
+            <small>
+              This replaces the active form for the same evaluator and stage.
+              Previous forms remain available for historical records.
+            </small>
+          </span>
+        </label>
+        {error && (
+          <p className="form-error">
+            <AlertTriangle size={16} /> {error}
+          </p>
+        )}
+        <div className="modal-actions">
+          <ActionButton variant="secondary" disabled={loading} onClick={close}>
+            Cancel
+          </ActionButton>
+          <ActionButton type="submit" disabled={loading}>
+            {loading ? "Creating…" : "Create evaluation form"}
+          </ActionButton>
+        </div>
+      </form>
+    </Dialog>
+  );
 }
 
-function EvaluationTemplateDetails({ template, close }: { template: EvaluationTemplateRecord; close: () => void }) {
-  return <Dialog title={`View ${template.name}`} onClose={close} wide><InfoCallout icon={Star}><p>{template.description || "No description has been provided."}</p></InfoCallout><dl className="info-list"><div><dt>Code</dt><dd>{template.code}</dd></div><div><dt>Version</dt><dd>{template.version}</dd></div><div><dt>Stage</dt><dd>{evaluationStageLabels[template.stage]}</dd></div><div><dt>Evaluator</dt><dd>{evaluatorTypeLabels[template.evaluatorType]}</dd></div><div><dt>Status</dt><dd>{template.isActive ? "Published" : "Inactive"}</dd></div><div><dt>Scoring</dt><dd>{template.metadata ? "Individual ratings from 1 to 5; no overall percentage" : template.criteria.reduce((total, criterion) => total + criterion.weight, 0) + "% configured weight"}</dd></div></dl><div className="template-criteria-summary">{template.criteria.map((criterion) => <article key={criterion.code}><div><strong>{criterion.label}</strong><small>{criterion.description || "No criterion guidance provided."}</small></div><b>{template.metadata ? "1–5" : criterion.weight + "%"}</b></article>)}</div><div className="modal-actions"><ActionButton onClick={close}>Done</ActionButton></div></Dialog>;
+function EvaluationTemplateDetails({
+  template,
+  close,
+}: {
+  template: EvaluationTemplateRecord;
+  close: () => void;
+}) {
+  return (
+    <Dialog title={`View ${template.name}`} onClose={close} wide>
+      <InfoCallout icon={Star}>
+        <p>{template.description || "No description has been provided."}</p>
+      </InfoCallout>
+      <dl className="info-list">
+        <div>
+          <dt>Code</dt>
+          <dd>{template.code}</dd>
+        </div>
+        <div>
+          <dt>Version</dt>
+          <dd>{template.version}</dd>
+        </div>
+        <div>
+          <dt>Stage</dt>
+          <dd>{evaluationStageLabels[template.stage]}</dd>
+        </div>
+        <div>
+          <dt>Evaluator</dt>
+          <dd>{evaluatorTypeLabels[template.evaluatorType]}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>{template.isActive ? "Published" : "Inactive"}</dd>
+        </div>
+        <div>
+          <dt>Scoring</dt>
+          <dd>
+            {template.metadata
+              ? "Individual ratings from 1 to 5; no overall percentage"
+              : template.criteria.reduce(
+                  (total, criterion) => total + criterion.weight,
+                  0,
+                ) + "% configured weight"}
+          </dd>
+        </div>
+      </dl>
+      <div className="template-criteria-summary">
+        {template.criteria.map((criterion) => (
+          <article key={criterion.code}>
+            <div>
+              <strong>{criterion.label}</strong>
+              <small>
+                {criterion.description || "No criterion guidance provided."}
+              </small>
+            </div>
+            <b>{template.metadata ? "1–5" : criterion.weight + "%"}</b>
+          </article>
+        ))}
+      </div>
+      <div className="modal-actions">
+        <ActionButton onClick={close}>Done</ActionButton>
+      </div>
+    </Dialog>
+  );
 }
 
 function WorkflowTemplatesPage() {
@@ -3050,21 +12120,39 @@ function WorkflowTemplatesPage() {
   const publishLock = useRef(false);
   async function publishOfficial() {
     if (publishLock.current) return;
-    publishLock.current = true; setPublishing(true); setError("");
-    try { await evaluationService.publishOfficial(); await loadTemplates(); setNotice("The official PSU-F-PLU-02 HTE evaluation template is published. Historical records were preserved."); setConfirmOfficial(false); }
-    catch (reason) { setError(userError(reason)); setConfirmOfficial(false); }
-    finally { publishLock.current = false; setPublishing(false); }
+    publishLock.current = true;
+    setPublishing(true);
+    setError("");
+    try {
+      await evaluationService.publishOfficial();
+      await loadTemplates();
+      setNotice(
+        "The official PSU-F-PLU-02 HTE evaluation template is published. Historical records were preserved.",
+      );
+      setConfirmOfficial(false);
+    } catch (reason) {
+      setError(userError(reason));
+      setConfirmOfficial(false);
+    } finally {
+      publishLock.current = false;
+      setPublishing(false);
+    }
   }
-  const [section, setSection] = useState<"documents" | "evaluations">("documents");
+  const [section, setSection] = useState<"documents" | "evaluations">(
+    "documents",
+  );
   const [templates, setTemplates] = useState<DocumentTemplateRecord[]>([]);
-  const [evaluationTemplates, setEvaluationTemplates] = useState<EvaluationTemplateRecord[]>([]);
+  const [evaluationTemplates, setEvaluationTemplates] = useState<
+    EvaluationTemplateRecord[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [adding, setAdding] = useState(false);
   const [addingEvaluation, setAddingEvaluation] = useState(false);
   const [selected, setSelected] = useState<DocumentTemplateRecord | null>(null);
-  const [selectedEvaluation, setSelectedEvaluation] = useState<EvaluationTemplateRecord | null>(null);
+  const [selectedEvaluation, setSelectedEvaluation] =
+    useState<EvaluationTemplateRecord | null>(null);
 
   async function loadTemplates() {
     setLoading(true);
@@ -3076,43 +12164,333 @@ function WorkflowTemplatesPage() {
       ]);
       setTemplates(documents);
       setEvaluationTemplates(evaluations);
+    } catch (reason) {
+      setError(userError(reason, "Workflow templates could not be loaded."));
+    } finally {
+      setLoading(false);
     }
-    catch (reason) { setError(userError(reason, "Workflow templates could not be loaded.")); }
-    finally { setLoading(false); }
   }
 
   useEffect(() => {
     let active = true;
-    void Promise.all([workflowTemplateService.listDocumentTemplates(), workflowTemplateService.listEvaluationTemplates()]).then(([documents, evaluations]) => {
-      if (!active) return;
-      setTemplates(documents);
-      setEvaluationTemplates(evaluations);
-    }).catch((reason) => {
-      if (active) setError(userError(reason, "Workflow templates could not be loaded."));
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => { active = false; };
+    void Promise.all([
+      workflowTemplateService.listDocumentTemplates(),
+      workflowTemplateService.listEvaluationTemplates(),
+    ])
+      .then(([documents, evaluations]) => {
+        if (!active) return;
+        setTemplates(documents);
+        setEvaluationTemplates(evaluations);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(
+            userError(reason, "Workflow templates could not be loaded."),
+          );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
-  const nextDisplayOrder = templates.length ? Math.max(...templates.map((template) => template.displayOrder)) + 10 : 10;
+  const nextDisplayOrder = templates.length
+    ? Math.max(...templates.map((template) => template.displayOrder)) + 10
+    : 10;
 
-  return <><PageHeader title="Workflow templates" subtitle="Configure document requirements and evaluation forms used throughout every internship." action={section === "documents" ? <ActionButton icon={Plus} onClick={() => { setNotice(""); setAdding(true); }}>Create requirement</ActionButton> : <ActionButton icon={Plus} onClick={() => { setNotice(""); setAddingEvaluation(true); }}>Create evaluation form</ActionButton>} />
-    <div className="segmented workflow-template-tabs" role="tablist" aria-label="Workflow template type"><button type="button" role="tab" aria-selected={section === "documents"} className={section === "documents" ? "active" : ""} onClick={() => { setSection("documents"); setNotice(""); }}>Document requirements</button><button type="button" role="tab" aria-selected={section === "evaluations"} className={section === "evaluations" ? "active" : ""} onClick={() => { setSection("evaluations"); setNotice(""); }}>Evaluation forms</button></div>
-    <div className="verification-principle"><ShieldCheck size={20} /><p><strong>Controlled configuration:</strong> {section === "documents" ? "published requirements are permission-checked, audit logged, and added to current approved and active internships." : "evaluation forms are versioned and audit logged. The official PSU form uses individual 1–5 ratings without an overall percentage formula."}</p></div>
-    {notice && <p className="form-success"><CheckCircle2 size={16} /> {notice}</p>}
-    {error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}
-    {section === "documents" && <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading document requirements…" : "Document requirement templates"}</h2><StatusBadge status={`${templates.filter((template) => template.isActive).length} published`} /></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Form name / description</th><th>Workflow phase</th><th>Requirement</th><th>Accepted files</th><th>Limit</th><th>Status</th><th>Actions</th></tr></thead><tbody>{templates.map((template) => <tr key={template.id}><td className="record-description"><b>{template.name}</b><small>{template.description || "No description provided."}</small></td><td>{documentTemplatePhaseLabels[template.phase]}</td><td>{template.isRequired ? "Required" : "Optional"}</td><td>{formatTemplateFileTypes(template.allowedMimeTypes)}</td><td>{Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB</td><td><StatusBadge status={template.isActive ? "Published" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelected(template)}>View</button></td></tr>)}{!loading && templates.length === 0 && <tr><td colSpan={7}>No document requirement templates have been configured.</td></tr>}</tbody></table></div></section>}
-    {section === "evaluations" && <div className="card"><h2>Official HTE evaluation</h2><p>PSU-F-PLU-02 · Rev. No. 00 · January 2, 2026. Completed by an authorized HTE Representative; reviewed and finalized by the Internship Coordinator.</p><ActionButton disabled={publishing} onClick={() => setConfirmOfficial(true)}>Publish official HTE form</ActionButton></div>}
-    {confirmOfficial && <ConfirmDialog title="Publish the official PSU evaluation?" message="The official form will be activated for authorized HTE Representatives. Retired coordinator forms remain available only for existing evaluation history." confirmLabel={publishing ? "Publishing…" : "Publish official form"} busy={publishing} onConfirm={() => void publishOfficial()} onCancel={() => setConfirmOfficial(false)} />}
-    {section === "evaluations" && <section className="card table-card"><div className="card-title"><h2>{loading ? "Loading evaluation forms…" : "Evaluation form templates"}</h2><StatusBadge status={`${evaluationTemplates.filter((template) => template.isActive).length} published`} /></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Form</th><th>Stage</th><th>Evaluator</th><th>Criteria</th><th>Version</th><th>Status</th><th>Actions</th></tr></thead><tbody>{evaluationTemplates.map((template) => <tr key={template.id}><td className="record-description"><b>{template.name}</b><small>{template.description || "No description provided."}</small></td><td>{evaluationStageLabels[template.stage]}</td><td>{evaluatorTypeLabels[template.evaluatorType]}</td><td>{template.criteria.length}</td><td>v{template.version}</td><td><StatusBadge status={template.isActive ? "Published" : "Inactive"} /></td><td><button className="table-link" onClick={() => setSelectedEvaluation(template)}>View</button></td></tr>)}{!loading && evaluationTemplates.length === 0 && <tr><td colSpan={7}>No evaluation forms have been configured. Create one to enable evaluation scoring.</td></tr>}</tbody></table></div></section>}
-    {adding && <DocumentTemplateDialog nextDisplayOrder={nextDisplayOrder} close={() => setAdding(false)} onCreated={async (count) => { await loadTemplates(); setNotice(count > 0 ? `Requirement created and added to ${count} current internship${count === 1 ? "" : "s"}.` : "Requirement created. No current internship needed provisioning."); }} />}
-    {addingEvaluation && <EvaluationTemplateDialog close={() => setAddingEvaluation(false)} onCreated={async ({ version, criteriaCount }) => { await loadTemplates(); setSection("evaluations"); setNotice(`Evaluation form version ${version} created with ${criteriaCount} scoring ${criteriaCount === 1 ? "criterion" : "criteria"}.`); }} />}
-    {selected && <DocumentTemplateDetails template={selected} close={() => setSelected(null)} />}
-    {selectedEvaluation && <EvaluationTemplateDetails template={selectedEvaluation} close={() => setSelectedEvaluation(null)} />}
-  </>;
+  return (
+    <>
+      <PageHeader
+        title="Workflow templates"
+        subtitle="Configure document requirements and evaluation forms used throughout every internship."
+        action={
+          section === "documents" ? (
+            <ActionButton
+              icon={Plus}
+              onClick={() => {
+                setNotice("");
+                setAdding(true);
+              }}
+            >
+              Create requirement
+            </ActionButton>
+          ) : (
+            <ActionButton
+              icon={Plus}
+              onClick={() => {
+                setNotice("");
+                setAddingEvaluation(true);
+              }}
+            >
+              Create evaluation form
+            </ActionButton>
+          )
+        }
+      />
+      <div
+        className="segmented workflow-template-tabs"
+        role="tablist"
+        aria-label="Workflow template type"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === "documents"}
+          className={section === "documents" ? "active" : ""}
+          onClick={() => {
+            setSection("documents");
+            setNotice("");
+          }}
+        >
+          Document requirements
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === "evaluations"}
+          className={section === "evaluations" ? "active" : ""}
+          onClick={() => {
+            setSection("evaluations");
+            setNotice("");
+          }}
+        >
+          Evaluation forms
+        </button>
+      </div>
+      <div className="verification-principle">
+        <ShieldCheck size={20} />
+        <p>
+          <strong>Controlled configuration:</strong>{" "}
+          {section === "documents"
+            ? "published requirements are permission-checked, audit logged, and added to current approved and active internships."
+            : "evaluation forms are versioned and audit logged. The official PSU form uses individual 1–5 ratings without an overall percentage formula."}
+        </p>
+      </div>
+      {notice && (
+        <p className="form-success">
+          <CheckCircle2 size={16} /> {notice}
+        </p>
+      )}
+      {error && (
+        <p className="form-error">
+          <AlertTriangle size={16} /> {error}
+        </p>
+      )}
+      {section === "documents" && (
+        <section className="card table-card">
+          <div className="card-title">
+            <h2>
+              {loading
+                ? "Loading document requirements…"
+                : "Document requirement templates"}
+            </h2>
+            <StatusBadge
+              status={`${templates.filter((template) => template.isActive).length} published`}
+            />
+          </div>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Form name / description</th>
+                  <th>Workflow phase</th>
+                  <th>Requirement</th>
+                  <th>Accepted files</th>
+                  <th>Limit</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {templates.map((template) => (
+                  <tr key={template.id}>
+                    <td className="record-description">
+                      <b>{template.name}</b>
+                      <small>
+                        {template.description || "No description provided."}
+                      </small>
+                    </td>
+                    <td>{documentTemplatePhaseLabels[template.phase]}</td>
+                    <td>{template.isRequired ? "Required" : "Optional"}</td>
+                    <td>
+                      {formatTemplateFileTypes(template.allowedMimeTypes)}
+                    </td>
+                    <td>
+                      {Math.round(template.maxFileSizeBytes / 1024 / 1024)} MB
+                    </td>
+                    <td>
+                      <StatusBadge
+                        status={template.isActive ? "Published" : "Inactive"}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        className="table-link"
+                        onClick={() => setSelected(template)}
+                      >
+                        <Eye size={16} aria-hidden="true" />
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!loading && templates.length === 0 && (
+                  <tr>
+                    <td colSpan={7}>
+                      No document requirement templates have been configured.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+      {section === "evaluations" && (
+        <div className="card">
+          <h2>Official HTE evaluation</h2>
+          <p>
+            PSU-F-PLU-02 · Rev. No. 00 · January 2, 2026. Completed by an
+            authorized HTE Representative; reviewed and finalized by the
+            Internship Coordinator.
+          </p>
+          <ActionButton
+            disabled={publishing}
+            onClick={() => setConfirmOfficial(true)}
+          >
+            Publish official HTE form
+          </ActionButton>
+        </div>
+      )}
+      {confirmOfficial && (
+        <ConfirmDialog
+          title="Publish the official PSU evaluation?"
+          message="The official form will be activated for authorized HTE Representatives. Retired coordinator forms remain available only for existing evaluation history."
+          confirmLabel={publishing ? "Publishing…" : "Publish official form"}
+          busy={publishing}
+          onConfirm={() => void publishOfficial()}
+          onCancel={() => setConfirmOfficial(false)}
+        />
+      )}
+      {section === "evaluations" && (
+        <section className="card table-card">
+          <div className="card-title">
+            <h2>
+              {loading
+                ? "Loading evaluation forms…"
+                : "Evaluation form templates"}
+            </h2>
+            <StatusBadge
+              status={`${evaluationTemplates.filter((template) => template.isActive).length} published`}
+            />
+          </div>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Form</th>
+                  <th>Stage</th>
+                  <th>Evaluator</th>
+                  <th>Criteria</th>
+                  <th>Version</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {evaluationTemplates.map((template) => (
+                  <tr key={template.id}>
+                    <td className="record-description">
+                      <b>{template.name}</b>
+                      <small>
+                        {template.description || "No description provided."}
+                      </small>
+                    </td>
+                    <td>{evaluationStageLabels[template.stage]}</td>
+                    <td>{evaluatorTypeLabels[template.evaluatorType]}</td>
+                    <td>{template.criteria.length}</td>
+                    <td>v{template.version}</td>
+                    <td>
+                      <StatusBadge
+                        status={template.isActive ? "Published" : "Inactive"}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        className="table-link"
+                        onClick={() => setSelectedEvaluation(template)}
+                      >
+                        <Eye size={16} aria-hidden="true" />
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!loading && evaluationTemplates.length === 0 && (
+                  <tr>
+                    <td colSpan={7}>
+                      No evaluation forms have been configured. Create one to
+                      enable evaluation scoring.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+      {adding && (
+        <DocumentTemplateDialog
+          nextDisplayOrder={nextDisplayOrder}
+          close={() => setAdding(false)}
+          onCreated={async (count) => {
+            await loadTemplates();
+            setNotice(
+              count > 0
+                ? `Requirement created and added to ${count} current internship${count === 1 ? "" : "s"}.`
+                : "Requirement created. No current internship needed provisioning.",
+            );
+          }}
+        />
+      )}
+      {addingEvaluation && (
+        <EvaluationTemplateDialog
+          close={() => setAddingEvaluation(false)}
+          onCreated={async ({ version, criteriaCount }) => {
+            await loadTemplates();
+            setSection("evaluations");
+            setNotice(
+              `Evaluation form version ${version} created with ${criteriaCount} scoring ${criteriaCount === 1 ? "criterion" : "criteria"}.`,
+            );
+          }}
+        />
+      )}
+      {selected && (
+        <DocumentTemplateDetails
+          template={selected}
+          close={() => setSelected(null)}
+        />
+      )}
+      {selectedEvaluation && (
+        <EvaluationTemplateDetails
+          template={selectedEvaluation}
+          close={() => setSelectedEvaluation(null)}
+        />
+      )}
+    </>
+  );
 }
 
-function RegistrationReviewDialog({ application, close, onReviewed }: { application: RegistrationRecord; close: () => void; onReviewed: () => void }) {
+function RegistrationReviewDialog({
+  application,
+  close,
+  onReviewed,
+}: {
+  application: RegistrationRecord;
+  close: () => void;
+  onReviewed: () => void;
+}) {
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -3127,13 +12505,95 @@ function RegistrationReviewDialog({ application, close, onReviewed }: { applicat
       await registrationService.review(application.id, decision, notes);
       onReviewed();
     } catch (reason) {
-      setError(userError(reason, "The registration decision could not be saved."));
+      setError(
+        userError(reason, "The registration decision could not be saved."),
+      );
       setLoading(false);
     }
   }
-  const visibleDetails = Object.entries(application.details).filter(([key]) => !["requested_role", "first_name", "middle_name", "last_name", "preferred_name", "program_ids"].includes(key));
-  const detailLabels: Record<string, string> = { campus_id: "Campus reference", college_id: "College reference", program_id: "Primary program reference", employee_number: "Employee number", provisioned_by_user_id: "Provisioned by administrator", program_names: "Authorized programs", organization_name: "Organization" };
-  return <Dialog title={`Review ${application.name}`} onClose={close} busy={loading}><div className="registration-review-content"><InfoCallout icon={UserCheck}><p><strong>{application.name}</strong><br />{application.email} · {application.role}</p></InfoCallout><dl className="info-list">{visibleDetails.map(([key, value]) => { let displayValue = value; if (key === "program_names") { try { displayValue = (JSON.parse(value) as string[]).join(", "); } catch { displayValue = value; } } return <div key={key}><dt>{detailLabels[key] ?? key.replaceAll("_", " ")}</dt><dd>{displayValue}</dd></div>; })}</dl><label className="field"><span>Administrator notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add verification notes or a rejection reason…" /></label>{error && <p className="form-error"><AlertTriangle size={16} /> {error}</p>}<div className="modal-actions"><ActionButton variant="secondary" disabled={loading} onClick={() => void decide("approved")}>Approve and activate</ActionButton><ActionButton variant="danger" disabled={loading || !notes.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton></div></div></Dialog>;
+  const visibleDetails = Object.entries(application.details).filter(
+    ([key]) =>
+      ![
+        "requested_role",
+        "first_name",
+        "middle_name",
+        "last_name",
+        "preferred_name",
+        "program_ids",
+      ].includes(key),
+  );
+  const detailLabels: Record<string, string> = {
+    campus_id: "Campus reference",
+    college_id: "College reference",
+    program_id: "Primary program reference",
+    employee_number: "Employee number",
+    provisioned_by_user_id: "Provisioned by administrator",
+    program_names: "Authorized programs",
+    organization_name: "Organization",
+    praxiz_reference_number: "PRAXIZ HTE Representative reference",
+    external_hte_id: "External HTE ID",
+    position: "Position",
+  };
+  return (
+    <Dialog title={`Review ${application.name}`} onClose={close} busy={loading}>
+      <div className="registration-review-content">
+        <InfoCallout icon={UserCheck}>
+          <p>
+            <strong>{application.name}</strong>
+            <br />
+            {application.email} · {application.role}
+          </p>
+        </InfoCallout>
+        <dl className="info-list">
+          {visibleDetails.map(([key, value]) => {
+            let displayValue = value;
+            if (key === "program_names") {
+              try {
+                displayValue = (JSON.parse(value) as string[]).join(", ");
+              } catch {
+                displayValue = value;
+              }
+            }
+            return (
+              <div key={key}>
+                <dt>{detailLabels[key] ?? key.replaceAll("_", " ")}</dt>
+                <dd>{displayValue}</dd>
+              </div>
+            );
+          })}
+        </dl>
+        <label className="field">
+          <span>Administrator notes</span>
+          <textarea
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="Add verification notes or a rejection reason…"
+          />
+        </label>
+        {error && (
+          <p className="form-error">
+            <AlertTriangle size={16} /> {error}
+          </p>
+        )}
+        <div className="modal-actions">
+          <ActionButton
+            variant="secondary"
+            disabled={loading}
+            onClick={() => void decide("approved")}
+          >
+            Approve and activate
+          </ActionButton>
+          <ActionButton
+            variant="danger"
+            disabled={loading || !notes.trim()}
+            onClick={() => void decide("rejected")}
+          >
+            Reject
+          </ActionButton>
+        </div>
+      </div>
+    </Dialog>
+  );
 }
 
 function RegistrationTable({
@@ -3188,15 +12648,15 @@ function RegistrationTable({
     <>
       {includeReviewed && (
         <div className="card-title">
-          <label className="field field-compact">
-            <span>Search applicants</span>
-            <input
-              aria-label="Search name or email"
-              placeholder="Search name or email…"
+          <div>
+            <h2>{loading ? "Loading registrations…" : `${shown.length} registrations`}</h2>
+            <SearchInput
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={setSearch}
+              placeholder="Search name, email, role, or reference…"
+              label="Search applicants"
             />
-          </label>
+          </div>
           <label className="field field-compact">
             <span>Status</span>
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -3232,7 +12692,9 @@ function RegistrationTable({
             {shown.map((item) => (
               <tr key={item.id}>
                 <td className="identity-cell">
-                  <b className="table-primary-text" title={item.name}>{item.name}</b>
+                  <b className="table-primary-text" title={item.name}>
+                    {item.name}
+                  </b>
                 </td>
                 <td className="email-cell" title={item.email}>
                   {item.email}
@@ -3282,22 +12744,63 @@ function RegistrationTable({
 }
 
 function RegistrationsPage() {
-  return <><PageHeader title="Registrations" subtitle="Verify identities and role requests before account activation." /><section className="card table-card"><RegistrationTable includeReviewed /></section></>;
+  return (
+    <>
+      <PageHeader
+        title="Registrations"
+        subtitle="Verify identities and role requests before account activation."
+      />
+      <section className="card table-card">
+        <RegistrationTable includeReviewed />
+      </section>
+    </>
+  );
 }
 
 function DashboardRouter({ role, page }: { role: RoleId; page: string }) {
   const allowedPages = new Set([
-    ...roles[role].nav.filter((item) => !item.permission || hasPermission(role, item.permission)).map((item) => item.href.split("/").filter(Boolean).at(-1)),
+    ...roles[role].nav
+      .filter(
+        (item) => !item.permission || hasPermission(role, item.permission),
+      )
+      .map((item) => item.href.split("/").filter(Boolean).at(-1)),
     "profile",
     "settings",
     ...(role === "student" ? ["daily-logs"] : []),
     ...(role === "hte" ? ["logs"] : []),
   ]);
-  if (!allowedPages.has(page)) return <AppShell role={role} page={page}><EmptyAction icon={ShieldCheck} title="Access restricted" copy="This workspace is not included in your active role permissions." action={<Link className="button button-primary" href={`/${role}/dashboard`}>Return to dashboard</Link>} /></AppShell>;
+  if (!allowedPages.has(page))
+    return (
+      <AppShell role={role} page={page}>
+        <EmptyAction
+          icon={ShieldCheck}
+          title="Access restricted"
+          copy="This workspace is not included in your active role permissions."
+          action={
+            <Link className="button button-primary" href={`/${role}/dashboard`}>
+              Return to dashboard
+            </Link>
+          }
+        />
+      </AppShell>
+    );
   let content: ReactNode;
-  if (page === "dashboard") content = role === "student" ? <StudentDashboard /> : role === "hte" ? <HteDashboard /> : role === "coordinator" ? <CoordinatorDashboard /> : <AdminDashboard />;
+  if (page === "dashboard")
+    content =
+      role === "student" ? (
+        <StudentDashboard />
+      ) : role === "hte" ? (
+        <HteDashboard />
+      ) : role === "coordinator" ? (
+        <CoordinatorDashboard />
+      ) : role === "placement" ? (
+        <PlacementWorkspace actorRole="placement" page="dashboard" />
+      ) : (
+        <AdminDashboard />
+      );
   else if (page === "attendance") content = <AttendancePage role={role} />;
-  else if (page === "weekly-logs" || page === "daily-logs" || page === "logs") content = <WeeklyLogsPage role={role} />;
+  else if (page === "weekly-logs" || page === "daily-logs" || page === "logs")
+    content = <WeeklyLogsPage role={role} />;
   else if (page === "documents") content = <DocumentsPage role={role} />;
   else if (page === "evaluations") content = <EvaluationsPage role={role} />;
   else if (page === "progress") content = <ProgressPage />;
@@ -3305,7 +12808,13 @@ function DashboardRouter({ role, page }: { role: RoleId; page: string }) {
   else if (page === "profile") content = <ProfilePage role={role} />;
   else if (page === "settings") content = <ProfilePage role={role} settings />;
   else if (page === "interns") content = <InternManagementPage role={role} />;
-  else if (page === "analytics") content = <AnalyticsPage />;
+  else if (page === "analytics")
+    content =
+      role === "placement" ? (
+        <PlacementWorkspace actorRole="placement" page={page} />
+      ) : (
+        <AnalyticsPage />
+      );
   else if (page === "reports") content = <ReportsPage />;
   else if (page === "feedback") content = <FeedbackPage />;
   else if (page === "htes") content = <PartnerHtesPage />;
@@ -3319,8 +12828,35 @@ function DashboardRouter({ role, page }: { role: RoleId; page: string }) {
   else if (page === "audit-logs") content = <AuditLogsPage />;
   else if (page === "support") content = <SupportInboxPage />;
   else if (page === "registrations") content = <RegistrationsPage />;
-  else content = <EmptyAction icon={FileText} title="This workspace is ready" copy="Choose a section from the navigation to continue." />;
-  return <AppShell role={role} page={page}>{content}</AppShell>;
+  else if (
+    role === "placement" &&
+    ["students", "compliance", "file-formats"].includes(page)
+  )
+    content = <PlacementWorkspace actorRole="placement" page={page} />;
+  else if (
+    role === "coordinator" &&
+    ["placement-compliance", "records"].includes(page)
+  )
+    content = <PlacementWorkspace actorRole="coordinator" page={page} />;
+  else if (role === "hte" && page === "work-setup")
+    content = <HteWorkSetupPage />;
+  else if (role === "admin" && page === "hte-work-configurations")
+    content = <HteWorkSetupPage admin />;
+  else if (role === "admin" && page === "file-formats")
+    content = <PlacementWorkspace actorRole="admin" page={page} />;
+  else
+    content = (
+      <EmptyAction
+        icon={FileText}
+        title="This workspace is ready"
+        copy="Choose a section from the navigation to continue."
+      />
+    );
+  return (
+    <AppShell role={role} page={page}>
+      {content}
+    </AppShell>
+  );
 }
 
 function PraxizRouter() {
@@ -3335,12 +12871,39 @@ function PraxizRouter() {
   if (pathname === "/reset-password") return <ResetPasswordPage />;
   if (pathname === "/register/success") return <RegistrationSuccessPage />;
   if (pathname === "/register") return <RegisterPage />;
-  if (!roleIds.includes(parts[0] as RoleId)) return <div className="success-page"><PublicHeader /><main><span className="success-icon"><AlertTriangle size={38} /></span><span className="eyebrow dark">Page not found</span><h1>This PRAXIZ page does not exist.</h1><p>Use the public navigation or sign in to open your assigned workspace.</p><Link className="button button-primary button-large" href="/signin">Go to sign in</Link></main></div>;
+  if (!roleIds.includes(parts[0] as RoleId))
+    return (
+      <div className="success-page">
+        <PublicHeader />
+        <main>
+          <span className="success-icon">
+            <AlertTriangle size={38} />
+          </span>
+          <span className="eyebrow dark">Page not found</span>
+          <h1>This PRAXIZ page does not exist.</h1>
+          <p>
+            Use the public navigation or sign in to open your assigned
+            workspace.
+          </p>
+          <Link className="button button-primary button-large" href="/signin">
+            Go to sign in
+          </Link>
+        </main>
+      </div>
+    );
   const role = parts[0] as RoleId;
   const page = parts[1] || "dashboard";
-  return <ProtectedRoute role={role}><DashboardRouter role={role} page={page} /></ProtectedRoute>;
+  return (
+    <ProtectedRoute role={role}>
+      <DashboardRouter role={role} page={page} />
+    </ProtectedRoute>
+  );
 }
 
 export default function PraxizApp() {
-  return <AuthProvider><PraxizRouter /></AuthProvider>;
+  return (
+    <AuthProvider>
+      <PraxizRouter />
+    </AuthProvider>
+  );
 }
