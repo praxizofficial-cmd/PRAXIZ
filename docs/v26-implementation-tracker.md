@@ -1,6 +1,6 @@
 # PRAXIZ v26 implementation tracker
 
-Updated: 2026-10-14
+Updated: 2026-10-15
 
 ## Safety baseline
 
@@ -204,3 +204,14 @@ See `docs/v26-release-checklist.md` for staging, server-only environment, native
 - Remaining end-to-end gate: send one fresh recovery message, have the recipient use it promptly while the local staging server is running, press the explicit Continue button, set their password themselves, and verify Placement Head sign-in/workspace access. All earlier invitation and recovery links are invalid and must not be used.
 - After the user's renewed action-time confirmation, exactly one fresh staging recovery request was submitted at 13:32 on 2026-10-15. The local application displayed **Open your email inbox**, the PRAXIZ-STAGING Auth log recorded `/recover | request completed` at 13:32:49, and Brevo independently recorded the distinctive `Reset your PRAXIZ password` message as **Sent** and **Delivered** to `lilithtria25@gmail.com` at 13:32 with zero bounces. Codex did not open the message or its one-time link; the token is reserved for the recipient. Password entry/submission and the resulting Placement Head sign-in remain user-only gates.
 - The recipient used that fresh link and submitted a new password. Staging Auth logs prove the change succeeded: `/verify` completed at 13:36:24, followed by a status-200 `PUT /user` whose event is `user_modified` at 13:36:40, then `/logout` at 13:36:41. The subsequent “password link cannot be used” page was therefore a false post-success state: signing out changed the Auth context callback identity, retriggering password-session validation after the session had intentionally been cleared. `ResetPasswordPage` now latches successful completion, ignores stale validation failures after the password update, and gives the success branch precedence over checking/invalid branches. Focused authentication tests pass (9/9), TypeScript passes, and `git diff --check` passes. No further reset is required; Placement Head sign-in with the newly chosen password is the remaining user-only verification gate.
+
+## Production release — 2026-10-15
+
+- The user confirmed that the staging Placement Head account and password flow work end to end.
+- Final release gate passed: lint, application build, **178 tests passed / 0 failed**, isolated photo/required-hours database checks, Vercel-target Linux build, TypeScript, and `git diff --check` (existing `app/layout.tsx` line-ending advisory only).
+- Created and validated `tmp/v26-production-predeploy-20261015.dump` before any production database change. The ignored archive contains the `public`, `private`, and `storage` schemas and is readable by `pg_restore --list`.
+- Applied only the reviewed additive migrations `20261014000000`, `20261014010000`, and `20261015000000` to production. Local and remote migration history now match through `20261015000000`. Post-apply lint has no new errors; the same three pre-existing legacy warnings remain.
+- Production deployment `dpl_VaCSg5YS2jrkvKBYqNtt6L5euX6o` reached `READY` and is aliased to `https://praxiz.vercel.app`. Public auth routes `/`, `/signin`, `/forgot-password`, `/recover-password`, and `/accept-invitation` returned HTTP 200. Invalid/unauthenticated API checks returned the expected 405 and 401 responses.
+- Production Auth Site URL is already `https://praxiz.vercel.app`; the existing `https://praxiz.vercel.app/**` redirect allowlist covers the explicit invitation and recovery routes. No URL configuration change was needed.
+- Production Invite user and Reset password templates have been prepared from the reviewed v26 artifacts. They remain unsaved until the required action-time confirmation for the external Supabase changes is received.
+- Release commits: `0b4c27f`, `dfdcaf3`, and `276e3f2`. The root-scoped `.vercelignore` prevents local backups, temporary files, tests, docs, and migrations from entering deployment packages without excluding runtime modules such as `lib/supabase`.

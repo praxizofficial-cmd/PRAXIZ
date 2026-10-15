@@ -1,6 +1,18 @@
 # v26 release checklist
 
-These steps are release gates, not a record of a completed deployment. No production migration or email-template change has been made by this implementation pass.
+These steps remain the audit checklist. The production application and reviewed additive migrations were deployed on 2026-10-15 after the gates below passed. Production email-template drafts are prepared but are not active until their external save is confirmed.
+
+## Production release record — 2026-10-15
+
+- `npm run release:check`: passed; 178 tests passed and none failed.
+- `npx tsc --noEmit --pretty false`: passed.
+- Production predeploy archive: `tmp/v26-production-predeploy-20261015.dump`, validated with `pg_restore --list`.
+- Applied production migrations: `20261014000000`, `20261014010000`, `20261015000000` only; migration parity confirmed afterward.
+- Production database lint: no new errors; three unchanged legacy warnings remain.
+- Vercel production deployment: `dpl_VaCSg5YS2jrkvKBYqNtt6L5euX6o`, `READY`, aliased to `https://praxiz.vercel.app`.
+- Live route smoke: `/`, `/signin`, `/forgot-password`, `/recover-password`, `/accept-invitation` returned 200. Guard checks returned 405 for GET photo evidence and 401 for unauthenticated account provisioning.
+- Production Site URL and wildcard redirect allowlist already match `https://praxiz.vercel.app`; no change was made.
+- Remaining activation step: save the prepared production Invite user and Reset password template changes, then reload each template and verify the persisted TokenHash landing URL.
 
 ## Staging first
 
