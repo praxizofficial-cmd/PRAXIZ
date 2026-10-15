@@ -1,6 +1,6 @@
 # v26 release checklist
 
-These steps remain the audit checklist. The production application and reviewed additive migrations were deployed on 2026-10-15 after the gates below passed. Production email-template drafts are prepared but are not active until their external save is confirmed.
+These steps remain the audit checklist. The production application, reviewed additive migrations, and scanner-safe production invitation/recovery templates were deployed on 2026-10-15 after the gates below passed.
 
 ## Production release record — 2026-10-15
 
@@ -12,7 +12,7 @@ These steps remain the audit checklist. The production application and reviewed 
 - Vercel production deployment: `dpl_VaCSg5YS2jrkvKBYqNtt6L5euX6o`, `READY`, aliased to `https://praxiz.vercel.app`.
 - Live route smoke: `/`, `/signin`, `/forgot-password`, `/recover-password`, `/accept-invitation` returned 200. Guard checks returned 405 for GET photo evidence and 401 for unauthenticated account provisioning.
 - Production Site URL and wildcard redirect allowlist already match `https://praxiz.vercel.app`; no change was made.
-- Remaining activation step: save the prepared production Invite user and Reset password template changes, then reload each template and verify the persisted TokenHash landing URL.
+- Production Invite user and Reset password templates were saved after explicit confirmation, reloaded, and verified to persist the respective `/accept-invitation` and `/recover-password` TokenHash landing URLs.
 
 ## Staging first
 
