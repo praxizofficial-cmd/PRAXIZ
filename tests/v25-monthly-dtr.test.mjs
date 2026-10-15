@@ -4,6 +4,7 @@ import test from "node:test";
 import { PDFDocument } from "pdf-lib";
 import {
   daysInReportingMonth,
+  dailyFormValues,
   generateMonthlyDtrPdf,
   validateMonthlyDtrSnapshot,
 } from "../lib/monthly-dtr-report.ts";
@@ -17,13 +18,9 @@ const route = await read("../app/api/dtr/[id]/pdf/route.ts");
 const auth = await read("../app/auth/supabase-auth.tsx");
 const analyticsRoute = await read("../app/api/ai/analytics/route.ts");
 const reportSource = await read("../lib/monthly-dtr-report.ts");
-const font = new Uint8Array(
-  await readFile(new URL("../lib/report-assets/DejaVuSans.ttf", import.meta.url)),
-);
-const onePixelPng = Uint8Array.from(
-  Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-    "base64",
+const originalForm = new Uint8Array(
+  await readFile(
+    new URL("../lib/report-assets/form-48-original.pdf", import.meta.url),
   ),
 );
 
@@ -76,6 +73,18 @@ const snapshot = {
   },
 };
 
+test("Form 48 leaves ambiguous overnight departure and unverified undertime blank", () => {
+  const base = snapshot.sessions[0];
+  assert.equal(dailyFormValues([{ ...base, recordedMinutes: 60 }], 8).undertimeHours, "");
+  const overnight = { ...base, timeInAt: "2028-02-01T14:00:00Z", timeOutAt: "2028-02-01T22:00:00Z", status: "verified", verifiedMinutes: 480 };
+  const result = dailyFormValues([overnight], 8);
+  assert.equal(result.pmArrival, "10:00");
+  assert.equal(result.amDeparture, "");
+  assert.equal(result.undertimeTotal, 0);
+  assert.equal(dailyFormValues([{ ...base, status: "verified", verifiedMinutes: 420 }], 8).undertimeHours, "1");
+  assert.equal(dailyFormValues([{ ...base, status: "verified", verifiedMinutes: 420 }], null).undertimeHours, "");
+});
+
 test("V25 monthly DTR handles every calendar month and rejects invalid snapshots", () => {
   assert.equal(daysInReportingMonth("2028-02-01"), 29);
   assert.equal(daysInReportingMonth("2027-02-01"), 28);
@@ -98,15 +107,16 @@ test("V25 monthly DTR handles every calendar month and rejects invalid snapshots
   );
 });
 
-test("V25 DTR is a single static A4 page with a provisional watermark", async () => {
-  const bytes = await generateMonthlyDtrPdf(snapshot, { font, seal: onePixelPng });
+test("V26 DTR is exactly one narrow original Form 48 front", async () => {
+  const bytes = await generateMonthlyDtrPdf(snapshot, { form: originalForm });
   const pdf = await PDFDocument.load(bytes);
   assert.equal(pdf.getPageCount(), 1);
   assert.equal(pdf.getForm().getFields().length, 0);
-  assert.equal(Math.round(pdf.getPage(0).getWidth()), 595);
-  assert.equal(Math.round(pdf.getPage(0).getHeight()), 842);
-  assert.match(reportSource, /PROVISIONAL - NOT YET VERIFIED/);
-  assert.match(reportSource, /not represented as an officially approved CSC Form 48/);
+  assert.equal(Math.round(pdf.getPage(0).getWidth()), 306);
+  assert.equal(Math.round(pdf.getPage(0).getHeight()), 936);
+  assert.match(reportSource, /Civil Service Form No\. 48/);
+  assert.doesNotMatch(reportSource, /PROVISIONAL - NOT YET VERIFIED/);
+  assert.doesNotMatch(reportSource, /not represented as an officially approved CSC Form 48/);
 });
 
 test("V25 migration freezes verified snapshots and preserves first submission provenance", () => {
@@ -128,16 +138,20 @@ test("V25 DTR endpoint and UI keep access protected and actions explicit", () =>
   assert.match(workspace, /Finalize monthly DTR\?/);
   assert.match(workspace, /Submit monthly DTR\?/);
   assert.match(workspace, /preserve the original sender and timestamp/);
-  assert.match(workspace, /No attendance values can be entered in the PDF/);
+  assert.match(workspace, /Only recorded attendance is placed in the PDF/);
+  assert.match(workspace, /unsupported fields and signatures remain blank/);
 });
 
-test("password recovery consumes the reset or invite credential before any existing session", () => {
+test("password recovery consumes only recovery credentials before any existing session", () => {
   const codeIndex = auth.indexOf('url.searchParams.get("code")');
   const currentSessionIndex = auth.indexOf("supabase.auth.getSession()", codeIndex);
   assert.ok(codeIndex >= 0 && currentSessionIndex > codeIndex);
-  assert.match(auth, /recoveryType === "recovery" \|\| recoveryType === "invite"/);
+  assert.match(auth, /tokenHash && recoveryType === "recovery"/);
+  assert.doesNotMatch(auth, /recoveryType === "recovery" \|\| recoveryType === "invite"/);
   assert.match(auth, /clearRecoveryCredentials\(url\)/);
   assert.match(auth, /PASSWORD_RECOVERY_SESSION_KEY/);
+  assert.match(auth, /INVITATION_SESSION_KEY/);
+  assert.match(auth, /async acceptInvitation\(tokenHash\)/);
   assert.match(auth, /event === "PASSWORD_RECOVERY"/);
   assert.match(auth, /recoveryUserId === current\.data\.session\.user\.id/);
   assert.match(auth, /return null;/);

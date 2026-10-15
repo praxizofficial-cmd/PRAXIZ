@@ -3,8 +3,7 @@ import {
   generateMonthlyDtrPdf,
   type MonthlyDtrSnapshot,
 } from "../../../../../lib/monthly-dtr-report";
-import fontData from "../../../../../lib/report-assets/DejaVuSans.ttf?inline";
-import sealData from "../../../../../lib/report-assets/parsu-logo.png?inline";
+import formData from "../../../../../lib/report-assets/form-48-original.pdf?inline";
 
 export const dynamic = "force-dynamic";
 
@@ -49,8 +48,7 @@ export async function GET(
 
     const report = data as unknown as MonthlyDtrSnapshot;
     const bytes = await generateMonthlyDtrPdf(report, {
-      font: decodeInlineAsset(fontData),
-      seal: decodeInlineAsset(sealData),
+      form: decodeInlineAsset(formData),
     });
     const disposition = new URL(request.url).searchParams.get("download") === "1"
       ? "attachment"

@@ -53,13 +53,18 @@ type AuthContextValue = {
   signOut: () => Promise<void>;
   register: (input: RegistrationInput) => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
-  validatePasswordRecovery: () => Promise<void>;
-  updatePassword: (password: string) => Promise<void>;
+  acceptInvitation: (tokenHash: string) => Promise<void>;
+  acceptPasswordRecovery: (tokenHash: string) => Promise<void>;
+  validatePasswordSetup: (flow: PasswordSetupFlow) => Promise<void>;
+  updatePassword: (password: string, flow: PasswordSetupFlow) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const PASSWORD_RECOVERY_SESSION_KEY = "praxiz.password-recovery-session";
+const INVITATION_SESSION_KEY = "praxiz.invitation-session";
+
+export type PasswordSetupFlow = "recovery" | "invitation";
 
 function rememberPasswordRecoverySession(session: Session) {
   window.sessionStorage.setItem(
@@ -70,6 +75,14 @@ function rememberPasswordRecoverySession(session: Session) {
 
 function clearPasswordRecoverySession() {
   window.sessionStorage.removeItem(PASSWORD_RECOVERY_SESSION_KEY);
+}
+
+function rememberInvitationSession(session: Session) {
+  window.sessionStorage.setItem(INVITATION_SESSION_KEY, session.user.id);
+}
+
+function clearInvitationSession() {
+  window.sessionStorage.removeItem(INVITATION_SESSION_KEY);
 }
 
 function authRedirectUrl(path: string) {
@@ -123,13 +136,10 @@ async function restorePasswordRecoverySession(
   const tokenHash =
     url.searchParams.get("token_hash") ?? hash.get("token_hash");
   const recoveryType = url.searchParams.get("type") ?? hash.get("type");
-  if (
-    tokenHash &&
-    (recoveryType === "recovery" || recoveryType === "invite")
-  ) {
+  if (tokenHash && recoveryType === "recovery") {
     const result = await supabase.auth.verifyOtp({
       token_hash: tokenHash,
-      type: recoveryType,
+      type: "recovery",
     });
     if (result.error) throw result.error;
     if (result.data.session) {
@@ -147,6 +157,21 @@ async function restorePasswordRecoverySession(
   if (
     current.data.session &&
     recoveryUserId === current.data.session.user.id
+  ) {
+    return current.data.session;
+  }
+  return null;
+}
+
+async function getRememberedInvitationSession(
+  supabase: ReturnType<typeof createClient>,
+) {
+  const current = await supabase.auth.getSession();
+  if (current.error) throw current.error;
+  const invitationUserId = window.sessionStorage.getItem(INVITATION_SESSION_KEY);
+  if (
+    current.data.session &&
+    invitationUserId === current.data.session.user.id
   ) {
     return current.data.session;
   }
@@ -540,6 +565,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async signIn(email, password) {
         const supabase = createClient();
+        clearPasswordRecoverySession();
+        clearInvitationSession();
         const { data, error } = await supabase.auth.signInWithPassword({
           email: email.trim().toLowerCase(),
           password,
@@ -559,6 +586,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async signOut() {
         const { error } = await createClient().auth.signOut();
+        clearPasswordRecoverySession();
+        clearInvitationSession();
         setUser(null);
         if (error) throw new Error(error.message);
       },
@@ -599,42 +628,97 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
       },
       async requestPasswordReset(email) {
+        clearPasswordRecoverySession();
         const { error } = await createClient().auth.resetPasswordForEmail(
           email.trim().toLowerCase(),
           {
-            redirectTo: authRedirectUrl("/reset-password"),
+            redirectTo: authRedirectUrl("/recover-password"),
           },
         );
         if (error) throw new Error(error.message);
       },
-      async validatePasswordRecovery() {
+      async acceptInvitation(tokenHash) {
+        const normalizedToken = tokenHash.trim();
+        if (!normalizedToken)
+          throw new Error("This invitation link is missing its secure token.");
+        const supabase = createClient();
+        clearPasswordRecoverySession();
+        clearInvitationSession();
+        const result = await supabase.auth.verifyOtp({
+          token_hash: normalizedToken,
+          type: "invite",
+        });
+        if (result.error || !result.data.session) {
+          clearInvitationSession();
+          throw new Error(
+            "This invitation is invalid, has already been accepted, or has expired. Ask the account creator to send a new invitation.",
+          );
+        }
+        rememberInvitationSession(result.data.session);
+      },
+      async acceptPasswordRecovery(tokenHash) {
+        const normalizedToken = tokenHash.trim();
+        if (!normalizedToken)
+          throw new Error("This password-reset link is missing its secure token.");
+        const supabase = createClient();
+        clearInvitationSession();
+        clearPasswordRecoverySession();
+        const result = await supabase.auth.verifyOtp({
+          token_hash: normalizedToken,
+          type: "recovery",
+        });
+        if (result.error || !result.data.session) {
+          clearPasswordRecoverySession();
+          throw new Error(
+            "This password-reset link is invalid, has already been used, or has expired. Request a new link and try again.",
+          );
+        }
+        rememberPasswordRecoverySession(result.data.session);
+      },
+      async validatePasswordSetup(flow) {
         try {
-          const session = await restorePasswordRecoverySession(createClient());
-          if (!session) throw new Error("No recovery session was created.");
+          const supabase = createClient();
+          const session =
+            flow === "invitation"
+              ? await getRememberedInvitationSession(supabase)
+              : await restorePasswordRecoverySession(supabase);
+          if (!session) throw new Error("No authorized password session exists.");
         } catch {
           throw new Error(
-            "This password link is invalid, has already been used, or has expired. Request a new link and try again.",
+            flow === "invitation"
+              ? "This invitation has not been accepted, has already been used, or has expired. Open a current invitation and accept it before creating your password."
+              : "This password link is invalid, has already been used, or has expired. Request a new link and try again.",
           );
         }
       },
-      async updatePassword(password) {
+      async updatePassword(password, flow) {
         const supabase = createClient();
         let session = null;
         try {
-          session = await restorePasswordRecoverySession(supabase);
+          session =
+            flow === "invitation"
+              ? await getRememberedInvitationSession(supabase)
+              : await restorePasswordRecoverySession(supabase);
         } catch {
           throw new Error(
-            "This password-reset link is invalid or has expired. Request a new link and try again.",
+            flow === "invitation"
+              ? "This invitation is invalid or has expired. Ask the account creator to send a new invitation."
+              : "This password-reset link is invalid or has expired. Request a new link and try again.",
           );
         }
         if (!session) {
           throw new Error(
-            "This password-reset link is invalid or has expired. Request a new link and try again.",
+            flow === "invitation"
+              ? "Accept a current invitation before creating your password."
+              : "This password-reset link is invalid or has expired. Request a new link and try again.",
           );
         }
         const { error } = await supabase.auth.updateUser({ password });
         if (error) throw new Error(error.message);
-        clearPasswordRecoverySession();
+        if (flow === "invitation") clearInvitationSession();
+        else clearPasswordRecoverySession();
+        await supabase.auth.signOut();
+        setUser(null);
       },
     }),
     [ready, user],

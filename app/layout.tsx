@@ -44,6 +44,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <meta name="referrer" content="no-referrer" />
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var m=localStorage.getItem('praxiz-theme')||'system';var a=localStorage.getItem('praxiz-accent')||'blue';var d=m==='dark'||(m==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';document.documentElement.dataset.themeMode=m;document.documentElement.dataset.accent=a}catch(e){}})();` }} />
       </head>
       <body

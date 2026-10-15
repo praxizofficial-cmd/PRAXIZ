@@ -66,8 +66,7 @@ const snapshot: MonthlyDtrSnapshot = {
 const output = resolve("output/pdf/PRAXIZ-V25-Monthly-DTR-Fixture.pdf");
 await mkdir(dirname(output), { recursive: true });
 const bytes = await generateMonthlyDtrPdf(snapshot, {
-  font: new Uint8Array(await readFile(resolve("lib/report-assets/DejaVuSans.ttf"))),
-  seal: new Uint8Array(await readFile(resolve("lib/report-assets/parsu-logo.png"))),
+  form: new Uint8Array(await readFile(resolve("lib/report-assets/form-48-original.pdf"))),
 });
 await writeFile(output, bytes);
 console.log(output);

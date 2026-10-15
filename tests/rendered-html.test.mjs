@@ -36,6 +36,8 @@ test("server-renders public and role-based routes", async () => {
   for (const pathname of [
     "/signin",
     "/forgot-password",
+    "/accept-invitation",
+    "/recover-password",
     "/reset-password",
     "/register",
     "/student/dashboard",

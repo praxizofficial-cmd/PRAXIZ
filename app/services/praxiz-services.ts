@@ -364,7 +364,7 @@ export type StudentProgressSummary = {
   assignmentId: string;
   status: string;
   renderedHours: number;
-  requiredHours: number;
+  requiredHours: number | null;
   attendanceRate: number;
   recordedSessions: number;
   verifiedSessions: number;
@@ -1361,7 +1361,7 @@ export const internshipService = {
 
     type AssignmentRow = {
       id: string;
-      required_hours: number;
+      required_hours: number | null;
       status: string;
       start_date: string;
       expected_end_date: string;
@@ -1481,7 +1481,12 @@ export const internshipService = {
         .replaceAll("_", " ")
         .replace(/\b\w/g, (letter) => letter.toUpperCase()),
       renderedHours: Number(progressRow?.rendered_hours ?? 0),
-      requiredHours: row.required_hours,
+      requiredHours:
+        row.required_hours != null &&
+        Number.isFinite(Number(row.required_hours)) &&
+        Number(row.required_hours) > 0
+          ? Number(row.required_hours)
+          : null,
       attendanceRate: Math.round(
         Number(progressRow?.attendance_verification_percent ?? 0),
       ),
@@ -3580,15 +3585,17 @@ export const coordinatorService = {
     section?: string;
     requiredHours: number;
     applyToCurrentAssignments: boolean;
+    reason?: string;
   }): Promise<{ configurationId: string; updatedAssignments: number }> {
     const { data, error } = await createClient().rpc(
-      "save_internship_requirement_scope_v22",
+      "save_internship_requirement_scope_v26",
       {
         p_academic_term_id: input.academicTermId,
         p_academic_program_id: input.academicProgramId,
         p_section: input.section || null,
         p_required_hours: input.requiredHours,
         p_apply_to_current_assignments: input.applyToCurrentAssignments,
+        p_reason: input.reason?.trim() || null,
       },
     );
     if (error) throw new Error(error.message);
@@ -3605,6 +3612,24 @@ export const coordinatorService = {
       configurationId: row.configuration_id,
       updatedAssignments: Number(row.updated_assignments ?? 0),
     };
+  },
+  async previewRequirementScope(input: {
+    academicTermId: string;
+    academicProgramId: string;
+    section?: string;
+    requiredHours: number;
+  }): Promise<number> {
+    const { data, error } = await createClient().rpc(
+      "preview_internship_requirement_scope_v26",
+      {
+        p_academic_term_id: input.academicTermId,
+        p_academic_program_id: input.academicProgramId,
+        p_section: input.section || null,
+        p_required_hours: input.requiredHours,
+      },
+    );
+    if (error) throw new Error(error.message);
+    return Number(data ?? 0);
   },
 };
 

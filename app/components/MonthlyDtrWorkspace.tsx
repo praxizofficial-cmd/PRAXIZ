@@ -311,7 +311,7 @@ export function MonthlyDtrWorkspace({ role }: { role: RoleId }) {
           <FileClock aria-hidden="true" />
           <strong>{assignments.length ? "Prepare a monthly DTR" : "No internship assignment available"}</strong>
           <p>{assignments.length
-            ? "Choose the reporting month and prepare a read-only provisional report. No attendance values can be entered in the PDF."
+            ? "Choose the reporting month and prepare one narrow, read-only Civil Service Form No. 48 front. Only recorded attendance is placed in the PDF; unsupported fields and signatures remain blank."
             : "An active or completed assignment in your authorized scope is required before a monthly DTR can be prepared."}</p>
         </div>
       )}

@@ -79,6 +79,7 @@ import { PasswordInput } from "./components/PasswordInput";
 import { PlacementWorkspace } from "./components/PlacementWorkspace";
 import { SearchInput } from "./components/SearchInput";
 import { MonthlyDtrWorkspace } from "./components/MonthlyDtrWorkspace";
+import { WeeklyLogPhotoEvidence, HtePhotoPolicy } from "./components/WeeklyLogPhotoEvidence";
 import { PraxizLoaderMark } from "./components/PraxizLoaderMark";
 import { userError } from "../lib/user-error";
 import { createClient as createSupabaseBrowserClient } from "../lib/supabase/client";
@@ -1061,42 +1062,6 @@ function ContactPage() {
   );
 }
 
-function AuthAside({
-  title,
-  copy,
-  children,
-}: {
-  title: string;
-  copy: string;
-  children?: ReactNode;
-}) {
-  return (
-    <aside className="auth-aside">
-      <ThemeControls compact />
-      <Link href="/" className="back-link">
-        <ArrowLeft size={17} /> Back to welcome
-      </Link>
-      <Logo />
-      <div className="auth-aside-copy">
-        <h1>{title}</h1>
-        <p>{copy}</p>
-        {children}
-      </div>
-      <div className="security-notes">
-        <span>
-          <LockKeyhole size={16} /> Secure PSU authentication
-        </span>
-        <span>
-          <ShieldCheck size={16} /> Role-based dashboard access
-        </span>
-        <span>
-          <Activity size={16} /> Verified-data analytics foundation
-        </span>
-      </div>
-    </aside>
-  );
-}
-
 function CompactAuthPage({
   children,
   cardClassName = "",
@@ -1305,30 +1270,234 @@ function ForgotPasswordPage() {
   );
 }
 
+function AcceptInvitationPage() {
+  const { acceptInvitation } = useAuth();
+  const [tokenHash, setTokenHash] = useState("");
+  const [linkState, setLinkState] = useState<"checking" | "ready" | "invalid">(
+    "checking",
+  );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      const url = new URL(window.location.href);
+      const token = url.searchParams.get("token_hash")?.trim() ?? "";
+      const type = url.searchParams.get("type")?.trim() ?? "";
+      if (!token || type !== "invite") {
+        setError(
+          "This invitation link is incomplete. Ask the account creator to send a new invitation.",
+        );
+        setLinkState("invalid");
+        return;
+      }
+      setTokenHash(token);
+      setLinkState("ready");
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function accept() {
+    if (!tokenHash || loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      await acceptInvitation(tokenHash);
+      window.history.replaceState({}, document.title, "/accept-invitation");
+      window.location.replace("/reset-password?flow=invitation");
+    } catch (reason) {
+      window.history.replaceState({}, document.title, "/accept-invitation");
+      setTokenHash("");
+      setError(userError(reason, "This invitation could not be accepted."));
+      setLinkState("invalid");
+      setLoading(false);
+    }
+  }
+
+  return (
+    <CompactAuthPage cardClassName="auth-card-recovery">
+      <Link href="/" className="auth-card-back">
+        <ArrowLeft size={17} /> Back to PRAXIZ
+      </Link>
+      <span className="eyebrow dark">Secure invitation</span>
+      <h2>Set up your PRAXIZ account</h2>
+      {linkState === "checking" ? (
+        <div className="workspace-loading-content" role="status" aria-live="polite">
+          <PraxizLoaderMark />
+          <p>Checking the invitation link…</p>
+        </div>
+      ) : linkState === "invalid" ? (
+        <div className="auth-recovery-invalid" role="alert">
+          <AlertTriangle aria-hidden="true" />
+          <div>
+            <strong>This invitation cannot be used</strong>
+            <p>{error}</p>
+            <Link className="button button-primary" href="/signin">
+              Go to sign in
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="form-intro">
+            Accept this invitation to verify the one-time link, then create the
+            password for your authorized PRAXIZ role.
+          </p>
+          <InfoCallout icon={ShieldCheck}>
+            <strong>Your invitation stays protected</strong>
+            <p>
+              The secure invitation is verified only when you choose Accept
+              invitation. Opening or previewing this page does not consume it.
+            </p>
+          </InfoCallout>
+          {error && (
+            <p className="form-error" role="alert">
+              <AlertTriangle size={16} /> {error}
+            </p>
+          )}
+          <ActionButton onClick={() => void accept()} loading={loading}>
+            {loading ? "Accepting…" : "Accept invitation"}
+          </ActionButton>
+        </>
+      )}
+    </CompactAuthPage>
+  );
+}
+
+function AcceptPasswordRecoveryPage() {
+  const { acceptPasswordRecovery } = useAuth();
+  const [tokenHash, setTokenHash] = useState("");
+  const [linkState, setLinkState] = useState<"checking" | "ready" | "invalid">(
+    "checking",
+  );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      const url = new URL(window.location.href);
+      const token = url.searchParams.get("token_hash")?.trim() ?? "";
+      const type = url.searchParams.get("type")?.trim() ?? "";
+      if (!token || type !== "recovery") {
+        setError(
+          "This password-reset link is incomplete. Request a new link and try again.",
+        );
+        setLinkState("invalid");
+        return;
+      }
+      setTokenHash(token);
+      setLinkState("ready");
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function accept() {
+    if (!tokenHash || loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      await acceptPasswordRecovery(tokenHash);
+      window.history.replaceState({}, document.title, "/recover-password");
+      window.location.replace("/reset-password?flow=recovery");
+    } catch (reason) {
+      window.history.replaceState({}, document.title, "/recover-password");
+      setTokenHash("");
+      setError(userError(reason, "This password-reset link could not be verified."));
+      setLinkState("invalid");
+      setLoading(false);
+    }
+  }
+
+  return (
+    <CompactAuthPage cardClassName="auth-card-recovery">
+      <Link href="/" className="auth-card-back">
+        <ArrowLeft size={17} /> Back to PRAXIZ
+      </Link>
+      <span className="eyebrow dark">Secure recovery</span>
+      <h2>Reset your PRAXIZ password</h2>
+      {linkState === "checking" ? (
+        <div className="workspace-loading-content" role="status" aria-live="polite">
+          <PraxizLoaderMark />
+          <p>Checking the password-reset link…</p>
+        </div>
+      ) : linkState === "invalid" ? (
+        <div className="auth-recovery-invalid" role="alert">
+          <AlertTriangle aria-hidden="true" />
+          <div>
+            <strong>This password-reset link cannot be used</strong>
+            <p>{error}</p>
+            <Link className="button button-primary" href="/forgot-password">
+              Request a new link
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="form-intro">
+            Continue to verify this one-time recovery link, then choose your new
+            password.
+          </p>
+          <InfoCallout icon={ShieldCheck}>
+            <strong>Your recovery link stays protected</strong>
+            <p>
+              The one-time token is verified only when you choose Continue.
+              Opening or previewing this page does not consume it.
+            </p>
+          </InfoCallout>
+          {error && (
+            <p className="form-error" role="alert">
+              <AlertTriangle size={16} /> {error}
+            </p>
+          )}
+          <ActionButton onClick={() => void accept()} loading={loading}>
+            {loading ? "Verifying…" : "Continue to password reset"}
+          </ActionButton>
+        </>
+      )}
+    </CompactAuthPage>
+  );
+}
+
 function ResetPasswordPage() {
-  const { updatePassword, validatePasswordRecovery } = useAuth();
+  const { updatePassword, validatePasswordSetup } = useAuth();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [complete, setComplete] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [recoveryState, setRecoveryState] = useState<"checking" | "ready" | "invalid">("checking");
+  const [flow, setFlow] = useState<"recovery" | "invitation" | null>(null);
+  const passwordUpdated = useRef(false);
 
   useEffect(() => {
+    if (passwordUpdated.current) return;
     let active = true;
-    void validatePasswordRecovery()
+    const resolvedFlow =
+      new URLSearchParams(window.location.search).get("flow") === "invitation"
+        ? "invitation"
+        : "recovery";
+    setFlow(resolvedFlow);
+    void validatePasswordSetup(resolvedFlow)
       .then(() => {
         if (active) setRecoveryState("ready");
       })
       .catch((reason) => {
-        if (!active) return;
+        if (!active || passwordUpdated.current) return;
         setError(userError(reason, "This password link cannot be used."));
         setRecoveryState("invalid");
       });
     return () => {
       active = false;
     };
-  }, [validatePasswordRecovery]);
+  }, [validatePasswordSetup]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1342,8 +1511,14 @@ function ResetPasswordPage() {
     }
     setLoading(true);
     setError("");
+    if (!flow) {
+      setError("This password link is still being verified. Please wait a moment.");
+      return;
+    }
     try {
-      await updatePassword(password);
+      await updatePassword(password, flow);
+      passwordUpdated.current = true;
+      setRecoveryState("ready");
       setComplete(true);
     } catch (reason) {
       setError(userError(reason, "The password could not be updated."));
@@ -1352,43 +1527,61 @@ function ResetPasswordPage() {
     }
   }
 
+  const invitationFlow = flow === "invitation";
   return (
-    <div className="auth-page">
-      <AuthAside
-        title="Choose a new password."
-        copy="Finish recovering your verified PRAXIZ account securely."
-      />
-      <main className="auth-main">
-        <div className="auth-form-wrap">
-          <span className="eyebrow dark">Account recovery</span>
-          <h2>Set new password</h2>
-          {recoveryState === "checking" ? (
-            <div className="workspace-loading-content" role="status" aria-live="polite">
-              <PraxizLoaderMark />
-              <p>Verifying your secure password link…</p>
-            </div>
-          ) : recoveryState === "invalid" ? (
-            <div className="auth-recovery-invalid" role="alert">
-              <AlertTriangle aria-hidden="true" />
-              <div>
-                <strong>This password link cannot be used</strong>
-                <p>{error}</p>
-                <Link className="button button-primary" href="/forgot-password">Request a new link</Link>
-              </div>
-            </div>
-          ) : complete ? (
+    <CompactAuthPage cardClassName="auth-card-recovery">
+          <Link href="/" className="auth-card-back">
+            <ArrowLeft size={17} /> Back to PRAXIZ
+          </Link>
+          <span className="eyebrow dark">
+            {flow === null ? "Secure access" : invitationFlow ? "Account setup" : "Account recovery"}
+          </span>
+          <h2>{complete ? (invitationFlow ? "Account password created" : "Password updated") : recoveryState === "invalid" ? "This password link cannot be used" : flow === null ? "Checking your password link" : invitationFlow ? "Create your password" : "Set new password"}</h2>
+          {complete ? (
             <>
               <div className="inline-success">
                 <CheckCircle2 />
                 <div>
-                  <strong>Password updated</strong>
-                  <p>You can now sign in using your new password.</p>
+                  <strong>
+                    {invitationFlow ? "Account password created" : "Password updated"}
+                  </strong>
+                  <p>Sign in using your email address and new password.</p>
                 </div>
               </div>
               <Link className="button button-primary" href="/signin">
                 Continue to sign in
               </Link>
             </>
+          ) : recoveryState === "checking" ? (
+            <div className="workspace-loading-content" role="status" aria-live="polite">
+              <PraxizLoaderMark />
+              <p>
+                {flow === null
+                  ? "Verifying your secure password link…"
+                  : invitationFlow
+                  ? "Confirming the accepted invitation…"
+                  : "Verifying your secure password link…"}
+              </p>
+            </div>
+          ) : recoveryState === "invalid" ? (
+            <div className="auth-recovery-invalid" role="alert">
+              <AlertTriangle aria-hidden="true" />
+              <div>
+                <strong>
+                  {invitationFlow
+                    ? "This invitation setup cannot continue"
+                    : "This password link cannot be used"}
+                </strong>
+                <p>{error}</p>
+                <Link
+                  className="button button-primary"
+                  href={invitationFlow ? "/signin" : "/forgot-password"}
+                >
+                  {invitationFlow ? "Go to sign in" : "Request a new link"}
+                </Link>
+                {!invitationFlow && <p className="auth-switch"><Link href="/signin">Return to sign in</Link></p>}
+              </div>
+            </div>
           ) : (
             <form onSubmit={submit} noValidate>
               <PasswordInput
@@ -1418,18 +1611,22 @@ function ResetPasswordPage() {
                 </p>
               )}
               <ActionButton type="submit" disabled={loading}>
-                {loading ? "Updating…" : "Update password"}
+                {loading
+                  ? invitationFlow
+                    ? "Creating…"
+                    : "Updating…"
+                  : invitationFlow
+                    ? "Create password"
+                    : "Update password"}
               </ActionButton>
             </form>
           )}
-          {!complete && recoveryState === "ready" && (
+          {!invitationFlow && !complete && recoveryState === "ready" && (
             <p className="auth-switch">
               <Link href="/forgot-password">Request another reset link</Link>
             </p>
           )}
-        </div>
-      </main>
-    </div>
+    </CompactAuthPage>
   );
 }
 
@@ -1592,12 +1789,22 @@ function ProgramMultiSelect({
 }
 
 type StudentRegistrationSummary = {
+  fullName: string;
   studentNumber: string;
+  campus: string;
+  college: string;
   program: string;
-  yearSection: string;
+  yearLevel: string;
+  section: string;
   academicTerm: string;
   email: string;
 };
+
+function ordinalYearLabel(value: string) {
+  if (value === "3") return "3rd Year";
+  if (value === "4") return "4th Year";
+  return "Not selected";
+}
 
 function RegistrationSectionHeader({
   number,
@@ -1702,6 +1909,10 @@ function RegistrationFields({
   const selectedProgram = programOptions.find(
     (program) => program.id === programId,
   );
+  const selectedCampus = campusOptions.find((campus) => campus.id === campusId);
+  const selectedCollege = collegeOptions.find(
+    (college) => college.id === collegeId,
+  );
   const selectedTerm = registrationOptions?.terms.find(
     (term) => term.id === academicTermId,
   );
@@ -1743,12 +1954,15 @@ function RegistrationFields({
                     : "";
     onValidityChange?.(studentFormValid, reason);
     onSummaryChange?.({
+      fullName: fullName.trim() || "Not entered",
       studentNumber: studentNumber.trim(),
+      campus: selectedCampus?.name ?? selectedCampus?.shortName ?? "Not selected",
+      college: selectedCollege?.name ?? "Not selected",
       program: selectedProgram
         ? `${selectedProgram.code} — ${selectedProgram.name}`
         : "Not selected",
-      yearSection:
-        yearLevel && section ? `${yearLevel}th Year · ${section}` : "Not selected",
+      yearLevel: ordinalYearLabel(yearLevel),
+      section: section || "Not selected",
       academicTerm: selectedTerm
         ? `${selectedTerm.academicYear} · ${selectedTerm.term}`
         : "Not available",
@@ -1770,6 +1984,8 @@ function RegistrationFields({
     programId,
     section,
     selectedProgram,
+    selectedCampus,
+    selectedCollege,
     selectedTerm,
     studentFormValid,
     studentNumber,
@@ -2144,9 +2360,13 @@ function RegisterPage() {
   const [fieldsValid, setFieldsValid] = useState(false);
   const [invalidReason, setInvalidReason] = useState("Complete the required fields.");
   const [summary, setSummary] = useState<StudentRegistrationSummary>({
+    fullName: "Not entered",
     studentNumber: "",
+    campus: "Not selected",
+    college: "Not selected",
     program: "Not selected",
-    yearSection: "Not selected",
+    yearLevel: "Not selected",
+    section: "Not selected",
     academicTerm: "Not available",
     email: "",
   });
@@ -2215,8 +2435,11 @@ function RegisterPage() {
         ...pendingRegistration,
       });
       sessionStorage.setItem(
-        "praxiz-registration-email",
-        pendingRegistration.email,
+        "praxiz-registration-submission",
+        JSON.stringify({
+          email: pendingRegistration.email,
+          submittedAt: new Date().toISOString(),
+        }),
       );
       window.location.href = "/register/success";
     } catch (reason) {
@@ -2315,36 +2538,37 @@ function RegisterPage() {
       </main>
       {pendingRegistration && (
         <Dialog
-          title="Submit registration?"
+          title="Review your registration"
           onClose={() => setPendingRegistration(null)}
           protectChanges={false}
           busy={loading}
+          className="registration-review-dialog"
         >
-          <dl className="info-list registration-confirmation">
-            <div>
-              <dt>Student Number</dt>
-              <dd>{summary.studentNumber}</dd>
-            </div>
-            <div>
-              <dt>Program</dt>
-              <dd>{summary.program}</dd>
-            </div>
-            <div>
-              <dt>Year / Section</dt>
-              <dd>{summary.yearSection}</dd>
-            </div>
-            <div>
-              <dt>Academic Term</dt>
-              <dd>{summary.academicTerm}</dd>
-            </div>
-            <div>
-              <dt>Institutional Email</dt>
-              <dd>{summary.email}</dd>
-            </div>
-          </dl>
+          <div className="registration-confirmation">
+            <section>
+              <h3>Identity</h3>
+              <dl className="info-list">
+                <div><dt>Full name</dt><dd>{summary.fullName}</dd></div>
+                <div><dt>Student number</dt><dd>{summary.studentNumber}</dd></div>
+                <div><dt>Institutional email</dt><dd>{summary.email}</dd></div>
+              </dl>
+            </section>
+            <section>
+              <h3>Academic information</h3>
+              <dl className="info-list">
+                <div><dt>Campus</dt><dd>{summary.campus}</dd></div>
+                <div><dt>College / academic unit</dt><dd>{summary.college}</dd></div>
+                <div><dt>Program</dt><dd>{summary.program}</dd></div>
+                <div><dt>Year level</dt><dd>{summary.yearLevel}</dd></div>
+                <div><dt>Section</dt><dd>{summary.section}</dd></div>
+                <div><dt>Academic term</dt><dd>{summary.academicTerm}</dd></div>
+              </dl>
+            </section>
+          </div>
           <p className="form-hint">
-            Supabase will send an ownership-verification email before the
-            registration can proceed to institutional review.
+            After submission, check your institutional inbox and verify that
+            you own the email address. Your registration then remains pending
+            until an authorized administrator completes institutional review.
           </p>
           <div className="modal-actions">
             <ActionButton
@@ -2368,12 +2592,49 @@ function RegisterPage() {
 }
 
 function RegistrationSuccessPage() {
-  const [registeredEmail] = useState(() =>
-    typeof window === "undefined"
-      ? ""
-      : (sessionStorage.getItem("praxiz-registration-email") ?? ""),
-  );
+  const [registeredEmail] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      const raw = sessionStorage.getItem("praxiz-registration-submission");
+      if (!raw) return "";
+      const parsed = JSON.parse(raw) as { email?: unknown; submittedAt?: unknown };
+      return typeof parsed.email === "string" &&
+        typeof parsed.submittedAt === "string"
+        ? parsed.email
+        : "";
+    } catch {
+      return "";
+    }
+  });
   const inbox = inboxLinkForEmail(registeredEmail);
+  if (!registeredEmail) {
+    return (
+      <div className="success-page registration-success-page">
+        <PublicHeader />
+        <main>
+          <section className="registration-success-card registration-success-missing">
+            <span className="success-icon registration-status-neutral">
+              <AlertTriangle size={38} />
+            </span>
+            <span className="eyebrow dark">Registration status</span>
+            <h1>No recent submission found</h1>
+            <p>
+              This page cannot confirm that a registration was submitted. Start
+              a registration or return to sign in if you already have an account.
+            </p>
+            <div className="registration-success-actions">
+              <Link className="button button-secondary" href="/register">
+                Create Student Intern account
+              </Link>
+              <Link className="button button-primary" href="/signin">
+                Go to sign in
+              </Link>
+            </div>
+          </section>
+        </main>
+      </div>
+    );
+  }
   return (
     <div className="success-page registration-success-page">
       <PublicHeader />
@@ -2385,15 +2646,16 @@ function RegistrationSuccessPage() {
           <span className="eyebrow dark">Application received</span>
           <h1>Registration submitted</h1>
           <p>
-            Your institutional format was accepted. Confirm that you own the
-            PSU mailbox, then wait for institutional review before signing in.
+            Your application was submitted for {registeredEmail}. Complete the
+            separate email-verification and institutional-review steps before
+            signing in.
           </p>
           <ol className="registration-success-steps">
             <li>
               <span>1</span>
               <div>
                 <strong>Verify your email address</strong>
-                <small>Open the Supabase verification message sent to your PSU inbox.</small>
+                <small>Open the verification message sent to your institutional inbox.</small>
               </div>
             </li>
             <li>
@@ -2972,7 +3234,9 @@ function StudentDashboard() {
         />
       </>
     );
-  const hoursPercent = data.requiredHours
+  const hasRequiredHours =
+    data.requiredHours != null && data.requiredHours > 0;
+  const hoursPercent = data.requiredHours != null && hasRequiredHours
     ? Math.min(100, Math.round((data.renderedHours / data.requiredHours) * 100))
     : 0;
   const logsPercent = data.logsExpected
@@ -2982,7 +3246,9 @@ function StudentDashboard() {
   const documentPercent = hasDocumentRequirements
     ? Math.round((data.documentsApproved / data.documentsRequired) * 100)
     : 0;
-  const remainingHours = Math.max(0, data.requiredHours - data.renderedHours);
+  const remainingHours = data.requiredHours != null && hasRequiredHours
+    ? Math.max(0, data.requiredHours - data.renderedHours)
+    : null;
   return (
     <>
       <PageHeader
@@ -2998,7 +3264,11 @@ function StudentDashboard() {
         <StatCard
           label="Rendered hours"
           value={String(data.renderedHours)}
-          detail={`/ ${data.requiredHours} verified hours`}
+          detail={
+            hasRequiredHours
+              ? `/ ${data.requiredHours} required hours`
+              : "Required hours not configured"
+          }
           icon={Clock3}
           progress={hoursPercent}
         />
@@ -3040,17 +3310,29 @@ function StudentDashboard() {
               <h2>Internship progress</h2>
               <StatusBadge status={data.status} />
             </div>
-            <div className="metric-row">
-              <span>
-                {data.renderedHours} of {data.requiredHours} verified hours
-              </span>
-              <strong>{hoursPercent}% of required hours</strong>
-            </div>
-            <ProgressBar value={hoursPercent} />
-            <p className="muted-note">
-              {remainingHours} verified hours remain. Pending attendance will
-              not count until it is reviewed.
-            </p>
+            {hasRequiredHours ? (
+              <>
+                <div className="metric-row">
+                  <span>
+                    {data.renderedHours} of {data.requiredHours} verified hours
+                  </span>
+                  <strong>{hoursPercent}% of required hours</strong>
+                </div>
+                <ProgressBar value={hoursPercent} />
+                <p className="muted-note">
+                  {remainingHours} verified hours remain. Pending attendance
+                  will not count until it is reviewed.
+                </p>
+              </>
+            ) : (
+              <InfoCallout icon={AlertTriangle}>
+                <strong>Required hours are not configured</strong>
+                <p>
+                  Your verified attendance is preserved. Ask your Internship
+                  Coordinator to configure the requirement for this assignment.
+                </p>
+              </InfoCallout>
+            )}
           </section>
           <section className="card">
             <h2>Quick actions</h2>
@@ -3120,7 +3402,11 @@ function StudentDashboard() {
               </div>
               <div>
                 <dt>Required hours</dt>
-                <dd>{data.requiredHours} hours</dd>
+                <dd>
+                  {hasRequiredHours
+                    ? `${data.requiredHours} hours`
+                    : "Not configured"}
+                </dd>
               </div>
             </dl>
           </section>
@@ -4210,11 +4496,14 @@ function AttendancePage({ role }: { role: RoleId }) {
     useState<AttendanceHistoryRow | null>(null);
   const [progress, setProgress] = useState<StudentProgressSummary | null>(null);
   const renderedHours = progress?.renderedHours ?? 0;
-  const requiredHours = progress?.requiredHours ?? 0;
-  const hoursPercent = requiredHours
+  const requiredHours = progress?.requiredHours ?? null;
+  const hasRequiredHours = requiredHours != null && requiredHours > 0;
+  const hoursPercent = hasRequiredHours
     ? Math.min(100, Math.round((renderedHours / requiredHours) * 100))
     : 0;
-  const remainingHours = Math.max(0, requiredHours - renderedHours);
+  const remainingHours = hasRequiredHours
+    ? Math.max(0, requiredHours - renderedHours)
+    : null;
   const attendanceMonths = [
     ...new Set(attendanceRows.map((row) => row.workDate.slice(5, 7))),
   ].sort();
@@ -4520,21 +4809,32 @@ function AttendancePage({ role }: { role: RoleId }) {
               <span>Verified rendered hours</span>
             </div>
             <div>
-              <strong>{requiredHours} hrs</strong>
+              <strong>{hasRequiredHours ? `${requiredHours} hrs` : "Not configured"}</strong>
               <span>Required internship hours</span>
             </div>
             <div>
-              <strong className="orange-text">{remainingHours} hrs</strong>
+              <strong className="orange-text">
+                {remainingHours == null ? "Not available" : `${remainingHours} hrs`}
+              </strong>
               <span>Remaining verified hours</span>
             </div>
             <div className="hours-progress">
-              <div className="metric-row">
-                <span>
-                  {renderedHours} of {requiredHours} verified hours
+              {hasRequiredHours ? (
+                <>
+                  <div className="metric-row">
+                    <span>
+                      {renderedHours} of {requiredHours} verified hours
+                    </span>
+                    <strong>{hoursPercent}%</strong>
+                  </div>
+                  <ProgressBar value={hoursPercent} />
+                </>
+              ) : (
+                <span className="muted-note">
+                  Progress percentage will appear after required hours are
+                  configured. Attendance recording remains available.
                 </span>
-                <strong>{hoursPercent}%</strong>
-              </div>
-              <ProgressBar value={hoursPercent} />
+              )}
             </div>
           </section>
           <div className="stats-grid three">
@@ -4841,6 +5141,7 @@ function WeeklyLogRecordContent({
               : "Record saved"}
         </p>
       </div>
+      <WeeklyLogPhotoEvidence log={log} />
       {log.latestFeedback && (
         <section className="weekly-log-feedback">
           <h4>Coordinator feedback</h4>
@@ -5019,6 +5320,7 @@ function StudentWeeklyLogDialog({
             </label>
           </div>
         </fieldset>
+        {log ? <WeeklyLogPhotoEvidence log={log} editable /> : <p className="muted-note">Save a draft first to attach Daily Activity Evidence or request a photo exception.</p>}
         {error && (
           <p className="form-error">
             <AlertTriangle size={16} /> {error}
@@ -5286,6 +5588,7 @@ function WeeklyLogsPage({ role }: { role: RoleId }) {
           tone="orange"
         />
       </div>
+      {role === "hte" && <HtePhotoPolicy />}
       <section className="card table-card weekly-log-table">
         <h2>Weekly Log history</h2>
         <div className="table-scroll">
@@ -5896,7 +6199,9 @@ function ProgressPage() {
         />
       </>
     );
-  const hoursPercent = data.requiredHours
+  const hasRequiredHours =
+    data.requiredHours != null && data.requiredHours > 0;
+  const hoursPercent = data.requiredHours != null && hasRequiredHours
     ? Math.min(100, Math.round((data.renderedHours / data.requiredHours) * 100))
     : 0;
   const attendancePercent = data.attendanceRate;
@@ -5907,7 +6212,9 @@ function ProgressPage() {
   const documentPercent = hasDocumentRequirements
     ? Math.round((data.documentsApproved / data.documentsRequired) * 100)
     : 0;
-  const remainingHours = Math.max(0, data.requiredHours - data.renderedHours);
+  const remainingHours = data.requiredHours != null && hasRequiredHours
+    ? Math.max(0, data.requiredHours - data.renderedHours)
+    : null;
   const preInternshipRequirements = data.requirements.filter(
     (item) =>
       item.name === "Acceptance Form" ||
@@ -5940,9 +6247,13 @@ function ProgressPage() {
       done: data.finalizedEvaluationCount > 0,
     },
     {
-      title: `Complete ${data.requiredHours} required hours`,
-      date: `${data.renderedHours} of ${data.requiredHours} verified hours`,
-      done: hoursPercent >= 100,
+      title: hasRequiredHours
+        ? `Complete ${data.requiredHours} required hours`
+        : "Required hours not configured",
+      date: hasRequiredHours
+        ? `${data.renderedHours} of ${data.requiredHours} verified hours`
+        : `${data.renderedHours} verified hours preserved; coordinator action required`,
+      done: hasRequiredHours && hoursPercent >= 100,
     },
     {
       title: "Final evaluation and clearance",
@@ -5964,10 +6275,11 @@ function ProgressPage() {
       <section className="progress-hero card">
         <div>
           <span className="eyebrow dark">Verified-hour completion</span>
-          <strong>{hoursPercent}%</strong>
+          <strong>{hasRequiredHours ? `${hoursPercent}%` : "—"}</strong>
           <p>
-            {data.renderedHours} verified hours · {remainingHours} hours
-            remaining
+            {hasRequiredHours
+              ? `${data.renderedHours} verified hours · ${remainingHours} hours remaining`
+              : `${data.renderedHours} verified hours · requirement not configured`}
           </p>
         </div>
         <div
@@ -5980,11 +6292,21 @@ function ProgressPage() {
               : undefined
           }
           role="img"
-          aria-label={`${hoursPercent}% verified-hour completion`}
+          aria-label={
+            hasRequiredHours
+              ? `${hoursPercent}% verified-hour completion`
+              : "Verified-hour completion unavailable because required hours are not configured"
+          }
         >
           <span>
-            {hoursPercent}
-            <small>%</small>
+            {hasRequiredHours ? (
+              <>
+                {hoursPercent}
+                <small>%</small>
+              </>
+            ) : (
+              <small>Not configured</small>
+            )}
           </span>
         </div>
       </section>
@@ -9905,8 +10227,11 @@ function RequirementsSetupPage() {
   const [hours, setHours] = useState("");
   const [applyToCurrentAssignments, setApplyToCurrentAssignments] =
     useState(false);
+  const [propagationReason, setPropagationReason] = useState("");
+  const [impactCount, setImpactCount] = useState<number | null>(null);
   const [pendingSave, setPendingSave] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [previewing, setPreviewing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -9940,12 +10265,38 @@ function RequirementsSetupPage() {
       record.academicProgramId === programId &&
       (record.section ?? "") === section,
   );
-  function prepareSave(event: FormEvent<HTMLFormElement>) {
+  async function prepareSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!Number(hours)) return;
-    if (applyToCurrentAssignments || (existing && existing.requiredHours !== Number(hours)))
+    if (
+      applyToCurrentAssignments ||
+      (existing && existing.requiredHours !== Number(hours))
+    ) {
+      if (applyToCurrentAssignments) {
+        setPreviewing(true);
+        setError("");
+        try {
+          setImpactCount(
+            await coordinatorService.previewRequirementScope({
+              academicTermId: termId,
+              academicProgramId: programId,
+              section: section || undefined,
+              requiredHours: Number(hours),
+            }),
+          );
+        } catch (reason) {
+          setError(
+            userError(reason, "The active-assignment impact could not be checked."),
+          );
+          return;
+        } finally {
+          setPreviewing(false);
+        }
+      } else {
+        setImpactCount(null);
+      }
       setPendingSave(true);
-    else void save();
+    } else void save();
   }
   async function save() {
     setSaving(true);
@@ -9957,9 +10308,13 @@ function RequirementsSetupPage() {
         section: section || undefined,
         requiredHours: Number(hours),
         applyToCurrentAssignments,
+        reason: applyToCurrentAssignments ? propagationReason : undefined,
       });
       await load();
       setPendingSave(false);
+      setImpactCount(null);
+      setPropagationReason("");
+      setApplyToCurrentAssignments(false);
       setNotice(
         applyToCurrentAssignments
           ? `Required-hour configuration saved and applied to ${result.updatedAssignments} current active assignment${result.updatedAssignments === 1 ? "" : "s"}. Completed and historical records were preserved.`
@@ -10001,7 +10356,7 @@ function RequirementsSetupPage() {
             Section-specific requirement.
           </p>
         </div>
-        <form className="requirement-setup-form" onSubmit={prepareSave}>
+        <form className="requirement-setup-form" onSubmit={(event) => void prepareSave(event)}>
           <label className="field">
             <span>Academic term</span>
             <select
@@ -10010,6 +10365,7 @@ function RequirementsSetupPage() {
               onChange={(event) => {
                 setTermId(event.target.value);
                 setHours("");
+                setImpactCount(null);
               }}
             >
               <option value="" disabled>
@@ -10030,6 +10386,7 @@ function RequirementsSetupPage() {
               onChange={(event) => {
                 setProgramId(event.target.value);
                 setHours("");
+                setImpactCount(null);
               }}
             >
               <option value="" disabled>
@@ -10049,6 +10406,7 @@ function RequirementsSetupPage() {
               onChange={(event) => {
                 setSection(event.target.value);
                 setHours("");
+                setImpactCount(null);
               }}
             >
               <option value="">All sections</option>
@@ -10075,9 +10433,11 @@ function RequirementsSetupPage() {
             <input
               type="checkbox"
               checked={applyToCurrentAssignments}
-              onChange={(event) =>
-                setApplyToCurrentAssignments(event.target.checked)
-              }
+              onChange={(event) => {
+                setApplyToCurrentAssignments(event.target.checked);
+                setImpactCount(null);
+                if (!event.target.checked) setPropagationReason("");
+              }}
             />
             <span>
               Apply this requirement to matching current active assignments
@@ -10090,10 +10450,17 @@ function RequirementsSetupPage() {
           <ActionButton
             type="submit"
             disabled={
-              loading || saving || !termId || !programId || !Number(hours)
+              loading ||
+              saving ||
+              previewing ||
+              !termId ||
+              !programId ||
+              !Number(hours)
             }
           >
-            {saving
+            {previewing
+              ? "Checking impact…"
+              : saving
               ? "Saving…"
               : existing
                 ? "Update configuration"
@@ -10163,6 +10530,15 @@ function RequirementsSetupPage() {
             <div><dt>Program</dt><dd>{programs.find((program) => program.id === programId)?.code ?? "Selected program"}</dd></div>
             <div><dt>Section</dt><dd>{section ? `Section ${section}` : "All sections"}</dd></div>
             <div><dt>Required hours</dt><dd>{hours} hours</dd></div>
+            {applyToCurrentAssignments && (
+              <div>
+                <dt>Active snapshots affected</dt>
+                <dd>
+                  {impactCount ?? 0} matching active assignment
+                  {(impactCount ?? 0) === 1 ? "" : "s"}
+                </dd>
+              </div>
+            )}
           </dl>
           {existing && existing.requiredHours !== Number(hours) && <p>
             This changes the configuration from <strong>{existing.requiredHours}</strong> to <strong>{hours}</strong> hours for this scope.
@@ -10174,6 +10550,23 @@ function RequirementsSetupPage() {
                 : "This applies only to future assignments. Every existing assignment keeps its original required-hour snapshot."}
             </p>
           </InfoCallout>
+          {applyToCurrentAssignments && (
+            <label className="field">
+              <span>Reason for updating active assignments *</span>
+              <textarea
+                required
+                minLength={10}
+                maxLength={500}
+                value={propagationReason}
+                onChange={(event) => setPropagationReason(event.target.value)}
+                placeholder="Explain why matching active assignment snapshots must change"
+              />
+              <small>
+                This reason is stored with the previous value, new value,
+                authorized user, and timestamp.
+              </small>
+            </label>
+          )}
           <div className="modal-actions">
             <ActionButton
               variant="secondary"
@@ -10181,7 +10574,14 @@ function RequirementsSetupPage() {
             >
               Cancel
             </ActionButton>
-            <ActionButton onClick={() => void save()}>
+            <ActionButton
+              disabled={
+                saving ||
+                (applyToCurrentAssignments &&
+                  propagationReason.trim().length < 10)
+              }
+              onClick={() => void save()}
+            >
               {saving
                 ? "Saving…"
                 : applyToCurrentAssignments
@@ -12868,6 +13268,8 @@ function PraxizRouter() {
   if (pathname === "/terms") return <PolicyPage kind="terms" />;
   if (pathname === "/signin" || pathname === "/login") return <SignInPage />;
   if (pathname === "/forgot-password") return <ForgotPasswordPage />;
+  if (pathname === "/accept-invitation") return <AcceptInvitationPage />;
+  if (pathname === "/recover-password") return <AcceptPasswordRecoveryPage />;
   if (pathname === "/reset-password") return <ResetPasswordPage />;
   if (pathname === "/register/success") return <RegistrationSuccessPage />;
   if (pathname === "/register") return <RegisterPage />;

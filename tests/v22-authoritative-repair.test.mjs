@@ -37,7 +37,7 @@ test("V22 repeats student registration validation on the server and limits activ
   assert.match(migration, /term\.is_current or term\.configuration_status = 'configured'/);
   assert.match(app, /STUDENT_YEAR_LEVEL_OPTIONS/);
   assert.match(app, /registration-section-heading/);
-  assert.match(app, /title="Submit registration\?"/);
+  assert.match(app, /title="Review your registration"/);
 });
 
 test("V22 HTE intern and work-configuration reads are scoped server-side", () => {

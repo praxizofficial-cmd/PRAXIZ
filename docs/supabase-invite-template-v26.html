@@ -1,0 +1,17 @@
+<!--
+  PRAXIZ v26 Supabase "Invite user" email action URL.
+
+  Deployment order is security-sensitive:
+  1. Deploy the application version that contains /accept-invitation.
+  2. Verify the route is live and GET-safe.
+  3. Only then replace the action link in the live Supabase Invite user template.
+
+  Do not use {{ .ConfirmationURL }} for this invitation flow. Email scanners can
+  prefetch that URL and consume the one-time credential before the recipient.
+-->
+<a
+  href="{{ .SiteURL }}/accept-invitation?token_hash={{ .TokenHash }}&amp;type=invite"
+  style="display:inline-block;padding:12px 20px;border-radius:8px;background:#1d4ed8;color:#ffffff;font-family:Arial,sans-serif;font-weight:700;text-decoration:none"
+>
+  Accept PRAXIZ invitation
+</a>

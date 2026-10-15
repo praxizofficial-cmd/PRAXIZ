@@ -12,7 +12,8 @@
     "start": "vinext start",
     "test": "npm run build && node --experimental-strip-types --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "release:check": "npm run lint && npm test && npm run build:vercel",
+    "release:check": "npm run lint && npm test && npm run test:photo-database && npm run build:vercel",
+    "test:photo-database": "node tests/v26-photo-database.mjs",
     "supabase:types": "supabase gen types typescript --linked > lib/supabase/database.types.ts"
   },
   "dependencies": {
@@ -24,10 +25,12 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "^10.1.0",
+    "sharp": "0.35.2",
     "tslib": "2.8.1"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.54.4",
+    "@electric-sql/pglite": "0.5.9",
     "@eslint/js": "9.39.4",
     "@next/eslint-plugin-next": "16.2.6",
     "@tailwindcss/postcss": "4.2.1",

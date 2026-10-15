@@ -56,10 +56,16 @@ export default function PraxizAiAssistant() {
   const [copiedId, setCopiedId] = useState('');
   const conversationRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const stickToLatestRef = useRef(true);
   const role = user?.role ?? 'student';
 
   useEffect(() => {
-    if (open) conversationRef.current?.scrollTo({ top: conversationRef.current.scrollHeight });
+    if (!open || !stickToLatestRef.current) return;
+    const conversation = conversationRef.current;
+    conversation?.scrollTo({
+      top: conversation.scrollHeight,
+      behavior: messages.length ? "smooth" : "auto",
+    });
   }, [messages, loading, open]);
 
   async function sendPrompt(prompt: string, history: ChatMessage[] = messages) {
@@ -67,6 +73,7 @@ export default function PraxizAiAssistant() {
     if (!trimmed || loading) return;
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: 'user', content: trimmed };
     const pending = [...history, userMessage];
+    stickToLatestRef.current = true;
     setMessages(pending);
     setMessage('');
     if (composerRef.current) composerRef.current.style.height = '54px';
@@ -130,10 +137,15 @@ export default function PraxizAiAssistant() {
   const suggestions = roleSuggestions[role];
   const contextualAction = (content: string) => roleActions[role].find(action => action.pattern.test(content));
   return <>
-    <button type="button" className="ai-assistant-trigger" onClick={() => setOpen(true)} aria-label="Open PRAXIZ AI Assistant" title="Open PRAXIZ AI Assistant">✦</button>
+    <button type="button" className="ai-assistant-trigger" onClick={() => { stickToLatestRef.current = true; setOpen(true); }} aria-label="Open PRAXIZ AI Assistant" title="Open PRAXIZ AI Assistant">✦</button>
     {open && <Dialog title="PRAXIZ AI Assistant" onClose={() => setOpen(false)} busy={loading} protectChanges={false} className="ai-chat-dialog">
       <div className="ai-chat-status"><Sparkles size={17} aria-hidden="true" /><span><strong>{role === 'hte' ? 'HTE Representative' : role === 'coordinator' ? 'Internship Coordinator' : role === 'placement' ? 'Placement Head' : role === 'admin' ? 'System Administrator' : 'Student Intern'}</strong> · trusted role context · AI responses may require verification</span></div>
-      <div className="ai-chat-conversation" ref={conversationRef} aria-live="polite" aria-busy={loading}>
+      <div className="ai-chat-conversation" ref={conversationRef} onScroll={() => {
+        const conversation = conversationRef.current;
+        if (!conversation) return;
+        stickToLatestRef.current =
+          conversation.scrollHeight - conversation.scrollTop - conversation.clientHeight < 72;
+      }} aria-live="polite" aria-busy={loading}>
         {messages.length === 0 ? <div className="ai-chat-welcome">
           <span className="ai-chat-mark" aria-hidden="true">✦</span>
           <h3>How can I help with PRAXIZ?</h3>

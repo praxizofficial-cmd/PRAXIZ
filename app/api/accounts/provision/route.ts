@@ -343,7 +343,7 @@ export async function POST(request: Request) {
       .single();
     if (authorizationError) throw authorizationError;
 
-    const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin}/reset-password`;
+    const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin}/accept-invitation`;
     const { data: invited, error: inviteError } =
       await admin.auth.admin.inviteUserByEmail(email, {
         redirectTo,
