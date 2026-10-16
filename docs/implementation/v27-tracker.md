@@ -141,7 +141,7 @@ The supplied `V27_PAGE_BY_PAGE_REQUIREMENTS_INDEX.md` remains the numbered accep
 ## Known blocked decisions / production gates
 
 1. Student document withdrawal when `due_at` is null: institutional policy is not supplied. The safe implementation will deny withdrawal until policy is confirmed.
-2. Production migrations were dry-run first, then applied as the exact reviewed three-migration set. Application deployment and production smoke verification remain the release gate.
+2. Production migrations were dry-run first, then applied as the exact reviewed three-migration set. The connected Vercel deployment completed and public-route smoke checks passed; authenticated role-by-role production checks remain intentionally non-mutating.
 3. Missing official resource files, if any are required beyond the nine supplied forms: do not fabricate replacements.
 
 ## Phase 6 change log — staging migration and v27 placement/HTE polish
@@ -159,7 +159,7 @@ The supplied `V27_PAGE_BY_PAGE_REQUIREMENTS_INDEX.md` remains the numbered accep
 
 - The staging-targeted app is running locally on port 3002 and the public sign-in page renders correctly.
 - Authenticated role-by-role browser verification requires a staging test-account session; no credential was requested, entered, or stored by Codex.
-- Production remains unchanged and the repository CLI intentionally remains linked to staging.
+- The repository CLI remained linked to staging through staged verification; it was switched to production only for the reviewed dry run and migration deployment, then returned to staging.
 
 ## Phase 7 consolidated pre-deployment gate
 
@@ -178,3 +178,9 @@ The supplied `V27_PAGE_BY_PAGE_REQUIREMENTS_INDEX.md` remains the numbered accep
 
 - The dry run listed exactly `20261016000000`, `20261016010000`, and `20261016020000`; it listed no seeds or role changes.
 - Those three migrations were applied successfully to production, and the post-apply migration list matches the repository through `20261016020000`.
+
+### Production application deployment
+
+- Commit `f559496` was pushed to the production `main` branch; the connected Vercel deployment reported successful completion.
+- Live smoke checks returned HTTP 200 for `/`, `/signin`, `/forgot-password`, and `/contact`.
+- No real-user credentials, attendance records, documents, evaluations, or production workflow state were changed during smoke verification.
