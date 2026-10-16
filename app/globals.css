@@ -12926,6 +12926,12 @@ html[data-theme="dark"] .analytics-story .analytics-flow-lines defs path {
 .feedback-detail-message p {
   overflow-wrap: anywhere;
 }
+.support-message-dialog {
+  width: min(680px, calc(100vw - 32px));
+}
+.support-message-dialog .feedback-detail-message {
+  min-height: 0;
+}
 
 @media (max-width: 760px) {
   .partner-hte-card .inline-actions {

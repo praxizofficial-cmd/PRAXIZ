@@ -154,14 +154,15 @@ export function dailyFormValues(
   sessions: MonthlyDtrSessionSnapshot[],
   dailyRequiredHours: number | null,
 ): FormDay {
+  // Retain this argument for snapshot/API compatibility. Daily required hours
+  // are workload targets, not an authorized attendance schedule.
+  void dailyRequiredHours;
   const values = {
     amArrival: [] as string[],
     amDeparture: [] as string[],
     pmArrival: [] as string[],
     pmDeparture: [] as string[],
   };
-  let workedMinutes = 0;
-  let completeVerifiedDay = sessions.length > 0;
   for (const session of [...sessions].sort((a, b) =>
     (a.timeInAt ?? "").localeCompare(b.timeInAt ?? ""),
   )) {
@@ -179,20 +180,12 @@ export function dailyFormValues(
       values[departure.period === "AM" ? "amDeparture" : "pmDeparture"].push(
         departure.value,
       );
-    if (session.status !== "verified" || session.verifiedMinutes == null || !arrival || !departure)
-      completeVerifiedDay = false;
-    workedMinutes += session.verifiedMinutes ?? 0;
   }
-  const requiredMinutes =
-    dailyRequiredHours != null &&
-    Number.isFinite(dailyRequiredHours) &&
-    dailyRequiredHours > 0
-      ? Math.round(dailyRequiredHours * 60)
-      : null;
-  const undertime =
-    completeVerifiedDay && requiredMinutes != null
-      ? Math.max(0, requiredMinutes - workedMinutes)
-      : 0;
+  // The HTE's daily-hours requirement is a workload target, not an approved
+  // arrival/departure schedule. Form 48 undertime is therefore intentionally
+  // blank until PRAXIZ has a separately authorized schedule from which lateness
+  // and undertime can be determined without inventing policy.
+  const undertime = 0;
   return {
     amArrival: values.amArrival.join("/"),
     amDeparture: values.amDeparture.join("/"),

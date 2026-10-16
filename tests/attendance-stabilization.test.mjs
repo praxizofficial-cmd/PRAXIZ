@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import {
+  attendanceDurationMinutes,
   attendanceDecisionBlock,
+  originalAttendancePair,
   resolveAttendancePair,
 } from "../app/services/attendance-stabilization.ts";
 
@@ -33,6 +35,81 @@ test("complete original pair is authoritative and verifiable", () => {
   );
   assert.match(migration, /greatest\(\s*1,/);
   assert.match(migration, /for update;/);
+});
+
+test("authoritative duration handles required v28 minute, overnight, and incomplete cases", () => {
+  assert.equal(
+    attendanceDurationMinutes({
+      timeInAt: "2026-10-16T00:00:00.000Z",
+      timeOutAt: "2026-10-16T04:00:00.000Z",
+    }),
+    240,
+  );
+  assert.equal(
+    attendanceDurationMinutes({
+      timeInAt: "2026-10-16T05:00:00.000Z",
+      timeOutAt: "2026-10-16T09:00:00.000Z",
+    }),
+    240,
+  );
+  assert.equal(
+    attendanceDurationMinutes({
+      timeInAt: "2026-10-16T00:00:00.000Z",
+      timeOutAt: "2026-10-16T09:00:00.000Z",
+    }),
+    540,
+  );
+  assert.equal(
+    attendanceDurationMinutes({
+      timeInAt: "2026-10-16T12:45:00.000Z",
+      timeOutAt: "2026-10-16T14:02:00.000Z",
+    }),
+    77,
+  );
+  assert.equal(
+    attendanceDurationMinutes({
+      timeInAt: "2026-10-16T15:00:00.000Z",
+      timeOutAt: "2026-10-16T18:00:00.000Z",
+    }),
+    180,
+  );
+  assert.equal(
+    attendanceDurationMinutes({
+      timeInAt: "2026-10-16T00:00:00.000Z",
+      timeOutAt: null,
+    }),
+    null,
+  );
+});
+
+test("duplicate/retried punches resolve to earliest Time In and latest Time Out regardless of row order", () => {
+  const pair = originalAttendancePair([
+    { event_type: "time_out", occurred_at: "2026-10-16T09:02:00.000Z" },
+    { event_type: "time_in", occurred_at: "2026-10-16T08:45:00.000Z" },
+    { event_type: "time_out", occurred_at: "2026-10-16T10:02:00.000Z" },
+    { event_type: "time_in", occurred_at: "2026-10-16T08:46:00.000Z" },
+  ]);
+  assert.deepEqual(pair, {
+    timeInAt: "2026-10-16T08:45:00.000Z",
+    timeOutAt: "2026-10-16T10:02:00.000Z",
+  });
+  assert.equal(attendanceDurationMinutes(pair), 77);
+});
+
+test("database migration rounds elapsed seconds once and prevents overlap double counting", async () => {
+  const v28 = fs.readFileSync(
+    new URL(
+      "../supabase/migrations/20261017000000_v28_attendance_accuracy.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(v28, /round\(extract\(epoch from \(time_out_at - time_in_at\)\) \/ 60\.0\)/);
+  assert.match(v28, /min\(event\.occurred_at\).*event_type = 'time_in'/s);
+  assert.match(v28, /max\(event\.occurred_at\).*event_type = 'time_out'/s);
+  assert.match(v28, /merged_intervals/);
+  assert.match(v28, /security_invoker = true/);
+  assert.doesNotMatch(v28, /update\s+public\.attendance_(events|verifications)/i);
 });
 
 test("missing event blocks Verify with a specific reason", () => {

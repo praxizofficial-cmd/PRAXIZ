@@ -34,6 +34,8 @@ test("support UI separates read state, case state, and truthful correspondence h
   assert.match(app, /item\.readStatus === "Unread"/);
   assert.match(app, /item\.caseStatus === "Resolved"/);
   assert.match(app, /Response history/);
+  assert.match(app, /title="Support message details"/);
+  assert.match(app, /<h4>Subject<\/h4>/);
   assert.match(app, /contact-form address is unverified/);
   assert.match(app, /I confirm this reply contains no private account or internship information/);
   assert.match(app, /Resolve case/);

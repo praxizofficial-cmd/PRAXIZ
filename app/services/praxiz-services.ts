@@ -23,7 +23,9 @@ import {
   type CoordinatorProgramStudent,
 } from "./coordinator-routing";
 import {
+  attendanceDurationMinutes,
   attendanceDecisionBlock,
+  originalAttendancePair,
   resolveAttendancePair,
 } from "./attendance-stabilization";
 import { academicTermLabel, type AcademicTermCode } from "../academic-options";
@@ -1057,14 +1059,7 @@ function resolveAttendanceRowPair(row: AttendanceSessionRow) {
   const events = row.attendance_events ?? [];
   const correction = latestAttendanceCorrection(row);
   return resolveAttendancePair({
-    original: {
-      timeInAt:
-        events.find((event) => event.event_type === "time_in")?.occurred_at ??
-        null,
-      timeOutAt:
-        events.find((event) => event.event_type === "time_out")?.occurred_at ??
-        null,
-    },
+    original: originalAttendancePair(events),
     correction: correction
       ? {
           status: correction.status,
@@ -1106,7 +1101,8 @@ function displayDate(value: string) {
 
 export const internshipService = {
   async listHteInterns(): Promise<Intern[]> {
-    const { data, error } = await createClient().rpc("list_my_hte_interns_v22");
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("list_my_hte_interns_v22");
     if (error) throw new Error(error.message);
     type Row = {
       assignment_id: string;
@@ -1129,9 +1125,36 @@ export const internshipService = {
       has_open_issues: boolean;
       assignment_status: string;
     };
-    return ((data ?? []) as Row[]).map((row) => {
+    const rows = (data ?? []) as Row[];
+    const { data: attendance, error: attendanceError } = rows.length
+      ? await supabase
+          .from("assignment_attendance_progress_v28")
+          .select(
+            "internship_assignment_id,rendered_hours,attendance_verification_percent",
+          )
+          .in(
+            "internship_assignment_id",
+            rows.map((row) => row.assignment_id),
+          )
+      : { data: [], error: null };
+    if (attendanceError) throw new Error(attendanceError.message);
+    const attendanceByAssignment = new Map(
+      ((attendance ?? []) as Array<{
+        internship_assignment_id: string;
+        rendered_hours: number | string;
+        attendance_verification_percent: number | string;
+      }>).map((row) => [row.internship_assignment_id, row]),
+    );
+    return rows.map((row) => {
       const name = row.student_name || "Assigned intern";
-      const attendance = Math.round(Number(row.attendance_percent ?? 0));
+      const canonicalAttendance = attendanceByAssignment.get(row.assignment_id);
+      const attendancePercent = Math.round(
+        Number(
+          canonicalAttendance?.attendance_verification_percent ??
+            row.attendance_percent ??
+            0,
+        ),
+      );
       const baseStatus =
         row.assignment_status === "completed"
           ? "Completed"
@@ -1158,18 +1181,21 @@ export const internshipService = {
         section: row.section ?? undefined,
         hte: row.hte_name || "Assigned HTE",
         hteRepresentative: row.representative_name || "Assigned representative",
-        hours: Math.round(Number(row.rendered_hours ?? 0)),
+        hours: Number(
+          canonicalAttendance?.rendered_hours ?? row.rendered_hours ?? 0,
+        ),
         requiredHours:
           row.required_hours == null ? undefined : Number(row.required_hours),
         dailyRequiredHours:
           row.daily_required_hours == null
             ? undefined
             : Number(row.daily_required_hours),
-        attendance,
+        attendance: attendancePercent,
         requirements: `${Number(row.satisfied_documents ?? 0)}/${Number(row.required_documents ?? 0)}`,
         status:
           baseStatus === "Active" &&
-          (row.has_open_issues || (attendance > 0 && attendance < 80))
+          (row.has_open_issues ||
+            (attendancePercent > 0 && attendancePercent < 80))
             ? "Needs Attention"
             : baseStatus,
       } as Intern;
@@ -1180,6 +1206,7 @@ export const internshipService = {
     const [
       { data: assignments, error: assignmentError },
       { data: progress, error: progressError },
+      { data: attendanceProgress, error: attendanceProgressError },
     ] = await Promise.all([
       supabase
         .from("internship_assignments")
@@ -1191,9 +1218,16 @@ export const internshipService = {
         .select(
           "internship_assignment_id,rendered_hours,attendance_verification_percent,required_documents,satisfied_documents,has_open_issues",
         ),
+      supabase
+        .from("assignment_attendance_progress_v28")
+        .select(
+          "internship_assignment_id,rendered_hours,attendance_verification_percent",
+        ),
     ]);
     if (assignmentError) throw new Error(assignmentError.message);
     if (progressError) throw new Error(progressError.message);
+    if (attendanceProgressError)
+      throw new Error(attendanceProgressError.message);
 
     type AssignmentRow = {
       id: string;
@@ -1267,14 +1301,26 @@ export const internshipService = {
         row,
       ]),
     );
+    const attendanceByAssignment = new Map(
+      ((attendanceProgress ?? []) as Array<{
+        internship_assignment_id: string;
+        rendered_hours: number | string;
+        attendance_verification_percent: number | string;
+      }>).map((row) => [row.internship_assignment_id, row]),
+    );
 
     return rows.map((row) => {
       const program = joinedOne(row.academic_programs);
       const hte = joinedOne(row.hte_organizations);
       const campus = joinedOne(row.org_units);
       const summary = progressByAssignment.get(row.id);
+      const canonicalAttendance = attendanceByAssignment.get(row.id);
       const attendanceRate = Math.round(
-        Number(summary?.attendance_verification_percent ?? 0),
+        Number(
+          canonicalAttendance?.attendance_verification_percent ??
+            summary?.attendance_verification_percent ??
+            0,
+        ),
       );
       const supervisors = activeSupervisors(row);
       const hteRepresentative = [...supervisors]
@@ -1322,7 +1368,9 @@ export const internshipService = {
           ? (names.get(hteRepresentative.supervisor_user_id) ??
             "Assigned HTE representative")
           : "Not assigned",
-        hours: Math.round(Number(summary?.rendered_hours ?? 0)),
+        hours: Number(
+          canonicalAttendance?.rendered_hours ?? summary?.rendered_hours ?? 0,
+        ),
         requiredHours: row.required_hours,
         dailyRequiredHours:
           row.daily_required_hours_snapshot == null
@@ -1411,6 +1459,7 @@ export const internshipService = {
     const row = assignment as unknown as AssignmentRow;
     const [
       { data: progress, error: progressError },
+      { data: attendanceProgress, error: attendanceProgressError },
       { data: requirements, error: requirementError },
       { count: finalizedEvaluationCount, error: evaluationError },
     ] = await Promise.all([
@@ -1418,6 +1467,13 @@ export const internshipService = {
         .from("assignment_progress")
         .select(
           "rendered_hours,total_sessions,verified_sessions,attendance_verification_percent,total_log_days,submitted_logs,approved_logs,required_documents,satisfied_documents,average_score",
+        )
+        .eq("internship_assignment_id", row.id)
+        .maybeSingle(),
+      supabase
+        .from("assignment_attendance_progress_v28")
+        .select(
+          "rendered_hours,total_sessions,verified_sessions,attendance_verification_percent",
         )
         .eq("internship_assignment_id", row.id)
         .maybeSingle(),
@@ -1438,6 +1494,8 @@ export const internshipService = {
         .is("deleted_at", null),
     ]);
     if (progressError) throw new Error(progressError.message);
+    if (attendanceProgressError)
+      throw new Error(attendanceProgressError.message);
     if (requirementError) throw new Error(requirementError.message);
     if (evaluationError) throw new Error(evaluationError.message);
 
@@ -1498,12 +1556,22 @@ export const internshipService = {
       average_score: number | string | null;
     };
     const logsSubmitted = Number(progressRow?.submitted_logs ?? 0);
+    const canonicalAttendance = attendanceProgress as null | {
+      rendered_hours: number | string;
+      total_sessions: number;
+      verified_sessions: number;
+      attendance_verification_percent: number | string;
+    };
     return {
       assignmentId: row.id,
       status: row.status
         .replaceAll("_", " ")
         .replace(/\b\w/g, (letter) => letter.toUpperCase()),
-      renderedHours: Number(progressRow?.rendered_hours ?? 0),
+      renderedHours: Number(
+        canonicalAttendance?.rendered_hours ??
+          progressRow?.rendered_hours ??
+          0,
+      ),
       requiredHours:
         row.required_hours != null &&
         Number.isFinite(Number(row.required_hours)) &&
@@ -1511,10 +1579,20 @@ export const internshipService = {
           ? Number(row.required_hours)
           : null,
       attendanceRate: Math.round(
-        Number(progressRow?.attendance_verification_percent ?? 0),
+        Number(
+          canonicalAttendance?.attendance_verification_percent ??
+            progressRow?.attendance_verification_percent ??
+            0,
+        ),
       ),
-      recordedSessions: Number(progressRow?.total_sessions ?? 0),
-      verifiedSessions: Number(progressRow?.verified_sessions ?? 0),
+      recordedSessions: Number(
+        canonicalAttendance?.total_sessions ?? progressRow?.total_sessions ?? 0,
+      ),
+      verifiedSessions: Number(
+        canonicalAttendance?.verified_sessions ??
+          progressRow?.verified_sessions ??
+          0,
+      ),
       logsSubmitted,
       logsApproved: Number(progressRow?.approved_logs ?? 0),
       logsExpected: Number(progressRow?.total_log_days ?? 0),
@@ -1627,14 +1705,14 @@ export const attendanceService = {
       const verification = [...(row.attendance_verifications ?? [])].sort(
         (a, b) => b.created_at.localeCompare(a.created_at),
       )[0];
-      const minutes =
-        verification?.decision === "verified"
-          ? verification.verified_minutes
-          : null;
       const assignment = Array.isArray(row.internship_assignments)
         ? row.internship_assignments[0]
         : row.internship_assignments;
       const pair = resolveAttendanceRowPair(row);
+      const minutes =
+        verification?.decision === "verified"
+          ? attendanceDurationMinutes(pair)
+          : null;
       const timeInAt = pair.complete
         ? pair.timeInAt
         : (timeIn?.occurred_at ?? null);
@@ -1687,6 +1765,8 @@ export const attendanceService = {
       .select(sessionSelection)
       .eq("internship_assignment_id", assignmentId)
       .eq("work_date", manilaDate())
+      .eq("status", "open")
+      .limit(1)
       .maybeSingle();
     if (error) throw new Error(error.message);
     return data ? mapSession(data as unknown as AttendanceSessionRow) : null;
@@ -3491,101 +3571,33 @@ export const coordinatorService = {
     );
   },
   async listPartnerHtes(): Promise<PartnerHteRecord[]> {
-    const supabase = createClient();
-    const [hteResult, assignmentResult, hourConfigResult] = await Promise.all([
-      supabase
-        .from("hte_organizations")
-        .select(
-          "id,name,trade_name,industry,city_municipality,province,verification_status,hte_representatives(user_id,is_primary,starts_on,ends_on,deleted_at)",
-        )
-        .is("deleted_at", null)
-        .order("name"),
-      supabase
-        .from("internship_assignments")
-        .select("hte_id")
-        .is("deleted_at", null)
-        .not("status", "in", "(draft,cancelled)"),
-      supabase
-        .from("hte_daily_hour_configs")
-        .select("hte_id,daily_required_hours,effective_from,effective_to,updated_at")
-        .eq("status", "active")
-        .lte("effective_from", new Date().toISOString().slice(0, 10))
-        .order("effective_from", { ascending: false })
-        .order("updated_at", { ascending: false }),
-    ]);
-    if (hteResult.error) throw new Error(hteResult.error.message);
-    if (assignmentResult.error) throw new Error(assignmentResult.error.message);
-    if (hourConfigResult.error) throw new Error(hourConfigResult.error.message);
+    const { data, error } = await createClient().rpc("list_partner_htes_v28");
+    if (error) throw new Error(error.message);
     type HteRow = {
       id: string;
-      name: string;
-      trade_name: string | null;
-      industry: string | null;
-      city_municipality: string | null;
-      province: string | null;
+      display_name: string;
+      representative_name: string;
+      assigned_interns: number;
       verification_status: string;
-      hte_representatives?: Array<{
-        user_id: string;
-        is_primary: boolean;
-        starts_on: string | null;
-        ends_on: string | null;
-        deleted_at: string | null;
-      }> | null;
+      industry: string;
+      location: string;
+      daily_required_hours: number | string | null;
     };
-    const hteRows = (hteResult.data ?? []) as unknown as HteRow[];
-    const today = new Date().toISOString().slice(0, 10);
-    const representatives = hteRows.flatMap((hte) =>
-      (hte.hte_representatives ?? []).filter(
-        (row) =>
-          !row.deleted_at &&
-          (!row.starts_on || row.starts_on <= today) &&
-          (!row.ends_on || row.ends_on >= today),
-      ),
-    );
-    const names = await namesForUsers(
-      representatives.map((row) => row.user_id),
-    );
-    const counts = new Map<string, number>();
-    for (const row of (assignmentResult.data ?? []) as Array<{
-      hte_id: string;
-    }>)
-      counts.set(row.hte_id, (counts.get(row.hte_id) ?? 0) + 1);
-    const dailyHours = new Map<string, number>();
-    for (const row of (hourConfigResult.data ?? []) as Array<{
-      hte_id: string;
-      daily_required_hours: number | string;
-      effective_to: string | null;
-    }>) {
-      if (row.effective_to && row.effective_to < today) continue;
-      if (!dailyHours.has(row.hte_id))
-        dailyHours.set(row.hte_id, Number(row.daily_required_hours));
-    }
-    return hteRows.map((hte) => {
-      const representative = [...(hte.hte_representatives ?? [])]
-        .filter(
-          (row) =>
-            !row.deleted_at &&
-            (!row.starts_on || row.starts_on <= today) &&
-            (!row.ends_on || row.ends_on >= today),
-        )
-        .sort((a, b) => Number(b.is_primary) - Number(a.is_primary))[0];
-      return {
-        id: hte.id,
-        name: hte.trade_name ?? hte.name,
-        representative: representative
-          ? (names.get(representative.user_id) ?? "Authorized representative")
-          : "Not assigned",
-        assignedInterns: counts.get(hte.id) ?? 0,
-        status: hte.verification_status
-          .replaceAll("_", " ")
-          .replace(/\b\w/g, (letter) => letter.toUpperCase()),
-        industry: hte.industry ?? "Not specified",
-        location:
-          [hte.city_municipality, hte.province].filter(Boolean).join(", ") ||
-          "Not specified",
-        dailyRequiredHours: dailyHours.get(hte.id) ?? null,
-      };
-    });
+    return ((data ?? []) as unknown as HteRow[]).map((hte) => ({
+      id: hte.id,
+      name: hte.display_name,
+      representative: hte.representative_name,
+      assignedInterns: Number(hte.assigned_interns ?? 0),
+      status: hte.verification_status
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      industry: hte.industry,
+      location: hte.location,
+      dailyRequiredHours:
+        hte.daily_required_hours == null
+          ? null
+          : Number(hte.daily_required_hours),
+    }));
   },
   async createPartnerHte(input: {
     name: string;

@@ -7602,6 +7602,7 @@ function AnalyticsPage() {
           hteId: analysisScope === "hte" ? activeHteId : undefined,
           studentId: analysisScope === "student" ? activeStudentId : undefined,
         }),
+        signal: AbortSignal.timeout(45_000),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -7612,8 +7613,13 @@ function AnalyticsPage() {
       }
       setAiInsights(data as AnalyticsAiResult);
     } catch (reason) {
+      const timedOut =
+        reason instanceof DOMException && reason.name === "TimeoutError";
+      if (timedOut) setAiRetryable(true);
       setAiError(
-        reason instanceof Error
+        timedOut
+          ? "AI analysis timed out. Verified analytics remain available; try again when the AI service is ready."
+          : reason instanceof Error
           ? reason.message
           : "AI performance analysis could not be generated.",
       );
@@ -11692,7 +11698,11 @@ function SupportInboxPage() {
         </div>
       </section>
       {selected && (
-        <Dialog title={selected.subject} onClose={() => setSelected(null)}>
+        <Dialog
+          title="Support message details"
+          className="support-message-dialog"
+          onClose={() => setSelected(null)}
+        >
           <div className="feedback-detail">
             <header className="feedback-detail-heading">
               <span className="feedback-detail-icon">
@@ -11708,6 +11718,10 @@ function SupportInboxPage() {
                 <StatusBadge status={selected.caseStatus} />
               </div>
             </header>
+            <section className="feedback-detail-message">
+              <h4>Subject</h4>
+              <p className="preserve-text">{selected.subject}</p>
+            </section>
             <section className="feedback-detail-message">
               <h4>Message</h4>
               <p className="preserve-text">{selected.message}</p>

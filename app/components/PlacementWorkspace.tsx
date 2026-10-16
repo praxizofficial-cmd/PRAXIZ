@@ -1270,7 +1270,8 @@ function PlacementAnalytics() {
   const [scope, setScope] = useState("overall");
   const [target, setTarget] = useState("All");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [aiError, setAiError] = useState("");
   const [generating, setGenerating] = useState(false);
   const [insight, setInsight] = useState<{
     summary: string;
@@ -1282,7 +1283,9 @@ function PlacementAnalytics() {
       .listPlacements()
       .then(setRecords)
       .catch((reason) =>
-        setError(userError(reason, "Analytics records could not be loaded.")),
+        setLoadError(
+          userError(reason, "Analytics records could not be loaded."),
+        ),
       )
       .finally(() => setLoading(false));
   }, []);
@@ -1310,7 +1313,7 @@ function PlacementAnalytics() {
   const htes = new Set(shown.map((item) => item.hte)).size;
   async function generateInsight() {
     setGenerating(true);
-    setError("");
+    setAiError("");
     setInsight(null);
     try {
       const selected =
@@ -1330,6 +1333,7 @@ function PlacementAnalytics() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(45_000),
       });
       const result = (await response.json()) as {
         error?: string;
@@ -1345,11 +1349,13 @@ function PlacementAnalytics() {
         recommendations: result.recommendations ?? [],
       });
     } catch (reason) {
-      setError(
-        userError(
-          reason,
-          "AI insight unavailable. Verified analytics remain available.",
-        ),
+      setAiError(
+        reason instanceof DOMException && reason.name === "TimeoutError"
+          ? "AI analysis timed out. Verified analytics remain available; try again when the AI service is ready."
+          : userError(
+              reason,
+              "AI insight unavailable. Verified analytics remain available.",
+            ),
       );
     } finally {
       setGenerating(false);
@@ -1370,6 +1376,8 @@ function PlacementAnalytics() {
               onChange={(e) => {
                 setScope(e.target.value);
                 setTarget("All");
+                setInsight(null);
+                setAiError("");
               }}
             >
               <option value="overall">Overall</option>
@@ -1384,7 +1392,11 @@ function PlacementAnalytics() {
               <span>Target</span>
               <select
                 value={target}
-                onChange={(e) => setTarget(e.target.value)}
+                onChange={(e) => {
+                  setTarget(e.target.value);
+                  setInsight(null);
+                  setAiError("");
+                }}
               >
                 <option>All</option>
                 {options.map((value) => (
@@ -1394,8 +1406,8 @@ function PlacementAnalytics() {
             </label>
           )}
         </div>
-        <LoadingOrError loading={loading} error={error} />
-        {!loading && !error && (
+        <LoadingOrError loading={loading} error={loadError} />
+        {!loading && !loadError && (
           <>
             <div className="placement-summary-grid">
               <article>
@@ -1445,6 +1457,19 @@ function PlacementAnalytics() {
                 AI insights are advisory. Verified PRAXIZ records and authorized
                 human decisions remain authoritative.
               </p>
+              {aiError && (
+                <div className="ai-error" role="alert">
+                  <AlertTriangle size={16} />
+                  <span>{aiError}</span>
+                  <button
+                    className="table-link"
+                    onClick={() => void generateInsight()}
+                    disabled={generating}
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
               {insight && (
                 <div className="analytics-insight" role="status">
                   <h3>Advisory insight</h3>

@@ -49,10 +49,15 @@ test("v27 HTE Weekly Logs place review history before compact policy controls", 
 });
 
 test("v27 partner HTE list distinguishes authorized daily hours from total internship hours", async () => {
-  const app = await read("app/PraxizApp.tsx");
-  const services = await read("app/services/praxiz-services.ts");
-  assert.match(services, /from\("hte_daily_hour_configs"\)/);
-  assert.match(services, /dailyRequiredHours: dailyHours\.get\(hte\.id\)/);
+  const [app, services, migration] = await Promise.all([
+    read("app/PraxizApp.tsx"),
+    read("app/services/praxiz-services.ts"),
+    read("supabase/migrations/20261017010000_v28_partner_hte_scope.sql"),
+  ]);
+  assert.match(services, /rpc\("list_partner_htes_v28"\)/);
+  assert.match(services, /dailyRequiredHours:/);
+  assert.match(migration, /from public\.hte_daily_hour_configs config/);
+  assert.match(migration, /config\.status = 'active'/);
   assert.match(app, /<th>Daily hours<\/th>/);
   assert.match(app, /Authorized daily hours/);
   assert.match(app, /Not configured/);

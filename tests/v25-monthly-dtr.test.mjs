@@ -73,7 +73,7 @@ const snapshot = {
   },
 };
 
-test("Form 48 leaves ambiguous overnight departure and unverified undertime blank", () => {
+test("Form 48 leaves undertime blank without a separately authorized schedule", () => {
   const base = snapshot.sessions[0];
   assert.equal(dailyFormValues([{ ...base, recordedMinutes: 60 }], 8).undertimeHours, "");
   const overnight = { ...base, timeInAt: "2028-02-01T14:00:00Z", timeOutAt: "2028-02-01T22:00:00Z", status: "verified", verifiedMinutes: 480 };
@@ -81,8 +81,9 @@ test("Form 48 leaves ambiguous overnight departure and unverified undertime blan
   assert.equal(result.pmArrival, "10:00");
   assert.equal(result.amDeparture, "");
   assert.equal(result.undertimeTotal, 0);
-  assert.equal(dailyFormValues([{ ...base, status: "verified", verifiedMinutes: 420 }], 8).undertimeHours, "1");
+  assert.equal(dailyFormValues([{ ...base, status: "verified", verifiedMinutes: 420 }], 8).undertimeHours, "");
   assert.equal(dailyFormValues([{ ...base, status: "verified", verifiedMinutes: 420 }], null).undertimeHours, "");
+  assert.equal(dailyFormValues([{ ...base, status: "verified", verifiedMinutes: 420 }], 8).undertimeTotal, 0);
 });
 
 test("Form 48 maps actual AM, PM, split, and incomplete sessions without inventing punches", () => {

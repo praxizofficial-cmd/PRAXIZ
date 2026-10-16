@@ -17,6 +17,11 @@ export type AttendancePairResolution = {
   blockingReason: string | null;
 };
 
+export type AttendanceEventTimestamp = {
+  event_type: "time_in" | "time_out";
+  occurred_at: string;
+};
+
 export type ReviewableAttendanceStatus =
   | "Active"
   | "Pending Verification"
@@ -27,6 +32,45 @@ export type ReviewableAttendanceStatus =
   | "Incomplete";
 
 const MAX_SESSION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Resolve retried/duplicated server events deterministically. The first Time In
+ * and last Time Out are the same immutable boundaries used by the database and
+ * monthly DTR snapshot. Array order from a nested PostgREST relation is not an
+ * attendance rule and must never decide the credited pair.
+ */
+export function originalAttendancePair(
+  events: AttendanceEventTimestamp[],
+): AttendancePair {
+  const timeIns = events
+    .filter((event) => event.event_type === "time_in")
+    .map((event) => event.occurred_at)
+    .sort();
+  const timeOuts = events
+    .filter((event) => event.event_type === "time_out")
+    .map((event) => event.occurred_at)
+    .sort();
+  return {
+    timeInAt: timeIns[0] ?? null,
+    timeOutAt: timeOuts.at(-1) ?? null,
+  };
+}
+
+/**
+ * Convert one authoritative pair to whole credited minutes once, at the UI/
+ * database boundary. Raw timestamps remain the source of truth. Rounding the
+ * final elapsed seconds matches the minute precision shown in PRAXIZ while
+ * avoiding repeated decimal-hour rounding.
+ */
+export function attendanceDurationMinutes(
+  pair: AttendancePair,
+): number | null {
+  if (inspectPair(pair)) return null;
+  const elapsedMs =
+    new Date(pair.timeOutAt as string).getTime() -
+    new Date(pair.timeInAt as string).getTime();
+  return Math.max(1, Math.round(elapsedMs / 60_000));
+}
 
 function inspectPair(pair: AttendancePair): string | null {
   if (!pair.timeInAt) return "Time In is missing";
