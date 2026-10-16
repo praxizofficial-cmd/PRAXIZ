@@ -54,8 +54,9 @@ Both migrations were dry-run and applied to the dedicated staging project. Produ
 - Full release gate: passed — ESLint, production build, **212/212** application tests, all photo/document/support database replay suites, and the Vercel-target build.
 - Production migration dry run listed exactly `20261017000000` and `20261017010000`, with no seeds or role changes.
 - Those two reviewed migrations were applied successfully to production; local, production, and staging histories now align through `20261017010000`. The CLI was relinked to staging afterward.
+- Application commit `f9b30e3` was pushed to production `main`; the connected Vercel deployment reached **Ready** and the `praxiz.vercel.app` alias was attached.
+- Public production smoke checks returned HTTP 200 for `/`, `/signin`, `/forgot-password`, and `/contact`.
 
 ## Remaining safe gates
 
-1. Commit/push the application changes and verify the connected Vercel deployment and public routes.
-2. Perform authenticated, non-mutating production smoke checks when a user session is available; do not create, rewrite, or fabricate real workflow records merely for testing.
+1. Perform authenticated, non-mutating production smoke checks when a user session is available; do not create, rewrite, or fabricate real workflow records merely for testing.
