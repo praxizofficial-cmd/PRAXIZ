@@ -5904,6 +5904,11 @@ html[data-theme="dark"] .stakeholder-grid article {
   overflow-wrap: anywhere;
   color: var(--ink);
 }
+
+.table-page-summary {
+  margin-right: auto;
+  color: var(--muted);
+}
 :root,
 html[data-accent="blue"] {
   --primary: #1e3a5f;

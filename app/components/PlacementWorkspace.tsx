@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   BarChart3,
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
   FileCheck2,
   FileText,
   Download,
@@ -79,6 +82,9 @@ function PlacementDashboard() {
   const [compliance, setCompliance] = useState<PlacementComplianceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [campus, setCampus] = useState("All");
+  const [college, setCollege] = useState("All");
+  const [term, setTerm] = useState("All");
   useEffect(() => {
     let active = true;
     Promise.all([
@@ -101,11 +107,17 @@ function PlacementDashboard() {
       active = false;
     };
   }, []);
-  const campuses = new Set(placements.map((item) => item.campus)).size;
-  const colleges = new Set(placements.map((item) => item.college)).size;
-  const missing = compliance.filter((item) =>
+  const filteredPlacements = placements.filter(
+    (item) =>
+      (campus === "All" || item.campus === campus) &&
+      (college === "All" || item.college === college) &&
+      (term === "All" || item.term === term),
+  );
+  const campuses = new Set(filteredPlacements.map((item) => item.campus)).size;
+  const colleges = new Set(filteredPlacements.map((item) => item.college)).size;
+  const missingRecords = compliance.filter((item) =>
     ["Missing", "Needs Resubmission"].includes(item.status),
-  ).length;
+  );
   return (
     <>
       <WorkspaceHeader
@@ -115,6 +127,11 @@ function PlacementDashboard() {
       <LoadingOrError loading={loading} error={error} />
       {!loading && !error && (
         <>
+          <section className="card placement-filters compact" aria-label="Institutional placement filters">
+            <label className="field"><span>Campus</span><select value={campus} onChange={(event) => { setCampus(event.target.value); setCollege("All"); }}><option>All</option>{[...new Set(placements.map((item) => item.campus))].map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label className="field"><span>College</span><select value={college} onChange={(event) => setCollege(event.target.value)}><option>All</option>{[...new Set(placements.filter((item) => campus === "All" || item.campus === campus).map((item) => item.college))].map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label className="field"><span>Academic term</span><select value={term} onChange={(event) => setTerm(event.target.value)}><option>All</option>{[...new Set(placements.map((item) => item.term))].map((value) => <option key={value}>{value}</option>)}</select></label>
+          </section>
           <section
             className="placement-summary-grid"
             aria-label="Placement overview"
@@ -122,7 +139,7 @@ function PlacementDashboard() {
             <article className="card">
               <UsersRound />
               <span>Assigned interns</span>
-              <strong>{placements.length}</strong>
+              <strong>{filteredPlacements.length}</strong>
             </article>
             <article className="card">
               <FileCheck2 />
@@ -134,7 +151,7 @@ function PlacementDashboard() {
             <article className="card">
               <FileText />
               <span>Compliance needing action</span>
-              <strong>{missing}</strong>
+              <strong>{missingRecords.length}</strong>
             </article>
           </section>
           <section className="card placement-hierarchy">
@@ -146,9 +163,9 @@ function PlacementDashboard() {
                 </p>
               </div>
             </div>
-            {[...new Set(placements.map((item) => item.campus))].map(
+            {[...new Set(filteredPlacements.map((item) => item.campus))].map(
               (campus) => {
-                const campusRows = placements.filter(
+                const campusRows = filteredPlacements.filter(
                   (item) => item.campus === campus,
                 );
                 return (
@@ -177,12 +194,17 @@ function PlacementDashboard() {
                 );
               },
             )}
-            {!placements.length && (
+            {!filteredPlacements.length && (
               <p className="table-empty">
-                No internship assignments are visible in your authorized scope
-                yet.
+                No internship assignments match the selected institutional filters.
               </p>
             )}
+          </section>
+          <section className="card table-card">
+            <div className="card-title"><div><h2>Requires your attention</h2><p>Missing and returned coordinator compliance records.</p></div></div>
+            {missingRecords.length ? (
+              <div className="table-scroll"><table className="data-table"><thead><tr><th>Requirement</th><th>Coordinator</th><th>Status</th><th>Due date</th></tr></thead><tbody>{missingRecords.slice(0, 5).map((item, index) => <tr key={`${item.requirementId}-${item.submissionId ?? index}`}><td><b>{item.title}</b></td><td>{item.coordinatorName}</td><td><StatusBadge status={item.status} /></td><td>{formatDate(item.dueAt)}</td></tr>)}</tbody></table></div>
+            ) : <p className="table-empty">No placement compliance records currently require action.</p>}
           </section>
         </>
       )}
@@ -198,6 +220,9 @@ function StudentOverview() {
   const [campus, setCampus] = useState("All");
   const [college, setCollege] = useState("All");
   const [status, setStatus] = useState("All");
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<PlacementRecord | null>(null);
+  const pageSize = 10;
   useEffect(() => {
     let active = true;
     placementService
@@ -237,6 +262,8 @@ function StudentOverview() {
       }),
     [records, search, campus, college, status],
   );
+  const pageCount = Math.max(1, Math.ceil(shown.length / pageSize));
+  const visibleRows = shown.slice((page - 1) * pageSize, page * pageSize);
   return (
     <>
       <WorkspaceHeader
@@ -244,6 +271,16 @@ function StudentOverview() {
         subtitle="Filter real assignments across the campus, college, coordinator, program, HTE, section, and term hierarchy."
       />
       <section className="card table-card">
+        <div className="card-title">
+          <div>
+            <h2>
+              {loading
+                ? "Loading student placements…"
+                : `${shown.length} student${shown.length === 1 ? "" : "s"}`}
+            </h2>
+            <p>Only assignments inside your authorized institutional scope are shown.</p>
+          </div>
+        </div>
         <div className="placement-filters">
           <label className="field">
             <span>Search</span>
@@ -251,7 +288,10 @@ function StudentOverview() {
               <Search size={18} />
               <input
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(1);
+                }}
                 placeholder="Student, HTE, program, coordinator…"
               />
             </div>
@@ -260,7 +300,10 @@ function StudentOverview() {
             <span>Campus</span>
             <select
               value={campus}
-              onChange={(event) => setCampus(event.target.value)}
+              onChange={(event) => {
+                setCampus(event.target.value);
+                setPage(1);
+              }}
             >
               <option>All</option>
               {[...new Set(records.map((item) => item.campus))].map((value) => (
@@ -272,7 +315,10 @@ function StudentOverview() {
             <span>College</span>
             <select
               value={college}
-              onChange={(event) => setCollege(event.target.value)}
+              onChange={(event) => {
+                setCollege(event.target.value);
+                setPage(1);
+              }}
             >
               <option>All</option>
               {[...new Set(records.map((item) => item.college))].map(
@@ -286,7 +332,10 @@ function StudentOverview() {
             <span>Status</span>
             <select
               value={status}
-              onChange={(event) => setStatus(event.target.value)}
+              onChange={(event) => {
+                setStatus(event.target.value);
+                setPage(1);
+              }}
             >
               <option>All</option>
               {[...new Set(records.map((item) => item.status))].map((value) => (
@@ -311,7 +360,7 @@ function StudentOverview() {
                 </tr>
               </thead>
               <tbody>
-                {shown.map((item) => (
+                {visibleRows.map((item) => (
                   <tr key={item.id}>
                     <td>
                       <b>{item.studentName}</b>
@@ -337,6 +386,12 @@ function StudentOverview() {
                     <td>{item.term}</td>
                     <td>
                       <StatusBadge status={item.status} />
+                      <button
+                        className="table-link"
+                        onClick={() => setSelected(item)}
+                      >
+                        View details
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -351,7 +406,51 @@ function StudentOverview() {
             </table>
           </div>
         )}
+        {!loading && !error && shown.length > 0 && (
+          <div className="modal-actions" aria-label="Student placement pages">
+            <span className="table-page-summary">
+              Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, shown.length)} of {shown.length}
+            </span>
+            <button
+              className="button button-secondary button-small"
+              disabled={page === 1}
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+            >
+              Previous
+            </button>
+            <span aria-live="polite">Page {page} of {pageCount}</span>
+            <button
+              className="button button-secondary button-small"
+              disabled={page === pageCount}
+              onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+            >
+              Next
+            </button>
+          </div>
+        )}
       </section>
+      {selected && (
+        <Dialog
+          title={selected.studentName}
+          onClose={() => setSelected(null)}
+          protectChanges={false}
+        >
+          <dl className="profile-details-grid">
+            <div><dt>Campus</dt><dd>{selected.campus || "Not recorded"}</dd></div>
+            <div><dt>College</dt><dd>{selected.college || "Not recorded"}</dd></div>
+            <div><dt>Program</dt><dd>{selected.program || "Not recorded"}</dd></div>
+            <div><dt>Year / section</dt><dd>{selected.yearLevel ? `Year ${selected.yearLevel}` : "Year not recorded"} · {selected.section || "Section not recorded"}</dd></div>
+            <div><dt>HTE</dt><dd>{selected.hte || "Not assigned"}</dd></div>
+            <div><dt>Coordinator</dt><dd>{selected.coordinator || "Not assigned"}</dd></div>
+            <div><dt>Academic term</dt><dd>{selected.term || "Not recorded"}</dd></div>
+            <div><dt>Daily hours</dt><dd>{selected.dailyRequiredHours == null ? "Not configured" : `${selected.dailyRequiredHours} hours`}</dd></div>
+            <div><dt>Status</dt><dd><StatusBadge status={selected.status} /></dd></div>
+          </dl>
+          <div className="modal-actions">
+            <button className="button button-secondary" onClick={() => setSelected(null)}>Close</button>
+          </div>
+        </Dialog>
+      )}
     </>
   );
 }
@@ -577,6 +676,7 @@ function ComplianceWorkspace({
     record: PlacementComplianceRecord;
     mode: "submit" | "review";
   } | null>(null);
+  const [historyRecord, setHistoryRecord] = useState<PlacementComplianceRecord | null>(null);
   const [creating, setCreating] = useState(false);
   async function load() {
     setLoading(true);
@@ -612,9 +712,17 @@ function ComplianceWorkspace({
     : actorRole === "placement"
       ? "Set coordinator requirements and review every submitted version."
       : "Submit documents requested by the Placement Head and respond to review feedback.";
+  const approved = shown.filter((item) => item.status === "Approved").length;
+  const reviewQueue = shown.filter((item) => ["Submitted", "Under Review"].includes(item.status)).length;
+  const needsAction = shown.filter((item) => ["Missing", "Needs Resubmission"].includes(item.status)).length;
   return (
     <>
       <WorkspaceHeader title={title} subtitle={subtitle} />
+      <div className="stats-grid three">
+        <article className="stat-card"><div><span>Approved</span><strong>{approved}</strong></div><CheckCircle2 /></article>
+        <article className="stat-card"><div><span>Awaiting review</span><strong>{reviewQueue}</strong></div><Clock3 /></article>
+        <article className="stat-card"><div><span>Needs action</span><strong>{needsAction}</strong></div><AlertTriangle /></article>
+      </div>
       <section className="card table-card">
         <div className="card-title">
           <div className="placement-filters compact">
@@ -722,6 +830,11 @@ function ComplianceWorkspace({
                             View
                           </button>
                         )}
+                        {item.history.length > 0 && (
+                          <button className="table-link" onClick={() => setHistoryRecord(item)}>
+                            <History size={16} /> History
+                          </button>
+                        )}
                         {!recordsOnly &&
                           actorRole === "coordinator" &&
                           item.status !== "Approved" && (
@@ -785,6 +898,20 @@ function ComplianceWorkspace({
             void load();
           }}
         />
+      )}
+      {historyRecord && (
+        <Dialog title={`${historyRecord.title} version history`} onClose={() => setHistoryRecord(null)} protectChanges={false}>
+          <div className="version-history-list">
+            {historyRecord.history.map((version) => (
+              <article key={version.submissionId}>
+                <div><strong>Version {version.version}</strong><small>{version.originalName}</small></div>
+                <StatusBadge status={version.status} />
+                <dl><div><dt>Submitted</dt><dd>{formatDate(version.submittedAt)}</dd></div><div><dt>Feedback</dt><dd>{version.feedback || "No reviewer feedback"}</dd></div></dl>
+                <button className="table-link" onClick={() => void placementService.complianceDownloadUrl(version.submissionId).then((url) => window.open(url, "_blank", "noopener,noreferrer")).catch((reason) => setError(userError(reason, "The archived version could not be opened.")))}>View this version</button>
+              </article>
+            ))}
+          </div>
+        </Dialog>
       )}
     </>
   );

@@ -12,8 +12,10 @@
     "start": "vinext start",
     "test": "npm run build && node --experimental-strip-types --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "release:check": "npm run lint && npm test && npm run test:photo-database && npm run build:vercel",
+    "release:check": "npm run lint && npm test && npm run test:photo-database && npm run test:document-database && npm run test:support-database && npm run build:vercel",
     "test:photo-database": "node tests/v26-photo-database.mjs",
+    "test:document-database": "node tests/v27-document-withdrawal-database.mjs",
+    "test:support-database": "node tests/v27-support-inbox-database.mjs",
     "supabase:types": "supabase gen types typescript --linked > lib/supabase/database.types.ts"
   },
   "dependencies": {

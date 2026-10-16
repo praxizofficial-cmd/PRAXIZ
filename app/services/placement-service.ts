@@ -52,6 +52,14 @@ export type PlacementComplianceRecord = {
   feedback: string;
   submittedAt: string;
   originalName: string;
+  history: Array<{
+    submissionId: string;
+    version: number;
+    status: string;
+    submittedAt: string;
+    originalName: string;
+    feedback: string;
+  }>;
 };
 
 export type RequiredFormatRecord = {
@@ -306,9 +314,20 @@ export const placementService = {
             feedback: "",
             submittedAt: "",
             originalName: "",
+            history: [],
           },
         ];
-      return matching.map((row) => {
+      const grouped = new Map<string, Submission[]>();
+      for (const row of matching)
+        grouped.set(row.coordinator_user_id, [
+          ...(grouped.get(row.coordinator_user_id) ?? []),
+          row,
+        ]);
+      return [...grouped.values()].map((versions) => {
+        const ordered = [...versions].sort(
+          (left, right) => right.version_number - left.version_number,
+        );
+        const row = ordered[0];
         const review = [...(row.placement_compliance_reviews ?? [])].sort(
           (a, b) => b.reviewed_at.localeCompare(a.reviewed_at),
         )[0];
@@ -327,6 +346,23 @@ export const placementService = {
           feedback: review?.feedback ?? "",
           submittedAt: row.submitted_at,
           originalName: row.original_name,
+          history: ordered.map((version) => {
+            const versionReview = [
+              ...(version.placement_compliance_reviews ?? []),
+            ].sort((left, right) =>
+              right.reviewed_at.localeCompare(left.reviewed_at),
+            )[0];
+            return {
+              submissionId: version.id,
+              version: version.version_number,
+              status: version.status
+                .replaceAll("_", " ")
+                .replace(/\b\w/g, (letter) => letter.toUpperCase()),
+              submittedAt: version.submitted_at,
+              originalName: version.original_name,
+              feedback: versionReview?.feedback ?? "",
+            };
+          }),
         };
       });
     });

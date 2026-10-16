@@ -105,23 +105,55 @@ export function WeeklyLogPhotoEvidence({ log, editable = false }: { log: WeeklyL
 
 export function HtePhotoPolicy() {
   const [policy, setPolicy] = useState<PhotoPolicy | null>(null);
-  const [mode, setMode] = useState("optional"); const [limit, setLimit] = useState(1);
-  const [apply, setApply] = useState(false); const [reason, setReason] = useState("");
-  const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState("optional");
+  const [limit, setLimit] = useState(1);
+  const [apply, setApply] = useState(false);
+  const [reason, setReason] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [confirmApply, setConfirmApply] = useState(false);
   useEffect(() => { let active = true; void service.policy().then(value => {
     if (active) { setPolicy(value); setMode(value.requirement_mode); setLimit(value.max_photos_per_day); }
   }).catch(() => { if (active) setMessage("Photo policy configuration is not available yet."); }); return () => { active = false; }; }, []);
-  return <section className="card photo-policy-card"><h2>Activity photo policy</h2>
-    <p>{policy?.hte_name ?? "Your organization"} · Policy changes apply to future logs. Existing Weekly Log requirements stay unchanged.</p>
+  async function savePolicy() {
+    setBusy(true); setMessage("");
+    try {
+      await service.savePolicy(mode, limit, apply, reason);
+      setPolicy(await service.policy());
+      setApply(false); setReason(""); setEditing(false); setConfirmApply(false);
+      setMessage("Organization photo policy saved. Existing submitted and historical Weekly Logs are unchanged.");
+    } catch (failure) {
+      setMessage(failure instanceof Error ? failure.message : "Policy could not be saved.");
+    } finally { setBusy(false); }
+  }
+  return <section className="card photo-policy-card">
+    <div className="card-title"><div><h2>Current Activity Photo Policy</h2>
+      <p>{policy?.hte_name ?? "Your organization"}</p></div>
+      {policy && <button type="button" className="button button-secondary" onClick={() => {
+        setMode(policy.requirement_mode); setLimit(policy.max_photos_per_day);
+        setApply(false); setReason(""); setConfirmApply(false); setEditing(true);
+      }}>Configure / Update Policy</button>}
+    </div>
+    {policy && <dl className="info-list photo-policy-summary">
+      <div><dt>Requirement</dt><dd>{policy.requirement_mode === "required" ? "Required daily" : "Optional"}</dd></div>
+      <div><dt>Maximum photos per day</dt><dd>{policy.max_photos_per_day}</dd></div>
+      <div><dt>Effective scope</dt><dd>Future Weekly Logs for this HTE organization</dd></div>
+    </dl>}
+    <p>Policy changes apply to future logs. Existing submitted and historical Weekly Log requirements stay unchanged.</p>
     {message && <p role="status">{message}</p>}
-    {policy && <><div className="two-fields">
+    {policy && editing && <div className="photo-policy-editor"><div className="two-fields">
       <label className="field"><span>Requirement</span><select disabled={busy} value={mode} onChange={event => setMode(event.target.value)}><option value="optional">Optional</option><option value="required">Required daily</option></select></label>
       <label className="field"><span>Maximum photos per day</span><input disabled={busy} type="number" min={1} max={5} value={limit} onChange={event => setLimit(Number(event.target.value))} /></label>
     </div><label><input disabled={busy} type="checkbox" checked={apply} onChange={event => setApply(event.target.checked)} /> Apply to future logs of {policy.affected_active_assignments ?? 0} current active assignments</label>
     <label className="field"><span>Reason for change</span><textarea disabled={busy} minLength={10} maxLength={500} value={reason} onChange={event => setReason(event.target.value)} /></label>
-    <button type="button" className="button button-secondary" disabled={busy || reason.trim().length < 10 || limit < 1 || limit > 5} onClick={async () => {
-      setBusy(true); setMessage(""); try { await service.savePolicy(mode, limit, apply, reason); setPolicy(await service.policy()); setApply(false); setReason(""); setMessage("Organization photo policy saved."); }
-      catch (failure) { setMessage(failure instanceof Error ? failure.message : "Policy could not be saved."); } finally { setBusy(false); }
-    }}>{busy ? "Saving…" : "Save photo policy"}</button></>}
+    {apply && confirmApply && <p className="form-warning" role="alert">Confirm this change for future Weekly Logs of the matching active assignments. Existing submitted and historical logs will not change.</p>}
+    <div className="modal-actions"><button type="button" className="button button-secondary" disabled={busy} onClick={() => {
+      setEditing(false); setApply(false); setReason(""); setConfirmApply(false);
+    }}>Cancel</button>
+    <button type="button" className="button button-primary" disabled={busy || reason.trim().length < 10 || limit < 1 || limit > 5} onClick={() => {
+      if (apply && !confirmApply) { setConfirmApply(true); return; }
+      void savePolicy();
+    }}>{busy ? "Saving…" : apply && !confirmApply ? "Review impact" : "Confirm and save policy"}</button></div></div>}
   </section>;
 }

@@ -213,6 +213,20 @@ function fitText(value: string, font: PDFFont, size: number, width: number) {
   return `${result}...`;
 }
 
+function fittedFontSize(
+  value: string,
+  font: PDFFont,
+  preferredSize: number,
+  minimumSize: number,
+  width: number,
+) {
+  let size = preferredSize;
+  while (size > minimumSize && font.widthOfTextAtSize(value, size) > width) {
+    size = Math.max(minimumSize, size - 0.2);
+  }
+  return size;
+}
+
 function drawCentered(
   page: PDFPage,
   value: string,
@@ -222,10 +236,38 @@ function drawCentered(
   right: number,
   y: number,
 ) {
-  const fitted = fitText(value, font, size, right - left);
-  const width = font.widthOfTextAtSize(fitted, size);
+  const availableWidth = right - left;
+  const fittedSize = fittedFontSize(value, font, size, 5.5, availableWidth);
+  const fitted = fitText(value, font, fittedSize, availableWidth);
+  const width = font.widthOfTextAtSize(fitted, fittedSize);
   page.drawText(fitted, {
     x: left + Math.max(0, (right - left - width) / 2),
+    y,
+    size: fittedSize,
+    font,
+    color: rgb(0, 0, 0),
+  });
+}
+
+function drawExactAttendanceValue(
+  page: PDFPage,
+  value: string,
+  font: PDFFont,
+  preferredSize: number,
+  left: number,
+  right: number,
+  y: number,
+) {
+  const availableWidth = right - left;
+  const size = fittedFontSize(value, font, preferredSize, 4.5, availableWidth);
+  const width = font.widthOfTextAtSize(value, size);
+  if (width > availableWidth) {
+    throw new Error(
+      "This day's attendance contains more punches than one Form 48 cell can display accurately. Ask an authorized reviewer to resolve the attendance record before generating the DTR.",
+    );
+  }
+  page.drawText(value, {
+    x: left + Math.max(0, (availableWidth - width) / 2),
     y,
     size,
     font,
@@ -256,6 +298,17 @@ export async function generateMonthlyDtrPdf(
     y: 0,
     width: formWidth,
     height: sourceHeight,
+  });
+
+  // The generated DTR intentionally contains the front of one narrow Form 48
+  // only. Remove the source form's obsolete reference to a back page without
+  // changing the surrounding signature lines or any attendance fields.
+  page.drawRectangle({
+    x: 130,
+    y: 146,
+    width: 110,
+    height: 14,
+    color: rgb(1, 1, 1),
   });
 
   const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -301,11 +354,11 @@ export async function generateMonthlyDtrPdf(
     for (const column of columns) {
       const value = values[column.key];
       if (!value) continue;
-      drawCentered(
+      drawExactAttendanceValue(
         page,
         value,
         font,
-        column.key.startsWith("undertime") ? 5.8 : 5.5,
+        column.key.startsWith("undertime") ? 6.2 : 6.1,
         column.left,
         column.right,
         rowStartY - (day - 1) * rowHeight,

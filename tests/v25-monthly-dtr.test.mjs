@@ -85,6 +85,72 @@ test("Form 48 leaves ambiguous overnight departure and unverified undertime blan
   assert.equal(dailyFormValues([{ ...base, status: "verified", verifiedMinutes: 420 }], null).undertimeHours, "");
 });
 
+test("Form 48 maps actual AM, PM, split, and incomplete sessions without inventing punches", () => {
+  const base = snapshot.sessions[0];
+  const amOnly = dailyFormValues([{
+    ...base,
+    timeInAt: "2028-02-01T00:00:00Z",
+    timeOutAt: "2028-02-01T03:30:00Z",
+  }], 8);
+  assert.deepEqual(
+    [amOnly.amArrival, amOnly.amDeparture, amOnly.pmArrival, amOnly.pmDeparture],
+    ["8:00", "11:30", "", ""],
+  );
+
+  const pmOnly = dailyFormValues([{
+    ...base,
+    timeInAt: "2028-02-01T05:00:00Z",
+    timeOutAt: "2028-02-01T09:00:00Z",
+  }], 8);
+  assert.deepEqual(
+    [pmOnly.amArrival, pmOnly.amDeparture, pmOnly.pmArrival, pmOnly.pmDeparture],
+    ["", "", "1:00", "5:00"],
+  );
+
+  const continuous = dailyFormValues([base], 8);
+  assert.deepEqual(
+    [continuous.amArrival, continuous.amDeparture, continuous.pmArrival, continuous.pmDeparture],
+    ["8:00", "", "", "4:00"],
+  );
+
+  const split = dailyFormValues([
+    { ...base, timeOutAt: "2028-02-01T03:59:00Z", verifiedMinutes: 239 },
+    {
+      ...base,
+      sessionId: "00000000-0000-4000-8000-000000000002",
+      timeInAt: "2028-02-01T05:00:00Z",
+      timeOutAt: "2028-02-01T09:00:00Z",
+      verifiedMinutes: 241,
+    },
+  ], 8);
+  assert.deepEqual(
+    [split.amArrival, split.amDeparture, split.pmArrival, split.pmDeparture],
+    ["8:00", "11:59", "1:00", "5:00"],
+  );
+
+  const incomplete = dailyFormValues([{ ...base, timeOutAt: null }], 8);
+  assert.deepEqual(
+    [incomplete.amArrival, incomplete.amDeparture, incomplete.pmArrival, incomplete.pmDeparture],
+    ["8:00", "", "", ""],
+  );
+  assert.equal(incomplete.undertimeHours, "");
+});
+
+test("Form 48 refuses to truncate an overfilled attendance cell", async () => {
+  const sessions = [0, 10, 20, 30].map((minute, index) => ({
+    ...snapshot.sessions[0],
+    sessionId: `00000000-0000-4000-8000-00000000000${index + 1}`,
+    timeInAt: `2028-02-01T00:${String(minute).padStart(2, "0")}:00Z`,
+    timeOutAt: `2028-02-01T01:${String(minute).padStart(2, "0")}:00Z`,
+    verifiedMinutes: 60,
+    status: "verified",
+  }));
+  await assert.rejects(
+    generateMonthlyDtrPdf({ ...snapshot, sessions }, { form: originalForm }),
+    /more punches than one Form 48 cell can display accurately/,
+  );
+});
+
 test("V25 monthly DTR handles every calendar month and rejects invalid snapshots", () => {
   assert.equal(daysInReportingMonth("2028-02-01"), 29);
   assert.equal(daysInReportingMonth("2027-02-01"), 28);
@@ -115,6 +181,7 @@ test("V26 DTR is exactly one narrow original Form 48 front", async () => {
   assert.equal(Math.round(pdf.getPage(0).getWidth()), 306);
   assert.equal(Math.round(pdf.getPage(0).getHeight()), 936);
   assert.match(reportSource, /Civil Service Form No\. 48/);
+  assert.match(reportSource, /Remove the source form's obsolete reference to a back page/);
   assert.doesNotMatch(reportSource, /PROVISIONAL - NOT YET VERIFIED/);
   assert.doesNotMatch(reportSource, /not represented as an officially approved CSC Form 48/);
 });

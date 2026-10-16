@@ -16,6 +16,8 @@ create table public.hte_representatives(id uuid primary key default gen_random_u
 create table public.internship_assignments(id uuid primary key,student_user_id uuid,hte_id uuid,status text,deleted_at timestamptz);
 create table public.internship_supervisors(internship_assignment_id uuid,supervisor_user_id uuid,supervisor_type text,deleted_at timestamptz,started_at timestamptz default now(),ended_at timestamptz);
 create table public.daily_logs(id uuid primary key,internship_assignment_id uuid,status text,week_start_date date,week_end_date date,current_version_number integer default 1,deleted_at timestamptz);
+create table public.daily_log_versions(id uuid primary key default gen_random_uuid(),daily_log_id uuid,activities text);
+create table public.daily_log_reviews(id uuid primary key default gen_random_uuid(),daily_log_id uuid,feedback text);
 create table public.attendance_sessions(id uuid primary key default gen_random_uuid(),internship_assignment_id uuid,work_date date,deleted_at timestamptz);
 create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
 create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text);
@@ -25,6 +27,12 @@ create function private.is_active_user(uuid) returns boolean language sql securi
 create function private.user_has_role_code(uuid,text) returns boolean language sql security definer as $$ select exists(select 1 from public.profiles where id=$1 and role=$2 and active) $$;
 create function private.can_view_assignment(uuid) returns boolean language sql security definer as $$
 select private.is_active_user(auth.uid()) and (exists(select 1 from public.internship_assignments where id=$1 and student_user_id=auth.uid()) or exists(select 1 from public.internship_supervisors where internship_assignment_id=$1 and supervisor_user_id=auth.uid() and deleted_at is null and ended_at is null)) $$;
+alter table public.daily_logs enable row level security;
+alter table public.daily_log_versions enable row level security;
+alter table public.daily_log_reviews enable row level security;
+create policy daily_logs_assignment_read_fixture on public.daily_logs for select to authenticated using (private.can_view_assignment(internship_assignment_id));
+create policy daily_log_versions_assignment_read_fixture on public.daily_log_versions for select to authenticated using (private.can_view_assignment((select internship_assignment_id from public.daily_logs where id=daily_log_id)));
+create policy daily_log_reviews_assignment_read_fixture on public.daily_log_reviews for select to authenticated using (private.can_view_assignment((select internship_assignment_id from public.daily_logs where id=daily_log_id)));
 grant usage on schema public,private,auth,storage to authenticated,service_role;
 grant select on all tables in schema public to authenticated;
 grant select,insert,delete on storage.objects to authenticated;
@@ -101,6 +109,58 @@ await db.exec("reset role");
 assert.equal((await db.query("select count(*)::int as n from attendance_sessions")).rows[0].n,1);
 assert.equal((await db.query(`select count(*)::int as n from weekly_log_photo_submission_snapshots where daily_log_id='${log2}'`)).rows[0].n,1);
 console.log("PASS: migration/replay, private owner scope, server-only upload registration, policy snapshots, required submission, pending exception, HTE-only decision, submitted locks, attendance preservation.");
+
+// v27 closes the remaining state leak: assignment-scoped reviewers must not
+// see Student draft text, metadata, evidence, audit rows, or private objects.
+await db.exec("reset role");
+const draftLog=id(25), draftVersion=id(26), draftReview=id(27), draftPhoto=id(28), draftAudit=id(29);
+const draftObjectPath=`${student}/${assignment}/${draftLog}/2026-10-19/draft.webp`;
+await db.exec(`
+insert into daily_logs(id,internship_assignment_id,status,week_start_date,week_end_date)
+values('${draftLog}','${assignment}','draft','2026-10-19','2026-10-25');
+insert into daily_log_versions(id,daily_log_id,activities) values('${draftVersion}','${draftLog}','Private draft activities');
+insert into daily_log_reviews(id,daily_log_id,feedback) values('${draftReview}','${draftLog}','Private draft metadata fixture');
+insert into storage.objects(bucket_id,name) values('weekly-log-photo-evidence','${draftObjectPath}');
+insert into weekly_log_photo_evidence(
+  id,daily_log_id,internship_assignment_id,evidence_date,object_path,original_file_name,
+  mime_type,file_size_bytes,pixel_width,pixel_height,caption,created_by_user_id
+) values(
+  '${draftPhoto}','${draftLog}','${assignment}','2026-10-19','${draftObjectPath}','draft.webp',
+  'image/webp',100,640,480,'Private draft caption','${student}'
+);
+insert into weekly_log_photo_evidence_audit(
+  id,internship_assignment_id,daily_log_id,entity_type,entity_id,action,actor_user_id
+) values('${draftAudit}','${assignment}','${draftLog}','evidence','${draftPhoto}','uploaded','${student}');
+`);
+await asUser(hte);
+assert.equal((await db.query(`select count(*)::int as n from daily_logs where id='${draftLog}'`)).rows[0].n,1,"fixture must reproduce the pre-v27 draft leak");
+await db.exec("reset role");
+const v27PrivacyMigration = await readFile(new URL("../supabase/migrations/20261016000000_v27_weekly_log_draft_privacy.sql", import.meta.url), "utf8");
+await db.exec(v27PrivacyMigration);
+await db.exec(v27PrivacyMigration); // Up-safe replay.
+for (const reviewer of [hte,coordinator]) {
+  await asUser(reviewer);
+  assert.equal((await db.query(`select count(*)::int as n from daily_logs where id='${draftLog}'`)).rows[0].n,0);
+  assert.equal((await db.query(`select count(*)::int as n from daily_log_versions where daily_log_id='${draftLog}'`)).rows[0].n,0);
+  assert.equal((await db.query(`select count(*)::int as n from daily_log_reviews where daily_log_id='${draftLog}'`)).rows[0].n,0);
+  assert.equal((await db.query(`select count(*)::int as n from weekly_log_photo_evidence where daily_log_id='${draftLog}'`)).rows[0].n,0);
+  assert.equal((await db.query(`select count(*)::int as n from weekly_log_photo_evidence_audit where daily_log_id='${draftLog}'`)).rows[0].n,0);
+  assert.equal((await db.query(`select count(*)::int as n from storage.objects where name='${draftObjectPath}'`)).rows[0].n,0);
+}
+await asUser(student);
+assert.equal((await db.query(`select count(*)::int as n from daily_logs where id='${draftLog}'`)).rows[0].n,1);
+assert.equal((await db.query(`select count(*)::int as n from daily_log_versions where daily_log_id='${draftLog}'`)).rows[0].n,1);
+assert.equal((await db.query(`select count(*)::int as n from weekly_log_photo_evidence where daily_log_id='${draftLog}'`)).rows[0].n,1);
+assert.equal((await db.query(`select count(*)::int as n from storage.objects where name='${draftObjectPath}'`)).rows[0].n,1);
+await db.exec(`reset role; update daily_logs set status='submitted' where id='${draftLog}'`);
+for (const reviewer of [hte,coordinator]) {
+  await asUser(reviewer);
+  assert.equal((await db.query(`select count(*)::int as n from daily_logs where id='${draftLog}'`)).rows[0].n,1);
+  assert.equal((await db.query(`select count(*)::int as n from weekly_log_photo_evidence where daily_log_id='${draftLog}'`)).rows[0].n,1);
+  assert.equal((await db.query(`select count(*)::int as n from storage.objects where name='${draftObjectPath}'`)).rows[0].n,1);
+}
+await db.exec("reset role");
+console.log("PASS: v27 Student draft text, metadata, evidence, audit, and Storage object privacy; scoped reviewer access restored after submission.");
 
 await db.exec(`
 create table academic_programs(id uuid primary key,owning_org_unit_id uuid,is_active boolean default true,deleted_at timestamptz);

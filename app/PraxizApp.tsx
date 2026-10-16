@@ -57,6 +57,7 @@ import {
   Sparkles,
   Star,
   Upload,
+  Undo2,
   UserCheck,
   UserRound,
   UsersRound,
@@ -79,7 +80,10 @@ import { PasswordInput } from "./components/PasswordInput";
 import { PlacementWorkspace } from "./components/PlacementWorkspace";
 import { SearchInput } from "./components/SearchInput";
 import { MonthlyDtrWorkspace } from "./components/MonthlyDtrWorkspace";
-import { WeeklyLogPhotoEvidence, HtePhotoPolicy } from "./components/WeeklyLogPhotoEvidence";
+import {
+  WeeklyLogPhotoEvidence,
+  HtePhotoPolicy,
+} from "./components/WeeklyLogPhotoEvidence";
 import { PraxizLoaderMark } from "./components/PraxizLoaderMark";
 import { userError } from "../lib/user-error";
 import { createClient as createSupabaseBrowserClient } from "../lib/supabase/client";
@@ -1188,7 +1192,9 @@ function SignInPage() {
         </p>
         <p className="secure-form-note">
           <ShieldCheck size={16} aria-hidden="true" />
-          <span>Your credentials and authorized role are verified securely.</span>
+          <span>
+            Your credentials and authorized role are verified securely.
+          </span>
         </p>
       </div>
     </CompactAuthPage>
@@ -1326,7 +1332,11 @@ function AcceptInvitationPage() {
       <span className="eyebrow dark">Secure invitation</span>
       <h2>Set up your PRAXIZ account</h2>
       {linkState === "checking" ? (
-        <div className="workspace-loading-content" role="status" aria-live="polite">
+        <div
+          className="workspace-loading-content"
+          role="status"
+          aria-live="polite"
+        >
           <PraxizLoaderMark />
           <p>Checking the invitation link…</p>
         </div>
@@ -1410,7 +1420,9 @@ function AcceptPasswordRecoveryPage() {
     } catch (reason) {
       window.history.replaceState({}, document.title, "/recover-password");
       setTokenHash("");
-      setError(userError(reason, "This password-reset link could not be verified."));
+      setError(
+        userError(reason, "This password-reset link could not be verified."),
+      );
       setLinkState("invalid");
       setLoading(false);
     }
@@ -1424,7 +1436,11 @@ function AcceptPasswordRecoveryPage() {
       <span className="eyebrow dark">Secure recovery</span>
       <h2>Reset your PRAXIZ password</h2>
       {linkState === "checking" ? (
-        <div className="workspace-loading-content" role="status" aria-live="polite">
+        <div
+          className="workspace-loading-content"
+          role="status"
+          aria-live="polite"
+        >
           <PraxizLoaderMark />
           <p>Checking the password-reset link…</p>
         </div>
@@ -1473,7 +1489,9 @@ function ResetPasswordPage() {
   const [complete, setComplete] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [recoveryState, setRecoveryState] = useState<"checking" | "ready" | "invalid">("checking");
+  const [recoveryState, setRecoveryState] = useState<
+    "checking" | "ready" | "invalid"
+  >("checking");
   const [flow, setFlow] = useState<"recovery" | "invitation" | null>(null);
   const passwordUpdated = useRef(false);
 
@@ -1512,7 +1530,9 @@ function ResetPasswordPage() {
     setLoading(true);
     setError("");
     if (!flow) {
-      setError("This password link is still being verified. Please wait a moment.");
+      setError(
+        "This password link is still being verified. Please wait a moment.",
+      );
       return;
     }
     try {
@@ -1530,102 +1550,124 @@ function ResetPasswordPage() {
   const invitationFlow = flow === "invitation";
   return (
     <CompactAuthPage cardClassName="auth-card-recovery">
-          <Link href="/" className="auth-card-back">
-            <ArrowLeft size={17} /> Back to PRAXIZ
+      <Link href="/" className="auth-card-back">
+        <ArrowLeft size={17} /> Back to PRAXIZ
+      </Link>
+      <span className="eyebrow dark">
+        {flow === null ? "Secure access" : invitationFlow ? "Account setup" : "Account recovery"}
+      </span>
+      <h2>
+        {complete
+          ? invitationFlow
+            ? "Account password created"
+            : "Password updated"
+          : recoveryState === "invalid"
+            ? "This password link cannot be used"
+            : flow === null
+              ? "Checking your password link"
+              : invitationFlow
+                ? "Create your password"
+                : "Set new password"}
+      </h2>
+      {complete ? (
+        <>
+          <div className="inline-success">
+            <CheckCircle2 />
+            <div>
+              <strong>
+                {invitationFlow
+                  ? "Account password created"
+                  : "Password updated"}
+              </strong>
+              <p>Sign in using your email address and new password.</p>
+            </div>
+          </div>
+          <Link className="button button-primary" href="/signin">
+            Continue to sign in
           </Link>
-          <span className="eyebrow dark">
-            {flow === null ? "Secure access" : invitationFlow ? "Account setup" : "Account recovery"}
-          </span>
-          <h2>{complete ? (invitationFlow ? "Account password created" : "Password updated") : recoveryState === "invalid" ? "This password link cannot be used" : flow === null ? "Checking your password link" : invitationFlow ? "Create your password" : "Set new password"}</h2>
-          {complete ? (
-            <>
-              <div className="inline-success">
-                <CheckCircle2 />
-                <div>
-                  <strong>
-                    {invitationFlow ? "Account password created" : "Password updated"}
-                  </strong>
-                  <p>Sign in using your email address and new password.</p>
-                </div>
-              </div>
-              <Link className="button button-primary" href="/signin">
-                Continue to sign in
-              </Link>
-            </>
-          ) : recoveryState === "checking" ? (
-            <div className="workspace-loading-content" role="status" aria-live="polite">
-              <PraxizLoaderMark />
-              <p>
-                {flow === null
-                  ? "Verifying your secure password link…"
-                  : invitationFlow
-                  ? "Confirming the accepted invitation…"
-                  : "Verifying your secure password link…"}
+        </>
+      ) : recoveryState === "checking" ? (
+        <div
+          className="workspace-loading-content"
+          role="status"
+          aria-live="polite"
+        >
+          <PraxizLoaderMark />
+          <p>
+            {flow === null
+              ? "Verifying your secure password link…"
+              : invitationFlow
+                ? "Confirming the accepted invitation…"
+                : "Verifying your secure password link…"}
+          </p>
+        </div>
+      ) : recoveryState === "invalid" ? (
+        <div className="auth-recovery-invalid" role="alert">
+          <AlertTriangle aria-hidden="true" />
+          <div>
+            <strong>
+              {invitationFlow
+                ? "This invitation setup cannot continue"
+                : "This password link cannot be used"}
+            </strong>
+            <p>{error}</p>
+            <Link
+              className="button button-primary"
+              href={invitationFlow ? "/signin" : "/forgot-password"}
+            >
+              {invitationFlow ? "Go to sign in" : "Request a new link"}
+            </Link>
+            {!invitationFlow && (
+              <p className="auth-switch">
+                <Link href="/signin">Return to sign in</Link>
               </p>
-            </div>
-          ) : recoveryState === "invalid" ? (
-            <div className="auth-recovery-invalid" role="alert">
-              <AlertTriangle aria-hidden="true" />
-              <div>
-                <strong>
-                  {invitationFlow
-                    ? "This invitation setup cannot continue"
-                    : "This password link cannot be used"}
-                </strong>
-                <p>{error}</p>
-                <Link
-                  className="button button-primary"
-                  href={invitationFlow ? "/signin" : "/forgot-password"}
-                >
-                  {invitationFlow ? "Go to sign in" : "Request a new link"}
-                </Link>
-                {!invitationFlow && <p className="auth-switch"><Link href="/signin">Return to sign in</Link></p>}
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={submit} noValidate>
-              <PasswordInput
-                label="New password"
-                required
-                minLength={8}
-                autoComplete="new-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Enter at least 8 characters"
-                showPolicy
-              />
-              <PasswordInput
-                label="Confirm new password"
-                required
-                minLength={8}
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                placeholder="Re-enter your new password"
-                matchValue={password}
-                showPolicy
-              />
-              {error && (
-                <p className="form-error">
-                  <AlertTriangle size={16} /> {error}
-                </p>
-              )}
-              <ActionButton type="submit" disabled={loading}>
-                {loading
-                  ? invitationFlow
-                    ? "Creating…"
-                    : "Updating…"
-                  : invitationFlow
-                    ? "Create password"
-                    : "Update password"}
-              </ActionButton>
-            </form>
-          )}
-          {!invitationFlow && !complete && recoveryState === "ready" && (
-            <p className="auth-switch">
-              <Link href="/forgot-password">Request another reset link</Link>
+            )}
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={submit} noValidate>
+          <PasswordInput
+            label="New password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Enter at least 8 characters"
+            showPolicy
+          />
+          <PasswordInput
+            label="Confirm new password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            placeholder="Re-enter your new password"
+            matchValue={password}
+            showPolicy
+          />
+          {error && (
+            <p className="form-error">
+              <AlertTriangle size={16} /> {error}
             </p>
           )}
+          <ActionButton type="submit" disabled={loading}>
+            {loading
+              ? invitationFlow
+                ? "Creating…"
+                : "Updating…"
+              : invitationFlow
+                ? "Create password"
+                : "Update password"}
+          </ActionButton>
+        </form>
+      )}
+      {!invitationFlow && !complete && recoveryState === "ready" && (
+        <p className="auth-switch">
+          <Link href="/forgot-password">Request another reset link</Link>
+        </p>
+      )}
     </CompactAuthPage>
   );
 }
@@ -1918,16 +1960,16 @@ function RegistrationFields({
   );
   const studentFormValid = Boolean(
     fullName.trim().length >= 3 &&
-      studentNumber.trim() &&
-      emailValidation.valid &&
-      campusId &&
-      collegeId &&
-      programId &&
-      ["3", "4"].includes(yearLevel) &&
-      section &&
-      academicTermId &&
-      password.length >= 8 &&
-      password === confirmPassword,
+    studentNumber.trim() &&
+    emailValidation.valid &&
+    campusId &&
+    collegeId &&
+    programId &&
+    ["3", "4"].includes(yearLevel) &&
+    section &&
+    academicTermId &&
+    password.length >= 8 &&
+    password === confirmPassword,
   );
   const registrationYearLevels = STUDENT_YEAR_LEVEL_OPTIONS.filter(
     (year) => year === 3 || year === 4,
@@ -1956,7 +1998,8 @@ function RegistrationFields({
     onSummaryChange?.({
       fullName: fullName.trim() || "Not entered",
       studentNumber: studentNumber.trim(),
-      campus: selectedCampus?.name ?? selectedCampus?.shortName ?? "Not selected",
+      campus:
+        selectedCampus?.name ?? selectedCampus?.shortName ?? "Not selected",
       college: selectedCollege?.name ?? "Not selected",
       program: selectedProgram
         ? `${selectedProgram.code} — ${selectedProgram.name}`
@@ -2358,7 +2401,9 @@ function RegisterPage() {
   const { register } = useAuth();
   const [agree, setAgree] = useState(false);
   const [fieldsValid, setFieldsValid] = useState(false);
-  const [invalidReason, setInvalidReason] = useState("Complete the required fields.");
+  const [invalidReason, setInvalidReason] = useState(
+    "Complete the required fields.",
+  );
   const [summary, setSummary] = useState<StudentRegistrationSummary>({
     fullName: "Not entered",
     studentNumber: "",
@@ -2389,7 +2434,9 @@ function RegisterPage() {
   function prepareSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!agree || !fieldsValid) {
-      setError(!agree ? "Confirm the consent statement to continue." : invalidReason);
+      setError(
+        !agree ? "Confirm the consent statement to continue." : invalidReason,
+      );
       return;
     }
     const formData = new FormData(event.currentTarget);
@@ -2467,7 +2514,11 @@ function RegisterPage() {
             Enter your verified institutional identity and internship program
             information.
           </p>
-          <form className="registration-form" onSubmit={prepareSubmit} noValidate>
+          <form
+            className="registration-form"
+            onSubmit={prepareSubmit}
+            noValidate
+          >
             <div className="form-card-heading">
               <span className="role-dot role-student">SI</span>
               <span>
@@ -2548,27 +2599,54 @@ function RegisterPage() {
             <section>
               <h3>Identity</h3>
               <dl className="info-list">
-                <div><dt>Full name</dt><dd>{summary.fullName}</dd></div>
-                <div><dt>Student number</dt><dd>{summary.studentNumber}</dd></div>
-                <div><dt>Institutional email</dt><dd>{summary.email}</dd></div>
+                <div>
+                  <dt>Full name</dt>
+                  <dd>{summary.fullName}</dd>
+                </div>
+                <div>
+                  <dt>Student number</dt>
+                  <dd>{summary.studentNumber}</dd>
+                </div>
+                <div>
+                  <dt>Institutional email</dt>
+                  <dd>{summary.email}</dd>
+                </div>
               </dl>
             </section>
             <section>
               <h3>Academic information</h3>
               <dl className="info-list">
-                <div><dt>Campus</dt><dd>{summary.campus}</dd></div>
-                <div><dt>College / academic unit</dt><dd>{summary.college}</dd></div>
-                <div><dt>Program</dt><dd>{summary.program}</dd></div>
-                <div><dt>Year level</dt><dd>{summary.yearLevel}</dd></div>
-                <div><dt>Section</dt><dd>{summary.section}</dd></div>
-                <div><dt>Academic term</dt><dd>{summary.academicTerm}</dd></div>
+                <div>
+                  <dt>Campus</dt>
+                  <dd>{summary.campus}</dd>
+                </div>
+                <div>
+                  <dt>College / academic unit</dt>
+                  <dd>{summary.college}</dd>
+                </div>
+                <div>
+                  <dt>Program</dt>
+                  <dd>{summary.program}</dd>
+                </div>
+                <div>
+                  <dt>Year level</dt>
+                  <dd>{summary.yearLevel}</dd>
+                </div>
+                <div>
+                  <dt>Section</dt>
+                  <dd>{summary.section}</dd>
+                </div>
+                <div>
+                  <dt>Academic term</dt>
+                  <dd>{summary.academicTerm}</dd>
+                </div>
               </dl>
             </section>
           </div>
           <p className="form-hint">
-            After submission, check your institutional inbox and verify that
-            you own the email address. Your registration then remains pending
-            until an authorized administrator completes institutional review.
+            After submission, check your institutional inbox and verify that you
+            own the email address. Your registration then remains pending until
+            an authorized administrator completes institutional review.
           </p>
           <div className="modal-actions">
             <ActionButton
@@ -2597,7 +2675,10 @@ function RegistrationSuccessPage() {
     try {
       const raw = sessionStorage.getItem("praxiz-registration-submission");
       if (!raw) return "";
-      const parsed = JSON.parse(raw) as { email?: unknown; submittedAt?: unknown };
+      const parsed = JSON.parse(raw) as {
+        email?: unknown;
+        submittedAt?: unknown;
+      };
       return typeof parsed.email === "string" &&
         typeof parsed.submittedAt === "string"
         ? parsed.email
@@ -2620,7 +2701,8 @@ function RegistrationSuccessPage() {
             <h1>No recent submission found</h1>
             <p>
               This page cannot confirm that a registration was submitted. Start
-              a registration or return to sign in if you already have an account.
+              a registration or return to sign in if you already have an
+              account.
             </p>
             <div className="registration-success-actions">
               <Link className="button button-secondary" href="/register">
@@ -2655,21 +2737,29 @@ function RegistrationSuccessPage() {
               <span>1</span>
               <div>
                 <strong>Verify your email address</strong>
-                <small>Open the verification message sent to your institutional inbox.</small>
+                <small>
+                  Open the verification message sent to your institutional
+                  inbox.
+                </small>
               </div>
             </li>
             <li>
               <span>2</span>
               <div>
                 <strong>Institutional review</strong>
-                <small>Your verified Student Intern details remain pending until approved.</small>
+                <small>
+                  Your verified Student Intern details remain pending until
+                  approved.
+                </small>
               </div>
             </li>
             <li>
               <span>3</span>
               <div>
                 <strong>Sign in after approval</strong>
-                <small>Use the same institutional email and the password you created.</small>
+                <small>
+                  Use the same institutional email and the password you created.
+                </small>
               </div>
             </li>
           </ol>
@@ -3234,11 +3324,14 @@ function StudentDashboard() {
         />
       </>
     );
-  const hasRequiredHours =
-    data.requiredHours != null && data.requiredHours > 0;
-  const hoursPercent = data.requiredHours != null && hasRequiredHours
-    ? Math.min(100, Math.round((data.renderedHours / data.requiredHours) * 100))
-    : 0;
+  const hasRequiredHours = data.requiredHours != null && data.requiredHours > 0;
+  const hoursPercent =
+    data.requiredHours != null && hasRequiredHours
+      ? Math.min(
+          100,
+          Math.round((data.renderedHours / data.requiredHours) * 100),
+        )
+      : 0;
   const logsPercent = data.logsExpected
     ? Math.min(100, Math.round((data.logsSubmitted / data.logsExpected) * 100))
     : 0;
@@ -3246,9 +3339,10 @@ function StudentDashboard() {
   const documentPercent = hasDocumentRequirements
     ? Math.round((data.documentsApproved / data.documentsRequired) * 100)
     : 0;
-  const remainingHours = data.requiredHours != null && hasRequiredHours
-    ? Math.max(0, data.requiredHours - data.renderedHours)
-    : null;
+  const remainingHours =
+    data.requiredHours != null && hasRequiredHours
+      ? Math.max(0, data.requiredHours - data.renderedHours)
+      : null;
   return (
     <>
       <PageHeader
@@ -3489,20 +3583,13 @@ function HteDashboard() {
       attendanceService.listLiveHistory(),
       hteWorkSetupService.list(),
     ])
-      .then(
-        ([
-          logRows,
-          liveEvaluations,
-          liveAttendance,
-          configurations,
-        ]) => {
-          if (!active) return;
-          setLogs(logRows);
-          setEvaluationRows(liveEvaluations);
-          setAttendanceRows(liveAttendance);
-          setWorkConfigurations(configurations);
-        },
-      )
+      .then(([logRows, liveEvaluations, liveAttendance, configurations]) => {
+        if (!active) return;
+        setLogs(logRows);
+        setEvaluationRows(liveEvaluations);
+        setAttendanceRows(liveAttendance);
+        setWorkConfigurations(configurations);
+      })
       .catch((reason) => {
         if (active)
           setError(
@@ -3572,7 +3659,13 @@ function HteDashboard() {
       <div className="stats-grid four">
         <StatCard
           label="Assigned interns"
-          value={internsLoading ? "…" : internError ? "Unavailable" : String(rows.length)}
+          value={
+            internsLoading
+              ? "…"
+              : internError
+                ? "Unavailable"
+                : String(rows.length)
+          }
           icon={UsersRound}
         />
         <StatCard
@@ -3604,12 +3697,19 @@ function HteDashboard() {
           </div>
           <InternTable rows={rows.slice(0, 5)} compact />
           {internsLoading ? (
-            <div className="table-row-skeleton" role="status" aria-label="Loading assigned interns" />
+            <div
+              className="table-row-skeleton"
+              role="status"
+              aria-label="Loading assigned interns"
+            />
           ) : internError ? (
             <div className="table-error-state" role="alert">
               <AlertTriangle size={18} />
               <span>{internError}</span>
-              <button className="button button-secondary button-small" onClick={() => window.location.reload()}>
+              <button
+                className="button button-secondary button-small"
+                onClick={() => window.location.reload()}
+              >
                 Retry
               </button>
             </div>
@@ -4003,7 +4103,10 @@ function AdminDashboard() {
           <AlertTriangle size={16} /> {error}
         </p>
       )}
-      <section className="card admin-quick-actions" aria-labelledby="admin-quick-actions-title">
+      <section
+        className="card admin-quick-actions"
+        aria-labelledby="admin-quick-actions-title"
+      >
         <div>
           <span className="eyebrow dark">Authorized shortcuts</span>
           <h2 id="admin-quick-actions-title">Quick actions</h2>
@@ -4543,12 +4646,14 @@ function AttendancePage({ role }: { role: RoleId }) {
   useEffect(() => {
     let active = true;
     const request = student
-      ? attendanceService.closeMyStaleSessions().then(() =>
-          Promise.all([
-            attendanceService.getTodaySession(),
-            attendanceService.listLiveHistory(),
-          ]),
-        )
+      ? attendanceService
+          .closeMyStaleSessions()
+          .then(() =>
+            Promise.all([
+              attendanceService.getTodaySession(),
+              attendanceService.listLiveHistory(),
+            ]),
+          )
       : Promise.all([
           Promise.resolve(null),
           attendanceService.listLiveHistory(),
@@ -4809,12 +4914,16 @@ function AttendancePage({ role }: { role: RoleId }) {
               <span>Verified rendered hours</span>
             </div>
             <div>
-              <strong>{hasRequiredHours ? `${requiredHours} hrs` : "Not configured"}</strong>
+              <strong>
+                {hasRequiredHours ? `${requiredHours} hrs` : "Not configured"}
+              </strong>
               <span>Required internship hours</span>
             </div>
             <div>
               <strong className="orange-text">
-                {remainingHours == null ? "Not available" : `${remainingHours} hrs`}
+                {remainingHours == null
+                  ? "Not available"
+                  : `${remainingHours} hrs`}
               </strong>
               <span>Remaining verified hours</span>
             </div>
@@ -5320,7 +5429,14 @@ function StudentWeeklyLogDialog({
             </label>
           </div>
         </fieldset>
-        {log ? <WeeklyLogPhotoEvidence log={log} editable /> : <p className="muted-note">Save a draft first to attach Daily Activity Evidence or request a photo exception.</p>}
+        {log ? (
+          <WeeklyLogPhotoEvidence log={log} editable />
+        ) : (
+          <p className="muted-note">
+            Save a draft first to attach Daily Activity Evidence or request a
+            photo exception.
+          </p>
+        )}
         {error && (
           <p className="form-error">
             <AlertTriangle size={16} /> {error}
@@ -5510,6 +5626,9 @@ function WeeklyLogsPage({ role }: { role: RoleId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [logSearch, setLogSearch] = useState("");
+  const [logStatus, setLogStatus] = useState("All");
+  const [logSort, setLogSort] = useState("Newest submitted");
   async function load() {
     try {
       setRecords(await weeklyLogService.listLive());
@@ -5539,6 +5658,21 @@ function WeeklyLogsPage({ role }: { role: RoleId }) {
   }, []);
   const approved = records.filter((log) => log.status === "Approved").length;
   const pending = records.filter((log) => log.status === "Submitted").length;
+  const visibleRecords = records
+    .filter(
+      (log) =>
+        (logStatus === "All" || log.status === logStatus) &&
+        (!logSearch.trim() ||
+          `${log.studentName} ${log.reportingPeriod} ${log.summary}`
+            .toLowerCase()
+            .includes(logSearch.trim().toLowerCase())),
+    )
+    .sort((left, right) => {
+      const direction = logSort === "Oldest submitted" ? 1 : -1;
+      const leftTime = Date.parse(left.submitted);
+      const rightTime = Date.parse(right.submitted);
+      return direction * ((Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0));
+    });
   return (
     <>
       <PageHeader
@@ -5588,9 +5722,18 @@ function WeeklyLogsPage({ role }: { role: RoleId }) {
           tone="orange"
         />
       </div>
-      {role === "hte" && <HtePhotoPolicy />}
       <section className="card table-card weekly-log-table">
-        <h2>Weekly Log history</h2>
+        <div className="card-title"><h2>Weekly Log history</h2>
+          <div className="table-controls">
+            <SearchInput value={logSearch} onChange={setLogSearch} placeholder="Search student, week, or accomplishments…" label="Search Weekly Logs" />
+            <select aria-label="Filter Weekly Logs by status" value={logStatus} onChange={(event) => setLogStatus(event.target.value)}>
+              <option>All</option><option>Submitted</option><option>Approved</option><option>Rejected</option><option>Needs Revision</option>
+            </select>
+            <select aria-label="Sort Weekly Logs" value={logSort} onChange={(event) => setLogSort(event.target.value)}>
+              <option>Newest submitted</option><option>Oldest submitted</option>
+            </select>
+          </div>
+        </div>
         <div className="table-scroll">
           <table className="data-table">
             <thead>
@@ -5605,7 +5748,7 @@ function WeeklyLogsPage({ role }: { role: RoleId }) {
               </tr>
             </thead>
             <tbody>
-              {records.map((log) => (
+              {visibleRecords.map((log) => (
                 <tr key={log.id}>
                   {!student && (
                     <td>
@@ -5639,14 +5782,18 @@ function WeeklyLogsPage({ role }: { role: RoleId }) {
                         aria-label={`${student || log.status !== "Submitted" ? "View details for" : "Review"} Weekly Log for ${log.reportingPeriod}`}
                         onClick={() => setSelected(log)}
                       >
-                        {(student || log.status !== "Submitted") && <Eye size={16} />}
-                        {student || log.status !== "Submitted" ? "View details" : "Review"}
+                        {(student || log.status !== "Submitted") && (
+                          <Eye size={16} />
+                        )}
+                        {student || log.status !== "Submitted"
+                          ? "View details"
+                          : "Review"}
                       </button>
                     )}
                   </td>
                 </tr>
               ))}
-              {!loading && records.length === 0 && (
+              {!loading && visibleRecords.length === 0 && (
                 <tr>
                   <td colSpan={student ? 6 : 7}>
                     No Weekly Logs are available yet.
@@ -5657,6 +5804,7 @@ function WeeklyLogsPage({ role }: { role: RoleId }) {
           </table>
         </div>
       </section>
+      {role === "hte" && <HtePhotoPolicy />}
       {selected !== undefined && (
         <WeeklyLogDialog
           log={selected}
@@ -5941,8 +6089,17 @@ function DocumentsPage({ role }: { role: RoleId }) {
   const [previewRecord, setPreviewRecord] = useState<DocumentRecord | null>(
     null,
   );
+  const [withdrawRecord, setWithdrawRecord] = useState<DocumentRecord | null>(
+    null,
+  );
+  const [withdrawing, setWithdrawing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [sectionFilter, setSectionFilter] = useState("All");
+  const [hteFilter, setHteFilter] = useState("All");
+  const [termFilter, setTermFilter] = useState("All");
   async function load() {
     setLoading(true);
     setError("");
@@ -5978,6 +6135,22 @@ function DocumentsPage({ role }: { role: RoleId }) {
   const percent = records.length
     ? Math.round((completed / records.length) * 100)
     : 0;
+  const visibleRecords = records.filter((record) => {
+    const needle = search.trim().toLowerCase();
+    return (
+      (!needle || [record.studentName, record.templateName, record.fileName, record.hte, record.section].join(" ").toLowerCase().includes(needle)) &&
+      (statusFilter === "All" || record.status === statusFilter) &&
+      (sectionFilter === "All" || record.section === sectionFilter) &&
+      (hteFilter === "All" || record.hte === hteFilter) &&
+      (termFilter === "All" || record.term === termFilter)
+    );
+  });
+  const visibleCompleted = visibleRecords.filter(
+    (record) => record.status === "Approved" || record.status === "Waived",
+  ).length;
+  const visiblePercent = visibleRecords.length
+    ? Math.round((visibleCompleted / visibleRecords.length) * 100)
+    : 0;
   const nextUpload = records.find(
     (record) =>
       record.status === "Missing" ||
@@ -5992,6 +6165,22 @@ function DocumentsPage({ role }: { role: RoleId }) {
       setError(
         userError(reason, "The secure document link could not be opened."),
       );
+    }
+  }
+  async function withdrawDocument() {
+    if (!withdrawRecord) return;
+    setWithdrawing(true);
+    setError("");
+    try {
+      await documentService.withdraw(withdrawRecord);
+      setWithdrawRecord(null);
+      await load();
+    } catch (reason) {
+      setError(
+        userError(reason, "The document submission could not be withdrawn."),
+      );
+    } finally {
+      setWithdrawing(false);
     }
   }
   return (
@@ -6019,21 +6208,30 @@ function DocumentsPage({ role }: { role: RoleId }) {
           <AlertTriangle size={16} /> {error}
         </p>
       )}
+      {!canUpload && (
+        <section className="card placement-filters compact" aria-label="Document compliance filters">
+          <label className="field"><span>Search</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Student, requirement, HTE, file…" /></label>
+          <label className="field"><span>Section</span><select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value)}><option>All</option>{[...new Set(records.map((record) => record.section))].map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label className="field"><span>HTE</span><select value={hteFilter} onChange={(event) => setHteFilter(event.target.value)}><option>All</option>{[...new Set(records.map((record) => record.hte))].map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label className="field"><span>Academic term</span><select value={termFilter} onChange={(event) => setTermFilter(event.target.value)}><option>All</option>{[...new Set(records.map((record) => record.term))].map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label className="field"><span>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>All</option>{[...new Set(records.map((record) => record.status))].map((value) => <option key={value}>{value}</option>)}</select></label>
+        </section>
+      )}
       <section className="card compliance-card">
         <div className="metric-row">
           <span>Approved document requirements</span>
           <strong>
-            {completed} of {records.length} ({percent}%)
+            {canUpload ? completed : visibleCompleted} of {canUpload ? records.length : visibleRecords.length} ({canUpload ? percent : visiblePercent}%)
           </strong>
         </div>
-        <ProgressBar value={percent} />
+        <ProgressBar value={canUpload ? percent : visiblePercent} />
       </section>
       {(
         ["Pre-Internship", "During Internship", "Post-Internship"] as const
       ).map((phase) => (
         <section className="card document-group" key={phase}>
           <h2>{phase}</h2>
-          {records
+          {visibleRecords
             .filter((record) => record.phase === phase)
             .map((record) => (
               <article className="document-row" key={record.id}>
@@ -6048,6 +6246,7 @@ function DocumentsPage({ role }: { role: RoleId }) {
                     {!canUpload && `${record.studentName} · `}
                     {record.fileName} · {record.dueAt}
                   </small>
+                  {!canUpload && <small>{record.section} · {record.hte} · {record.term}</small>}
                   <p>
                     {record.latestFeedback ||
                       (record.objectPath
@@ -6089,6 +6288,15 @@ function DocumentsPage({ role }: { role: RoleId }) {
                         {record.status === "Missing" ? "Upload" : "Re-upload"}
                       </ActionButton>
                     )}
+                  {canUpload && record.canWithdraw && (
+                    <ActionButton
+                      variant="secondary"
+                      icon={Undo2}
+                      onClick={() => setWithdrawRecord(record)}
+                    >
+                      Unsubmit
+                    </ActionButton>
+                  )}
                   {!canUpload &&
                     record.submissionId &&
                     (record.status === "Under Review" ||
@@ -6098,12 +6306,20 @@ function DocumentsPage({ role }: { role: RoleId }) {
                       </ActionButton>
                     )}
                 </div>
+                {canUpload &&
+                  record.submissionId &&
+                  !record.canWithdraw &&
+                  record.withdrawalBlockedReason && (
+                    <small className="muted-note document-withdrawal-note">
+                      {record.withdrawalBlockedReason}
+                    </small>
+                  )}
               </article>
             ))}
           {!loading &&
-            records.filter((record) => record.phase === phase).length === 0 && (
+            visibleRecords.filter((record) => record.phase === phase).length === 0 && (
               <p className="muted-note">
-                No visible requirements in this phase.
+                {records.length ? "No requirements in this phase match the selected filters." : "No visible requirements in this phase."}
               </p>
             )}
         </section>
@@ -6132,6 +6348,23 @@ function DocumentsPage({ role }: { role: RoleId }) {
         <DocumentPreviewDialog
           record={previewRecord}
           close={() => setPreviewRecord(null)}
+        />
+      )}
+      {withdrawRecord && (
+        <ConfirmDialog
+          title={`Unsubmit ${withdrawRecord.templateName}?`}
+          message={
+            <>
+              This removes the current file from review so you can submit a
+              replacement. The original version remains in PRAXIZ history. This
+              action is allowed only before the configured deadline and before
+              any reviewer decision.
+            </>
+          }
+          confirmLabel={withdrawing ? "Unsubmitting…" : "Unsubmit document"}
+          busy={withdrawing}
+          onCancel={() => setWithdrawRecord(null)}
+          onConfirm={() => void withdrawDocument()}
         />
       )}
     </>
@@ -6199,11 +6432,14 @@ function ProgressPage() {
         />
       </>
     );
-  const hasRequiredHours =
-    data.requiredHours != null && data.requiredHours > 0;
-  const hoursPercent = data.requiredHours != null && hasRequiredHours
-    ? Math.min(100, Math.round((data.renderedHours / data.requiredHours) * 100))
-    : 0;
+  const hasRequiredHours = data.requiredHours != null && data.requiredHours > 0;
+  const hoursPercent =
+    data.requiredHours != null && hasRequiredHours
+      ? Math.min(
+          100,
+          Math.round((data.renderedHours / data.requiredHours) * 100),
+        )
+      : 0;
   const attendancePercent = data.attendanceRate;
   const logPercent = data.logsExpected
     ? Math.min(100, Math.round((data.logsSubmitted / data.logsExpected) * 100))
@@ -6212,9 +6448,10 @@ function ProgressPage() {
   const documentPercent = hasDocumentRequirements
     ? Math.round((data.documentsApproved / data.documentsRequired) * 100)
     : 0;
-  const remainingHours = data.requiredHours != null && hasRequiredHours
-    ? Math.max(0, data.requiredHours - data.renderedHours)
-    : null;
+  const remainingHours =
+    data.requiredHours != null && hasRequiredHours
+      ? Math.max(0, data.requiredHours - data.renderedHours)
+      : null;
   const preInternshipRequirements = data.requirements.filter(
     (item) =>
       item.name === "Acceptance Form" ||
@@ -7369,7 +7606,9 @@ function AnalyticsPage() {
       const data = await response.json();
       if (!response.ok) {
         setAiRetryable(Boolean(data?.retryable));
-        throw new Error(data?.error || "AI performance analysis could not be generated.");
+        throw new Error(
+          data?.error || "AI performance analysis could not be generated.",
+        );
       }
       setAiInsights(data as AnalyticsAiResult);
     } catch (reason) {
@@ -7710,19 +7949,34 @@ function AnalyticsPage() {
               <div className="ai-error" role="alert">
                 <AlertTriangle size={16} />
                 <span>{aiError}</span>
-                {aiRetryable && <button
-                  className="table-link"
-                  onClick={() => void generateAiInsights()}
-                  disabled={aiLoading}
-                >
-                  Try again
-                </button>}
+                {aiRetryable && (
+                  <button
+                    className="table-link"
+                    onClick={() => void generateAiInsights()}
+                    disabled={aiLoading}
+                  >
+                    Try again
+                  </button>
+                )}
               </div>
             )}
             {aiLoading && (
-              <div className="ai-thinking ai-insights-thinking" role="status" aria-live="polite">
+              <div
+                className="ai-thinking ai-insights-thinking"
+                role="status"
+                aria-live="polite"
+              >
                 <Sparkles size={18} aria-hidden="true" />
-                <div><strong>PRAXIZ AI</strong><span>Analyzing verified internship indicators…</span><span className="ai-thinking-wave" aria-hidden="true"><i /><i /><i /><i /></span></div>
+                <div>
+                  <strong>PRAXIZ AI</strong>
+                  <span>Analyzing verified internship indicators…</span>
+                  <span className="ai-thinking-wave" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </div>
               </div>
             )}
             {!aiInsights && !aiLoading && !aiError && (
@@ -8259,6 +8513,14 @@ function FeedbackDetailDialog({
             <dd>{record.authorRole}</dd>
           </div>
           <div>
+            <dt>Section</dt>
+            <dd>{record.section}</dd>
+          </div>
+          <div>
+            <dt>HTE</dt>
+            <dd>{record.hte}</dd>
+          </div>
+          <div>
             <dt>Date</dt>
             <dd>
               <time dateTime={record.createdAt}>{created}</time>
@@ -8294,6 +8556,11 @@ function FeedbackPage() {
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<FeedbackRecord | null>(null);
+  const [search, setSearch] = useState("");
+  const [sectionFilter, setSectionFilter] = useState("All");
+  const [hteFilter, setHteFilter] = useState("All");
+  const [workflowFilter, setWorkflowFilter] = useState("All");
+  const [readFilter, setReadFilter] = useState("All");
   const canCreate = user?.role === "coordinator" || user?.role === "hte";
   const openFeedback = useCallback(
     async (item: FeedbackRecord) => {
@@ -8352,6 +8619,16 @@ function FeedbackPage() {
   useEffect(() => {
     void Promise.resolve().then(load);
   }, [load]);
+  const shown = records.filter((item) => {
+    const needle = search.trim().toLowerCase();
+    return (
+      (!needle || [item.studentName, item.subject, item.message, item.authorName, item.hte, item.section].join(" ").toLowerCase().includes(needle)) &&
+      (sectionFilter === "All" || item.section === sectionFilter) &&
+      (hteFilter === "All" || item.hte === hteFilter) &&
+      (workflowFilter === "All" || item.status === workflowFilter) &&
+      (readFilter === "All" || item.readStatus === readFilter)
+    );
+  });
   return (
     <>
       <PageHeader
@@ -8405,27 +8682,37 @@ function FeedbackPage() {
         />
       </div>
       <section className="card table-card">
-        <h2>{loading ? "Loading feedback…" : "Feedback records"}</h2>
+        <div className="card-title"><div><h2>{loading ? "Loading feedback…" : `${shown.length} feedback record${shown.length === 1 ? "" : "s"}`}</h2><p>Read state and follow-up workflow are tracked independently.</p></div></div>
+        <div className="placement-filters compact">
+          <label className="field"><span>Search</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Student, subject, HTE, message…" /></label>
+          <label className="field"><span>Section</span><select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value)}><option>All</option>{[...new Set(records.map((item) => item.section))].map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label className="field"><span>HTE</span><select value={hteFilter} onChange={(event) => setHteFilter(event.target.value)}><option>All</option>{[...new Set(records.map((item) => item.hte))].map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label className="field"><span>Follow-up</span><select value={workflowFilter} onChange={(event) => setWorkflowFilter(event.target.value)}><option>All</option><option>Open</option><option>In Progress</option><option>Resolved</option></select></label>
+          <label className="field"><span>Read status</span><select value={readFilter} onChange={(event) => setReadFilter(event.target.value)}><option>All</option><option>Unread</option><option>Read</option></select></label>
+        </div>
         <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
                 <th>Student</th>
+                <th>Section / HTE</th>
                 <th>Subject</th>
                 <th>Feedback</th>
                 <th>Author</th>
                 <th>Author role</th>
                 <th>Date and time</th>
-                <th className="feedback-status-cell">Status</th>
+                <th className="feedback-status-cell">Follow-up</th>
+                <th className="feedback-status-cell">Read</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {records.map((item) => (
+              {shown.map((item) => (
                 <tr key={item.id}>
                   <td>
                     <b>{item.studentName}</b>
                   </td>
+                  <td>{item.section}<small>{item.hte}</small></td>
                   <td>
                     <b>{item.subject}</b>
                   </td>
@@ -8444,6 +8731,9 @@ function FeedbackPage() {
                     </time>
                   </td>
                   <td className="feedback-status-cell">
+                    <StatusBadge status={item.status} />
+                  </td>
+                  <td className="feedback-status-cell">
                     <StatusBadge status={item.readStatus} />
                   </td>
                   <td>
@@ -8458,11 +8748,10 @@ function FeedbackPage() {
                   </td>
                 </tr>
               ))}
-              {!loading && records.length === 0 && (
+              {!loading && shown.length === 0 && (
                 <tr>
-                  <td colSpan={8}>
-                    No feedback has been recorded for your authorized
-                    assignments.
+                  <td colSpan={10}>
+                    {records.length ? "No feedback matches the selected filters." : "No feedback has been recorded for your authorized assignments."}
                   </td>
                 </tr>
               )}
@@ -8965,11 +9254,13 @@ function UserAccountsPage() {
               onChange={(event) => setRoleFilter(event.target.value)}
             >
               <option value="All">All roles</option>
-              {[...new Set(records.map((record) => record.role))].map((role) => (
-                <option key={role} value={role}>
-                  {role}
-                </option>
-              ))}
+              {[...new Set(records.map((record) => record.role))].map(
+                (role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ),
+              )}
             </select>
             <select
               aria-label="Account status"
@@ -9244,6 +9535,7 @@ function PartnerHtesPage() {
                 <th>Organization</th>
                 <th>Representative</th>
                 <th>Assigned interns</th>
+                <th>Daily hours</th>
                 <th>Verification</th>
                 <th>Actions</th>
               </tr>
@@ -9256,6 +9548,7 @@ function PartnerHtesPage() {
                   </td>
                   <td>{item.representative}</td>
                   <td>{item.assignedInterns}</td>
+                  <td>{item.dailyRequiredHours == null ? "Not configured" : `${item.dailyRequiredHours} hrs/day`}</td>
                   <td>
                     <StatusBadge status={item.status} />
                   </td>
@@ -9283,7 +9576,7 @@ function PartnerHtesPage() {
               ))}
               {!loading && shown.length === 0 && (
                 <tr>
-                  <td colSpan={5}>
+                  <td colSpan={6}>
                     No real HTE organization matches this view.
                   </td>
                 </tr>
@@ -9310,6 +9603,10 @@ function PartnerHtesPage() {
             <div>
               <dt>Assigned interns</dt>
               <dd>{selected.assignedInterns}</dd>
+            </div>
+            <div>
+              <dt>Authorized daily hours</dt>
+              <dd>{selected.dailyRequiredHours == null ? "Not configured" : `${selected.dailyRequiredHours} hours per day`}</dd>
             </div>
             <div>
               <dt>Verification</dt>
@@ -9354,7 +9651,9 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
   const [configurationSearch, setConfigurationSearch] = useState("");
   const [configurationTerm, setConfigurationTerm] = useState("All");
   const [configurationStatus, setConfigurationStatus] = useState("All");
-  const [selectedConfiguration, setSelectedConfiguration] = useState<HteDailyHourConfig | null>(null);
+  const [selectedConfiguration, setSelectedConfiguration] =
+    useState<HteDailyHourConfig | null>(null);
+  const [editingSetup, setEditingSetup] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -9385,7 +9684,8 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
     : records.filter((record) => record.hteId === hteId);
   const visible = scopedRecords.filter(
     (record) =>
-      (configurationStatus === "All" || record.status === configurationStatus) &&
+      (configurationStatus === "All" ||
+        record.status === configurationStatus) &&
       (configurationTerm === "All" || record.termLabel === configurationTerm) &&
       (!configurationSearch.trim() ||
         `${record.hteName} ${record.termLabel}`
@@ -9412,20 +9712,30 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
     .sort((left, right) => {
       const leftTermRank = left.academicTermId === currentTermId ? 1 : 0;
       const rightTermRank = right.academicTermId === currentTermId ? 1 : 0;
-      return rightTermRank - leftTermRank || right.effectiveFrom.localeCompare(left.effectiveFrom) || right.updatedAt.localeCompare(left.updatedAt);
+      return (
+        rightTermRank - leftTermRank ||
+        right.effectiveFrom.localeCompare(left.effectiveFrom) ||
+        right.updatedAt.localeCompare(left.updatedAt)
+      );
     });
   const active = applicableRecords[0];
   const overlappingCurrentSetup = applicableRecords.length > 1;
   const configuredHtes = new Set(
-    records.filter((record) => record.status === "Active").map((record) => record.hteId),
+    records
+      .filter((record) => record.status === "Active")
+      .map((record) => record.hteId),
   ).size;
   function validateWorkSetup() {
     const parsedHours = Number(hours);
     if (!hteId) return "Select an HTE organization before saving.";
-    if (!Number.isFinite(parsedHours) || parsedHours < 0.25 || parsedHours > 24) {
+    if (
+      !Number.isFinite(parsedHours) ||
+      parsedHours < 0.25 || parsedHours > 24
+    ) {
       return "Daily required hours must be between 0.25 and 24.";
     }
-    if (!effectiveFrom) return "Select the date when this configuration takes effect.";
+    if (!effectiveFrom)
+      return "Select the date when this configuration takes effect.";
     if (effectiveTo && effectiveTo < effectiveFrom) {
       return "The effective-to date cannot be earlier than the effective-from date.";
     }
@@ -9433,6 +9743,31 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
       return "Enter a clear correction reason of at least 5 characters for the audit trail.";
     }
     return "";
+  }
+  function beginSetupEdit(record?: HteDailyHourConfig) {
+    const source = record ?? active;
+    if (source) {
+      setHteId(source.hteId);
+      setTermId(source.academicTermId ?? "");
+      setHours(String(source.dailyRequiredHours));
+      setEffectiveFrom(source.effectiveFrom);
+      setEffectiveTo(source.effectiveTo ?? "");
+    } else {
+      setHours("");
+      setEffectiveFrom(todayInManila);
+      setEffectiveTo("");
+    }
+    setReason("");
+    setApplyToActive(false);
+    setConfirmApply(false);
+    setEditingSetup(true);
+  }
+  function cancelSetupEdit() {
+    setEditingSetup(false);
+    setApplyToActive(false);
+    setConfirmApply(false);
+    setReason("");
+    setError("");
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -9478,6 +9813,7 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
       setReason("");
       setApplyToActive(false);
       setConfirmApply(false);
+      setEditingSetup(false);
       await load();
     } catch (reasonValue) {
       setError(
@@ -9512,11 +9848,30 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
       {admin && (
         <>
           <div className="stats-grid three hte-configuration-summary">
-            <StatCard label="Configured HTEs" value={String(configuredHtes)} icon={CheckCircle2} tone="green" />
-            <StatCard label="Missing configuration" value={String(Math.max(0, htes.length - configuredHtes))} icon={AlertTriangle} tone="orange" />
-            <StatCard label="Active term" value={terms.find((term) => term.isCurrent)?.term || "Not configured"} icon={CalendarCheck2} />
+            <StatCard
+              label="Configured HTEs"
+              value={String(configuredHtes)}
+              icon={CheckCircle2}
+              tone="green"
+            />
+            <StatCard
+              label="Missing configuration"
+              value={String(Math.max(0, htes.length - configuredHtes))}
+              icon={AlertTriangle}
+              tone="orange"
+            />
+            <StatCard
+              label="Active term"
+              value={
+                terms.find((term) => term.isCurrent)?.term || "Not configured"
+              }
+              icon={CalendarCheck2}
+            />
           </div>
-          <section className="card hte-configuration-filters" aria-label="HTE configuration filters">
+          <section
+            className="card hte-configuration-filters"
+            aria-label="HTE configuration filters"
+          >
             <SearchInput
               value={configurationSearch}
               onChange={setConfigurationSearch}
@@ -9525,14 +9880,24 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
             />
             <label className="field field-compact">
               <span>Academic term</span>
-              <select value={configurationTerm} onChange={(event) => setConfigurationTerm(event.target.value)}>
+              <select
+                value={configurationTerm}
+                onChange={(event) => setConfigurationTerm(event.target.value)}
+              >
                 <option value="All">All terms</option>
-                {[...new Set(records.map((record) => record.termLabel))].map((label) => <option key={label}>{label}</option>)}
+                {[...new Set(records.map((record) => record.termLabel))].map(
+                  (label) => (
+                    <option key={label}>{label}</option>
+                  ),
+                )}
               </select>
             </label>
             <label className="field field-compact">
               <span>Configuration status</span>
-              <select value={configurationStatus} onChange={(event) => setConfigurationStatus(event.target.value)}>
+              <select
+                value={configurationStatus}
+                onChange={(event) => setConfigurationStatus(event.target.value)}
+              >
                 <option value="All">All statuses</option>
                 <option value="Active">Configured</option>
                 <option value="Retired">Superseded</option>
@@ -9541,47 +9906,63 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
           </section>
         </>
       )}
-      <div className={`work-setup-stack ${admin ? "work-setup-stack-admin" : ""}`}>
-        <section className="card work-setup-current" aria-labelledby="current-work-setup-heading">
+      <div
+        className={`work-setup-stack ${admin ? "work-setup-stack-admin" : ""}`}
+      >
+        <section
+          className="card work-setup-current"
+          aria-labelledby="current-work-setup-heading"
+        >
           <div className="card-title">
             <h2 id="current-work-setup-heading">Current setup</h2>
-            <StatusBadge status={active ? "Configured" : "Not configured"} />
+            <div className="table-actions">
+              <StatusBadge status={active ? "Configured" : "Not configured"} />
+              <ActionButton
+                variant="secondary"
+                onClick={() => beginSetupEdit()}
+              >
+                {active ? "Update work setup" : "Configure work setup"}
+              </ActionButton>
+            </div>
           </div>
           {active ? (
             <>
-            {overlappingCurrentSetup && (
-              <p className="form-error" role="alert">
-                <AlertTriangle size={17} /> Multiple configurations currently apply. PRAXIZ is showing the most specific, most recent effective configuration; an administrator should review the overlap.
-              </p>
-            )}
-            <dl className="info-list work-setup-meta">
-              <div>
-                <dt>HTE</dt>
-                <dd>{active.hteName}</dd>
-              </div>
-              <div>
-                <dt>Daily required hours</dt>
-                <dd>{active.dailyRequiredHours} hours</dd>
-              </div>
-              <div>
-                <dt>Academic term</dt>
-                <dd>{active.termLabel}</dd>
-              </div>
-              <div>
-                <dt>Effective period</dt>
-                <dd>
-                  {active.effectiveFrom} – {active.effectiveTo || "No end date"}
-                </dd>
-              </div>
-              <div>
-                <dt>Configured by</dt>
-                <dd>{active.configuredBy}</dd>
-              </div>
-              <div>
-                <dt>Last updated</dt>
-                <dd>{formatTimestamp(active.updatedAt)}</dd>
-              </div>
-            </dl>
+              {overlappingCurrentSetup && (
+                <p className="form-error" role="alert">
+                  <AlertTriangle size={17} /> Multiple configurations currently apply. PRAXIZ is showing the most specific, most recent
+                  effective configuration; an administrator should review the
+                  overlap.
+                </p>
+              )}
+              <dl className="info-list work-setup-meta">
+                <div>
+                  <dt>HTE</dt>
+                  <dd>{active.hteName}</dd>
+                </div>
+                <div>
+                  <dt>Daily required hours</dt>
+                  <dd>{active.dailyRequiredHours} hours</dd>
+                </div>
+                <div>
+                  <dt>Academic term</dt>
+                  <dd>{active.termLabel}</dd>
+                </div>
+                <div>
+                  <dt>Effective period</dt>
+                  <dd>
+                    {active.effectiveFrom} –{" "}
+                    {active.effectiveTo || "No end date"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Configured by</dt>
+                  <dd>{active.configuredBy}</dd>
+                </div>
+                <div>
+                  <dt>Last updated</dt>
+                  <dd>{formatTimestamp(active.updatedAt)}</dd>
+                </div>
+              </dl>
             </>
           ) : (
             <div className="setup-task">
@@ -9589,18 +9970,29 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
               <div>
                 <strong>Daily required hours are not configured</strong>
                 <p>
-                  Save the organization-owned daily-hour value before new internship
-                  assignments are created. PRAXIZ will not assume an eight-hour day.
+                  Save the organization-owned daily-hour value before new
+                  internship assignments are created. PRAXIZ will not assume an
+                  eight-hour day.
                 </p>
               </div>
             </div>
           )}
         </section>
-        <section className="card work-setup-editor" aria-labelledby="work-setup-editor-heading">
+        {editingSetup && <section
+          className="card work-setup-editor"
+          aria-labelledby="work-setup-editor-heading"
+        >
           <div className="card-title">
             <div>
-              <h2 id="work-setup-editor-heading">{admin ? "Record an authorized correction" : "Configure daily required hours"}</h2>
-              <p className="muted-note">Daily hours belong to the HTE. Effective dates determine which future assignments inherit the value.</p>
+              <h2 id="work-setup-editor-heading">
+                {admin
+                  ? "Record an authorized correction"
+                  : "Configure daily required hours"}
+              </h2>
+              <p className="muted-note">
+                Daily hours belong to the HTE. Effective dates determine which
+                future assignments inherit the value.
+              </p>
             </div>
           </div>
           <form className="work-setup-form" onSubmit={submit} noValidate>
@@ -9608,62 +10000,151 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
               {admin && (
                 <label className="field">
                   <span>HTE organization *</span>
-                  <select required value={hteId} onChange={(event) => setHteId(event.target.value)}>
-                    <option value="" disabled>Select HTE</option>
-                    {htes.map((hte) => <option key={hte.id} value={hte.id}>{hte.name}</option>)}
+                  <select
+                    required
+                    value={hteId}
+                    onChange={(event) => setHteId(event.target.value)}
+                  >
+                    <option value="" disabled>
+                      Select HTE
+                    </option>
+                    {htes.map((hte) => (
+                      <option key={hte.id} value={hte.id}>
+                        {hte.name}
+                      </option>
+                    ))}
                   </select>
                 </label>
               )}
               <label className="field">
                 <span>Academic term (optional)</span>
-                <select value={termId} onChange={(event) => setTermId(event.target.value)}>
+                <select
+                  value={termId}
+                  onChange={(event) => setTermId(event.target.value)}
+                >
                   <option value="">All terms in effective period</option>
-                  {terms.map((term) => <option key={term.id} value={term.id}>{term.academicYear} · {term.term}</option>)}
+                  {terms.map((term) => (
+                    <option key={term.id} value={term.id}>
+                      {term.academicYear} · {term.term}
+                    </option>
+                  ))}
                 </select>
               </label>
               {!admin && (
                 <label className="field">
                   <span>Daily required hours *</span>
-                  <input required type="number" inputMode="decimal" min="0.25" max="24" step="0.25" value={hours} onChange={(event) => setHours(event.target.value)} placeholder="Enter hours" />
+                  <input
+                    required
+                    type="number"
+                    inputMode="decimal"
+                    min="0.25"
+                    max="24"
+                    step="0.25"
+                    value={hours}
+                    onChange={(event) => setHours(event.target.value)}
+                    placeholder="Enter hours"
+                  />
                 </label>
               )}
             </div>
-            <div className={`work-setup-form-row ${admin ? "work-setup-form-row-three" : "work-setup-form-row-two"}`}>
+            <div
+              className={`work-setup-form-row ${admin ? "work-setup-form-row-three" : "work-setup-form-row-two"}`}
+            >
               {admin && (
                 <label className="field">
                   <span>Daily required hours *</span>
-                  <input required type="number" inputMode="decimal" min="0.25" max="24" step="0.25" value={hours} onChange={(event) => setHours(event.target.value)} placeholder="Enter hours" />
+                  <input
+                    required
+                    type="number"
+                    inputMode="decimal"
+                    min="0.25"
+                    max="24"
+                    step="0.25"
+                    value={hours}
+                    onChange={(event) => setHours(event.target.value)}
+                    placeholder="Enter hours"
+                  />
                 </label>
               )}
               <label className="field">
                 <span>Effective from *</span>
-                <input required type="date" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} />
+                <input
+                  required
+                  type="date"
+                  value={effectiveFrom}
+                  onChange={(event) => setEffectiveFrom(event.target.value)}
+                />
               </label>
               <label className="field">
                 <span>Effective to (optional)</span>
-                <input type="date" min={effectiveFrom || undefined} value={effectiveTo} onChange={(event) => setEffectiveTo(event.target.value)} />
+                <input
+                  type="date"
+                  min={effectiveFrom || undefined}
+                  value={effectiveTo}
+                  onChange={(event) => setEffectiveTo(event.target.value)}
+                />
               </label>
             </div>
             <label className="work-setup-option">
-              <input aria-label={admin ? "Apply this correction to matching active assignments" : "Apply this value to matching active assignments"} type="checkbox" checked={applyToActive} onChange={(event) => setApplyToActive(event.target.checked)} />
+              <input
+                aria-label={
+                  admin
+                    ? "Apply this correction to matching active assignments"
+                    : "Apply this value to matching active assignments"
+                }
+                type="checkbox"
+                checked={applyToActive}
+                onChange={(event) => setApplyToActive(event.target.checked)}
+              />
               <span>
-                <strong>{admin ? "Apply this correction to matching active assignments" : "Apply this value to matching active assignments"}</strong>
-                <small>{admin ? "Leave unchecked to apply this corrected configuration only to future internship assignments. Historical and completed assignments will not be changed." : "Leave unchecked to use this configuration for future internship assignments only. Historical and completed assignments will not be changed."}</small>
+                <strong>
+                  {admin
+                    ? "Apply this correction to matching active assignments"
+                    : "Apply this value to matching active assignments"}
+                </strong>
+                <small>
+                  {admin
+                    ? "Leave unchecked to apply this corrected configuration only to future internship assignments. Historical and completed assignments will not be changed."
+                    : "Leave unchecked to use this configuration for future internship assignments only. Historical and completed assignments will not be changed."}
+                </small>
               </span>
             </label>
             {admin && (
               <label className="field work-setup-reason">
                 <span>Correction reason *</span>
-                <textarea required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain the authorized correction for the audit trail." />
+                <textarea
+                  required
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                  placeholder="Explain the authorized correction for the audit trail."
+                />
               </label>
             )}
             <div className="work-setup-actions">
-              <ActionButton type="submit" loading={busy} disabled={busy || !hteId || !hours || !effectiveFrom || (admin && reason.trim().length < 5)}>
+              <ActionButton
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={cancelSetupEdit}
+              >
+                Cancel
+              </ActionButton>
+              <ActionButton
+                type="submit"
+                loading={busy}
+                disabled={
+                  busy ||
+                  !hteId ||
+                  !hours ||
+                  !effectiveFrom ||
+                  (admin && reason.trim().length < 5)
+                }
+              >
                 {admin ? "Save correction" : "Save work setup"}
               </ActionButton>
             </div>
           </form>
-        </section>
+        </section>}
       </div>
       <section className="card table-card work-setup-history">
         <div className="card-title">
@@ -9699,11 +10180,32 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
                     <StatusBadge status={record.status} />
                   </td>
                   <td>{record.configuredBy}</td>
-                  <td>{record.correctionReason || (records.filter((item) => item.hteId === record.hteId && item.updatedAt < record.updatedAt).length === 0 ? "Initial configuration" : "Not provided")}</td>
+                  <td>
+                    {record.correctionReason ||
+                      (records.filter(
+                        (item) =>
+                          item.hteId === record.hteId &&
+                          item.updatedAt < record.updatedAt,
+                      ).length === 0
+                        ? "Initial configuration"
+                        : "Not provided")}
+                  </td>
                   <td>{formatTimestamp(record.updatedAt)}</td>
                   <td className="table-actions">
-                    <button className="table-link" onClick={() => setSelectedConfiguration(record)}>View details</button>
-                    {admin && <button className="table-link" onClick={() => setHteId(record.hteId)}>Correct / Override</button>}
+                    <button
+                      className="table-link"
+                      onClick={() => setSelectedConfiguration(record)}
+                    >
+                      View details
+                    </button>
+                    {admin && (
+                      <button
+                        className="table-link"
+                        onClick={() => beginSetupEdit(record)}
+                      >
+                        Correct / Override
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -9726,17 +10228,46 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
           protectChanges={false}
         >
           <dl className="info-list requirement-confirmation-summary">
-            <div><dt>HTE</dt><dd>{htes.find((hte) => hte.id === hteId)?.name ?? active?.hteName ?? "Your HTE organization"}</dd></div>
-            <div><dt>Academic term</dt><dd>{terms.find((term) => term.id === termId)?.term ?? "All terms in effective period"}</dd></div>
-            <div><dt>Daily required hours</dt><dd>{hours} hours</dd></div>
-            <div><dt>Effective from</dt><dd>{effectiveFrom}</dd></div>
+            <div>
+              <dt>HTE</dt>
+              <dd>
+                {htes.find((hte) => hte.id === hteId)?.name ??
+                  active?.hteName ??
+                  "Your HTE organization"}
+              </dd>
+            </div>
+            <div>
+              <dt>Academic term</dt>
+              <dd>
+                {terms.find((term) => term.id === termId)?.term ??
+                  "All terms in effective period"}
+              </dd>
+            </div>
+            <div>
+              <dt>Daily required hours</dt>
+              <dd>{hours} hours</dd>
+            </div>
+            <div>
+              <dt>Effective from</dt>
+              <dd>{effectiveFrom}</dd>
+            </div>
           </dl>
           <InfoCallout icon={ShieldCheck}>
-            <p>Only matching current active assignment snapshots will change. Completed and historical records remain unchanged.</p>
+            <p>
+              Only matching current active assignment snapshots will change.
+              Completed and historical records remain unchanged.
+            </p>
           </InfoCallout>
           <div className="modal-actions">
-            <ActionButton variant="secondary" onClick={() => setConfirmApply(false)}>Cancel</ActionButton>
-            <ActionButton disabled={busy} onClick={() => void saveWorkSetup()}>{busy ? "Saving…" : "Apply and save"}</ActionButton>
+            <ActionButton
+              variant="secondary"
+              onClick={() => setConfirmApply(false)}
+            >
+              Cancel
+            </ActionButton>
+            <ActionButton disabled={busy} onClick={() => void saveWorkSetup()}>
+              {busy ? "Saving…" : "Apply and save"}
+            </ActionButton>
           </div>
         </Dialog>
       )}
@@ -9747,15 +10278,53 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
           protectChanges={false}
         >
           <dl className="info-list">
-            <div><dt>HTE organization</dt><dd>{selectedConfiguration.hteName}</dd></div>
-            <div><dt>Academic term</dt><dd>{selectedConfiguration.termLabel}</dd></div>
-            <div><dt>Daily required hours</dt><dd>{selectedConfiguration.dailyRequiredHours} hours</dd></div>
-            <div><dt>Effective from</dt><dd>{selectedConfiguration.effectiveFrom}</dd></div>
-            <div><dt>Effective to</dt><dd>{selectedConfiguration.effectiveTo || "Open-ended"}</dd></div>
-            <div><dt>Status</dt><dd><StatusBadge status={selectedConfiguration.status} /></dd></div>
-            <div><dt>Configured by</dt><dd>{selectedConfiguration.configuredBy}</dd></div>
-            <div><dt>Reason</dt><dd>{selectedConfiguration.correctionReason || (records.filter((item) => item.hteId === selectedConfiguration.hteId && item.updatedAt < selectedConfiguration.updatedAt).length === 0 ? "Initial configuration" : "Not provided")}</dd></div>
-            <div><dt>Last updated</dt><dd>{formatTimestamp(selectedConfiguration.updatedAt)}</dd></div>
+            <div>
+              <dt>HTE organization</dt>
+              <dd>{selectedConfiguration.hteName}</dd>
+            </div>
+            <div>
+              <dt>Academic term</dt>
+              <dd>{selectedConfiguration.termLabel}</dd>
+            </div>
+            <div>
+              <dt>Daily required hours</dt>
+              <dd>{selectedConfiguration.dailyRequiredHours} hours</dd>
+            </div>
+            <div>
+              <dt>Effective from</dt>
+              <dd>{selectedConfiguration.effectiveFrom}</dd>
+            </div>
+            <div>
+              <dt>Effective to</dt>
+              <dd>{selectedConfiguration.effectiveTo || "Open-ended"}</dd>
+            </div>
+            <div>
+              <dt>Status</dt>
+              <dd>
+                <StatusBadge status={selectedConfiguration.status} />
+              </dd>
+            </div>
+            <div>
+              <dt>Configured by</dt>
+              <dd>{selectedConfiguration.configuredBy}</dd>
+            </div>
+            <div>
+              <dt>Reason</dt>
+              <dd>
+                {selectedConfiguration.correctionReason ||
+                  (records.filter(
+                    (item) =>
+                      item.hteId === selectedConfiguration.hteId &&
+                      item.updatedAt < selectedConfiguration.updatedAt,
+                  ).length === 0
+                    ? "Initial configuration"
+                    : "Not provided")}
+              </dd>
+            </div>
+            <div>
+              <dt>Last updated</dt>
+              <dd>{formatTimestamp(selectedConfiguration.updatedAt)}</dd>
+            </div>
           </dl>
         </Dialog>
       )}
@@ -9796,7 +10365,9 @@ function AssignmentDialog({
         if (!active) return;
         setOptions(result);
         setStudentId(result.students[0]?.id ?? "");
-        setSelectedStudentIds(result.students[0]?.id ? [result.students[0].id] : []);
+        setSelectedStudentIds(
+          result.students[0]?.id ? [result.students[0].id] : [],
+        );
         setHteId(result.htes[0]?.id ?? "");
         setTermId(result.terms[0]?.id ?? "");
         const term = result.terms[0];
@@ -9863,7 +10434,9 @@ function AssignmentDialog({
     try {
       if (bulkMode) {
         if (selectedStudentIds.length < 2) {
-          throw new Error("Select at least two Student Interns for bulk assignment.");
+          throw new Error(
+            "Select at least two Student Interns for bulk assignment.",
+          );
         }
         const requirements = await Promise.all(
           selectedStudentIds.map(async (id) => ({
@@ -9873,9 +10446,15 @@ function AssignmentDialog({
         );
         const missing = requirements
           .filter((item) => item.hours === null)
-          .map((item) => options.students.find((student) => student.id === item.id)?.label ?? item.id);
+          .map(
+            (item) =>
+              options.students.find((student) => student.id === item.id)
+                ?.label ?? item.id,
+          );
         if (missing.length) {
-          throw new Error(`Configure required hours for these Student Interns before bulk assignment: ${missing.join(", ")}.`);
+          throw new Error(
+            `Configure required hours for these Student Interns before bulk assignment: ${missing.join(", ")}.`,
+          );
         }
         await coordinatorService.createAssignmentsBulk(
           requirements.map((item) => ({
@@ -9937,7 +10516,10 @@ function AssignmentDialog({
         </p>
       )}
       <form onSubmit={submit}>
-        <label className="work-setup-option assignment-bulk-choice" aria-label="Bulk assignment mode">
+        <label
+          className="work-setup-option assignment-bulk-choice"
+          aria-label="Bulk assignment mode"
+        >
           <input
             type="checkbox"
             checked={bulkMode}
@@ -9956,7 +10538,9 @@ function AssignmentDialog({
         {bulkMode ? (
           <fieldset className="assignment-student-picker">
             <legend>Student Interns *</legend>
-            <p>Select 2–50 eligible students from your authorized program scope.</p>
+            <p>
+              Select 2–50 eligible students from your authorized program scope.
+            </p>
             <div>
               {options.students.map((item) => (
                 <label key={item.id}>
@@ -9964,43 +10548,54 @@ function AssignmentDialog({
                     aria-label={`Select ${item.label} for bulk assignment`}
                     type="checkbox"
                     checked={selectedStudentIds.includes(item.id)}
-                    onChange={(event) => setSelectedStudentIds((current) =>
-                      event.target.checked
-                        ? [...new Set([...current, item.id])]
-                        : current.filter((id) => id !== item.id))}
+                    onChange={(event) =>
+                      setSelectedStudentIds((current) =>
+                        event.target.checked
+                          ? [...new Set([...current, item.id])]
+                          : current.filter((id) => id !== item.id),
+                      )
+                    }
                   />
-                  <span><strong>{item.label}</strong><small>{item.studentNumber}{item.section ? ` · Section ${item.section}` : ""}</small></span>
+                  <span>
+                    <strong>{item.label}</strong>
+                    <small>
+                      {item.studentNumber}
+                      {item.section ? ` · Section ${item.section}` : ""}
+                    </small>
+                  </span>
                 </label>
               ))}
             </div>
           </fieldset>
-        ) : (<>
-        <label className="field">
-          <span>Student intern *</span>
-          <select
-            required
-            value={studentId}
-            onChange={(event) => setStudentId(event.target.value)}
-          >
-            <option value="" disabled>
-              Select student
-            </option>
-            {options.students.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          <span>Student ID</span>
-          <input
-            readOnly
-            value={selectedStudent?.studentNumber || ""}
-            placeholder={loading ? "Loading…" : "Select a student"}
-          />
-        </label>
-        </>)}
+        ) : (
+          <>
+            <label className="field">
+              <span>Student intern *</span>
+              <select
+                required
+                value={studentId}
+                onChange={(event) => setStudentId(event.target.value)}
+              >
+                <option value="" disabled>
+                  Select student
+                </option>
+                {options.students.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Student ID</span>
+              <input
+                readOnly
+                value={selectedStudent?.studentNumber || ""}
+                placeholder={loading ? "Loading…" : "Select a student"}
+              />
+            </label>
+          </>
+        )}
         <label className="field">
           <span>Verified HTE *</span>
           <select
@@ -10035,7 +10630,8 @@ function AssignmentDialog({
             ))}
           </select>
         </label>
-        {!bulkMode && !requirementLoading &&
+        {!bulkMode &&
+          !requirementLoading &&
           !requirementConfigured &&
           studentId &&
           termId && (
@@ -10060,35 +10656,39 @@ function AssignmentDialog({
               <ShieldCheck size={18} />
               <div>
                 <strong>Individual requirement snapshots</strong>
-                <p>PRAXIZ will resolve the authorized term/program/Section requirement for every selected student before creating any assignment.</p>
+                <p>
+                  PRAXIZ will resolve the authorized term/program/Section
+                  requirement for every selected student before creating any
+                  assignment.
+                </p>
               </div>
             </div>
           ) : (
-          <label className="field">
-            <span>Required hours *</span>
-            <input
-              required
-              type="number"
-              min="1"
-              max="2000"
-              value={hours}
-              onChange={(event) => {
-                setHours(event.target.value);
-                if (requirementConfigured) setRequirementConfigured(false);
-              }}
-              placeholder={
-                requirementLoading
-                  ? "Loading configuration…"
-                  : "Enter required hours"
-              }
-              disabled={requirementLoading}
-            />
-            <small>
-              {requirementConfigured
-                ? "Loaded from the scoped requirement configuration."
-                : "Applies to this academic term, program, and Section."}
-            </small>
-          </label>
+            <label className="field">
+              <span>Required hours *</span>
+              <input
+                required
+                type="number"
+                min="1"
+                max="2000"
+                value={hours}
+                onChange={(event) => {
+                  setHours(event.target.value);
+                  if (requirementConfigured) setRequirementConfigured(false);
+                }}
+                placeholder={
+                  requirementLoading
+                    ? "Loading configuration…"
+                    : "Enter required hours"
+                }
+                disabled={requirementLoading}
+              />
+              <small>
+                {requirementConfigured
+                  ? "Loaded from the scoped requirement configuration."
+                  : "Applies to this academic term, program, and Section."}
+              </small>
+            </label>
           )}
           <label className="field">
             <span>Workflow</span>
@@ -10139,7 +10739,11 @@ function AssignmentDialog({
               (!bulkMode && !Number(hours))
             }
           >
-            {loading ? "Please wait…" : bulkMode ? `Create ${selectedStudentIds.length} assignments` : "Create assignment"}
+            {loading
+              ? "Please wait…"
+              : bulkMode
+                ? `Create ${selectedStudentIds.length} assignments`
+                : "Create assignment"}
           </ActionButton>
         </div>
       </form>
@@ -10286,7 +10890,10 @@ function RequirementsSetupPage() {
           );
         } catch (reason) {
           setError(
-            userError(reason, "The active-assignment impact could not be checked."),
+            userError(
+              reason,
+              "The active-assignment impact could not be checked.",
+            ),
           );
           return;
         } finally {
@@ -10356,7 +10963,10 @@ function RequirementsSetupPage() {
             Section-specific requirement.
           </p>
         </div>
-        <form className="requirement-setup-form" onSubmit={(event) => void prepareSave(event)}>
+        <form
+          className="requirement-setup-form"
+          onSubmit={(event) => void prepareSave(event)}
+        >
           <label className="field">
             <span>Academic term</span>
             <select
@@ -10461,10 +11071,10 @@ function RequirementsSetupPage() {
             {previewing
               ? "Checking impact…"
               : saving
-              ? "Saving…"
-              : existing
-                ? "Update configuration"
-                : "Save configuration"}
+                ? "Saving…"
+                : existing
+                  ? "Update configuration"
+                  : "Save configuration"}
           </ActionButton>
         </form>
       </section>
@@ -10520,16 +11130,38 @@ function RequirementsSetupPage() {
       </section>
       {pendingSave && (
         <Dialog
-          title={applyToCurrentAssignments ? "Apply required hours to active assignments?" : "Update required hours?"}
+          title={
+            applyToCurrentAssignments
+              ? "Apply required hours to active assignments?"
+              : "Update required hours?"
+          }
           protectChanges={false}
           busy={saving}
           onClose={() => setPendingSave(false)}
         >
           <dl className="info-list requirement-confirmation-summary">
-            <div><dt>Academic term</dt><dd>{options.terms.find((term) => term.id === termId)?.label ?? "Selected term"}</dd></div>
-            <div><dt>Program</dt><dd>{programs.find((program) => program.id === programId)?.code ?? "Selected program"}</dd></div>
-            <div><dt>Section</dt><dd>{section ? `Section ${section}` : "All sections"}</dd></div>
-            <div><dt>Required hours</dt><dd>{hours} hours</dd></div>
+            <div>
+              <dt>Academic term</dt>
+              <dd>
+                {options.terms.find((term) => term.id === termId)?.label ??
+                  "Selected term"}
+              </dd>
+            </div>
+            <div>
+              <dt>Program</dt>
+              <dd>
+                {programs.find((program) => program.id === programId)?.code ??
+                  "Selected program"}
+              </dd>
+            </div>
+            <div>
+              <dt>Section</dt>
+              <dd>{section ? `Section ${section}` : "All sections"}</dd>
+            </div>
+            <div>
+              <dt>Required hours</dt>
+              <dd>{hours} hours</dd>
+            </div>
             {applyToCurrentAssignments && (
               <div>
                 <dt>Active snapshots affected</dt>
@@ -10540,9 +11172,13 @@ function RequirementsSetupPage() {
               </div>
             )}
           </dl>
-          {existing && existing.requiredHours !== Number(hours) && <p>
-            This changes the configuration from <strong>{existing.requiredHours}</strong> to <strong>{hours}</strong> hours for this scope.
-          </p>}
+          {existing && existing.requiredHours !== Number(hours) && (
+            <p>
+              This changes the configuration from{" "}
+              <strong>{existing.requiredHours}</strong> to{" "}
+              <strong>{hours}</strong> hours for this scope.
+            </p>
+          )}
           <InfoCallout icon={ShieldCheck}>
             <p>
               {applyToCurrentAssignments
@@ -10832,8 +11468,14 @@ function SupportInboxPage() {
   const [records, setRecords] = useState<ContactMessageRecord[]>([]);
   const [selected, setSelected] = useState<ContactMessageRecord | null>(null);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [replySubject, setReplySubject] = useState("");
+  const [replyBody, setReplyBody] = useState("");
+  const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
+  const [replying, setReplying] = useState(false);
   const load = useCallback(async () => {
     setError("");
     try {
@@ -10847,42 +11489,90 @@ function SupportInboxPage() {
   useEffect(() => {
     void Promise.resolve().then(load);
   }, [load]);
-  const shown = records.filter((item) =>
-    `${item.senderName} ${item.senderEmail} ${item.subject} ${item.message}`
-      .toLowerCase()
-      .includes(search.trim().toLowerCase()),
-  );
+  const shown = records.filter((item) => {
+    const matchesSearch =
+      `${item.senderName} ${item.senderEmail} ${item.subject} ${item.message}`
+        .toLowerCase()
+        .includes(search.trim().toLowerCase());
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusFilter === "unread" && item.readStatus === "Unread") ||
+      (statusFilter === "read" && item.readStatus === "Read") ||
+      (statusFilter === "open" && item.caseStatus === "Open") ||
+      (statusFilter === "resolved" && item.caseStatus === "Resolved");
+    return matchesSearch && matchesStatus;
+  });
   async function open(item: ContactMessageRecord) {
+    setNotice("");
+    setReplySubject(`Re: ${item.subject}`.slice(0, 200));
+    setReplyBody("");
+    setPrivacyAcknowledged(false);
     setSelected(item);
-    if (item.status !== "New") return;
+    if (item.readStatus !== "Unread") return;
     try {
-      await adminService.updateContactMessageStatus(item.id, "read");
+      await adminService.markContactMessageRead(item.id);
       setRecords((items) =>
         items.map((record) =>
-          record.id === item.id ? { ...record, status: "Read" } : record,
+          record.id === item.id
+            ? { ...record, status: "Read", readStatus: "Read" }
+            : record,
         ),
       );
-      setSelected({ ...item, status: "Read" });
+      setSelected({ ...item, status: "Read", readStatus: "Read" });
     } catch (reason) {
       setError(
         userError(reason, "The message read status could not be updated."),
       );
     }
   }
-  async function resolve() {
+  async function setCaseStatus(status: "open" | "resolved") {
     if (!selected) return;
     try {
-      await adminService.updateContactMessageStatus(selected.id, "resolved");
+      await adminService.setSupportCaseStatus(selected.id, status);
+      const caseStatus = status === "resolved" ? "Resolved" : "Open";
       setRecords((items) =>
         items.map((record) =>
           record.id === selected.id
-            ? { ...record, status: "Resolved" }
+            ? {
+                ...record,
+                status: status === "resolved" ? "Resolved" : "Read",
+                caseStatus,
+              }
             : record,
         ),
       );
-      setSelected({ ...selected, status: "Resolved" });
+      setSelected({
+        ...selected,
+        status: status === "resolved" ? "Resolved" : "Read",
+        caseStatus,
+      });
     } catch (reason) {
-      setError(userError(reason, "The message could not be marked resolved."));
+      setError(userError(reason, "The support case status could not be updated."));
+    }
+  }
+  async function sendReply(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected) return;
+    setReplying(true);
+    setError("");
+    setNotice("");
+    try {
+      const message = await adminService.replyToSupportMessage({
+        messageId: selected.id,
+        subject: replySubject,
+        message: replyBody,
+        privacyAcknowledged,
+      });
+      setNotice(message);
+      setReplyBody("");
+      setPrivacyAcknowledged(false);
+      const refreshed = await adminService.listContactMessages();
+      setRecords(refreshed);
+      setSelected(refreshed.find((item) => item.id === selected.id) ?? null);
+    } catch (reason) {
+      setError(userError(reason, "The reply could not be sent."));
+    } finally {
+      setReplying(false);
     }
   }
   return (
@@ -10896,24 +11586,29 @@ function SupportInboxPage() {
           <AlertTriangle size={16} /> {error}
         </p>
       )}
+      {notice && (
+        <p className="form-success" role="status">
+          <CheckCircle2 size={16} /> {notice}
+        </p>
+      )}
       <div className="stats-grid three">
         <StatCard
           label="New messages"
-          value={String(records.filter((item) => item.status === "New").length)}
+          value={String(records.filter((item) => item.readStatus === "Unread").length)}
           icon={MessageSquareText}
           tone="orange"
         />
         <StatCard
           label="Read"
           value={String(
-            records.filter((item) => item.status === "Read").length,
+            records.filter((item) => item.readStatus === "Read").length,
           )}
           icon={Eye}
         />
         <StatCard
           label="Resolved"
           value={String(
-            records.filter((item) => item.status === "Resolved").length,
+            records.filter((item) => item.caseStatus === "Resolved").length,
           )}
           icon={CheckCircle2}
           tone="green"
@@ -10926,14 +11621,27 @@ function SupportInboxPage() {
               ? "Loading support messages…"
               : `${shown.length} message${shown.length === 1 ? "" : "s"}`}
           </h2>
-          <label className="table-search">
-            <Search size={17} />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search sender, email, or subject…"
-            />
-          </label>
+          <div className="table-controls">
+            <label className="table-search">
+              <Search size={17} />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search sender, email, or subject…"
+              />
+            </label>
+            <select
+              aria-label="Filter support messages"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
+              <option value="all">All messages</option>
+              <option value="unread">Unread</option>
+              <option value="read">Read</option>
+              <option value="open">Open cases</option>
+              <option value="resolved">Resolved cases</option>
+            </select>
+          </div>
         </div>
         <div className="table-scroll">
           <table className="data-table">
@@ -10943,7 +11651,8 @@ function SupportInboxPage() {
                 <th>Email</th>
                 <th>Subject</th>
                 <th>Received</th>
-                <th>Status</th>
+                <th>Read</th>
+                <th>Case</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -10957,7 +11666,10 @@ function SupportInboxPage() {
                   <td className="summary-cell">{item.subject}</td>
                   <td>{formatTimestamp(item.receivedAt)}</td>
                   <td>
-                    <StatusBadge status={item.status} />
+                    <StatusBadge status={item.readStatus} />
+                  </td>
+                  <td>
+                    <StatusBadge status={item.caseStatus} />
                   </td>
                   <td>
                     <button
@@ -10972,7 +11684,7 @@ function SupportInboxPage() {
               ))}
               {!loading && shown.length === 0 && (
                 <tr>
-                  <td colSpan={6}>No support messages match this view.</td>
+                  <td colSpan={7}>No support messages match this view.</td>
                 </tr>
               )}
             </tbody>
@@ -10991,13 +11703,70 @@ function SupportInboxPage() {
                 <h3>{selected.senderName}</h3>
                 <p>{selected.senderEmail}</p>
               </div>
-              <StatusBadge status={selected.status} />
+              <div className="status-badge-group">
+                <StatusBadge status={selected.readStatus} />
+                <StatusBadge status={selected.caseStatus} />
+              </div>
             </header>
             <section className="feedback-detail-message">
               <h4>Message</h4>
               <p className="preserve-text">{selected.message}</p>
             </section>
             <small>Received {formatTimestamp(selected.receivedAt)}</small>
+            <section className="feedback-detail-message">
+              <h4>Response history</h4>
+              {selected.replies.length ? (
+                selected.replies.map((reply) => (
+                  <article key={reply.id} className="record-surface compact">
+                    <strong>{reply.subject}</strong>
+                    <p className="preserve-text">{reply.body}</p>
+                    <small>
+                      {reply.deliveryStatus} · {formatTimestamp(reply.attemptedAt)}
+                    </small>
+                  </article>
+                ))
+              ) : (
+                <p>No reply has been attempted.</p>
+              )}
+            </section>
+            <form className="form-stack" onSubmit={sendReply}>
+              <h4>Reply by email</h4>
+              <p className="field-help">
+                The contact-form address is unverified. Send only general support guidance—never account, internship, or private record details.
+              </p>
+              <label>
+                Subject
+                <input
+                  required
+                  minLength={2}
+                  maxLength={200}
+                  value={replySubject}
+                  onChange={(event) => setReplySubject(event.target.value)}
+                />
+              </label>
+              <label>
+                Reply
+                <textarea
+                  required
+                  minLength={2}
+                  maxLength={5000}
+                  rows={5}
+                  value={replyBody}
+                  onChange={(event) => setReplyBody(event.target.value)}
+                />
+              </label>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={privacyAcknowledged}
+                  onChange={(event) => setPrivacyAcknowledged(event.target.checked)}
+                />
+                I confirm this reply contains no private account or internship information.
+              </label>
+              <ActionButton type="submit" disabled={replying || !privacyAcknowledged}>
+                {replying ? "Sending…" : "Send reply"}
+              </ActionButton>
+            </form>
             <div className="modal-actions">
               <ActionButton
                 variant="secondary"
@@ -11005,12 +11774,19 @@ function SupportInboxPage() {
               >
                 Close
               </ActionButton>
-              {selected.status !== "Resolved" && (
+              {selected.caseStatus !== "Resolved" ? (
                 <ActionButton
                   icon={CheckCircle2}
-                  onClick={() => void resolve()}
+                  onClick={() => void setCaseStatus("resolved")}
                 >
-                  Mark resolved
+                  Resolve case
+                </ActionButton>
+              ) : (
+                <ActionButton
+                  icon={Undo2}
+                  onClick={() => void setCaseStatus("open")}
+                >
+                  Reopen case
                 </ActionButton>
               )}
             </div>
@@ -12922,6 +13698,7 @@ function RegistrationReviewDialog({
         "program_ids",
       ].includes(key),
   );
+  const reviewable = ["Pending", "Under Review"].includes(application.status);
   const detailLabels: Record<string, string> = {
     campus_id: "Campus reference",
     college_id: "College reference",
@@ -12962,34 +13739,28 @@ function RegistrationReviewDialog({
             );
           })}
         </dl>
-        <label className="field">
-          <span>Administrator notes</span>
-          <textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            placeholder="Add verification notes or a rejection reason…"
-          />
-        </label>
+        {reviewable ? (
+          <label className="field">
+            <span>Administrator notes</span>
+            <textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Add verification notes or a rejection reason…"
+            />
+          </label>
+        ) : (
+          <InfoCallout icon={ShieldCheck}><p>This application has already been reviewed. Its identity, reference, role, and submitted details remain available as read-only history.</p></InfoCallout>
+        )}
         {error && (
           <p className="form-error">
             <AlertTriangle size={16} /> {error}
           </p>
         )}
         <div className="modal-actions">
-          <ActionButton
-            variant="secondary"
-            disabled={loading}
-            onClick={() => void decide("approved")}
-          >
-            Approve and activate
-          </ActionButton>
-          <ActionButton
-            variant="danger"
-            disabled={loading || !notes.trim()}
-            onClick={() => void decide("rejected")}
-          >
-            Reject
-          </ActionButton>
+          {reviewable ? <>
+            <ActionButton variant="secondary" disabled={loading} onClick={() => void decide("approved")}>Approve and activate</ActionButton>
+            <ActionButton variant="danger" disabled={loading || !notes.trim()} onClick={() => void decide("rejected")}>Reject</ActionButton>
+          </> : <ActionButton variant="secondary" onClick={close}>Close</ActionButton>}
         </div>
       </div>
     </Dialog>
@@ -13043,13 +13814,26 @@ function RegistrationTable({
         .join(" ")
         .toLowerCase()
         .includes(search.trim().toLowerCase()),
-  );
+  ).sort((left, right) => {
+    const rank = (value: string) => value === "Pending" ? 0 : value === "Under Review" ? 1 : 2;
+    return rank(left.status) - rank(right.status) || left.submitted.localeCompare(right.submitted);
+  });
   return (
     <>
       {includeReviewed && (
+        <>
+        <div className="stats-grid three registration-stats">
+          <article className="stat-card"><div><span>Pending</span><strong>{records.filter((record) => record.status === "Pending").length}</strong></div><Clock3 /></article>
+          <article className="stat-card"><div><span>Under review</span><strong>{records.filter((record) => record.status === "Under Review").length}</strong></div><Eye /></article>
+          <article className="stat-card"><div><span>Reviewed</span><strong>{records.filter((record) => !["Pending", "Under Review"].includes(record.status)).length}</strong></div><CheckCircle2 /></article>
+        </div>
         <div className="card-title">
           <div>
-            <h2>{loading ? "Loading registrations…" : `${shown.length} registrations`}</h2>
+            <h2>
+              {loading
+                ? "Loading registrations…"
+                : `${shown.length} registrations`}
+            </h2>
             <SearchInput
               value={search}
               onChange={setSearch}
@@ -13069,6 +13853,7 @@ function RegistrationTable({
             </select>
           </label>
         </div>
+        </>
       )}
       {error && (
         <p className="form-error">
@@ -13113,9 +13898,7 @@ function RegistrationTable({
                     >
                       Review
                     </button>
-                  ) : (
-                    "Reviewed"
-                  )}
+                  ) : <button className="table-link" onClick={() => setSelected(item)}>View decision</button>}
                 </td>
               </tr>
             ))}

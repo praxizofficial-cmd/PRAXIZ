@@ -24,6 +24,11 @@ const workspace = await readFile(
   "utf8",
 );
 const compactWorkspace = workspace.replace(/\s+/g, " ");
+const pdfDownload = await readFile(
+  new URL("../app/components/EvaluationPdfDownload.tsx", import.meta.url),
+  "utf8",
+);
+const compactPdfDownload = pdfDownload.replace(/\s+/g, " ");
 const criteria = [
   ...migration.matchAll(
     /\('(a-\d-\d|b-\d+)','([^']*)','([^']*)',\d+,'([^']*)','([^']*)'\)/g,
@@ -218,6 +223,24 @@ test("migration guards ownership, submitted/final states and released-version ac
     migration,
     /calculated_score:=null; calculated_percentage:=null/,
   );
+});
+
+test("student evaluation library separates secure preview and immutable download", () => {
+  assert.match(workspace, /Finalized \/ released/);
+  assert.match(workspace, /student \? r\.reviewedAt : r\.submittedAt/);
+  assert.match(workspace, /r\.context\.ratingPeriod/);
+  assert.match(compactPdfDownload, /load\('view'\)/);
+  assert.match(compactPdfDownload, /load\('download'\)/);
+  assert.match(compactPdfDownload, /'View PDF'/);
+  assert.match(compactPdfDownload, />Download</);
+  assert.match(compactPdfDownload, /This read-only PDF is the finalized version released by the Internship Coordinator/);
+  assert.match(compactPdfDownload, /title="Finalized official evaluation PDF"/);
+});
+
+test("HTE evaluation creation blocks conflicting active forms instead of choosing arbitrarily", () => {
+  assert.match(workspace, /options\.length === 1 \? options\[0\] : null/);
+  assert.match(workspace, /PRAXIZ will not select one arbitrarily/);
+  assert.doesNotMatch(workspace, /setTemplate\(options\[0\] \?\? null\)/);
 });
 
 test("database technical messages are translated", () => {

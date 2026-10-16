@@ -110,10 +110,14 @@ export type DocumentRecord = {
   id: string;
   assignmentId: string;
   studentName: string;
+  section: string;
+  hte: string;
+  term: string;
   templateName: string;
   phase: "Pre-Internship" | "During Internship" | "Post-Internship";
   status: string;
   dueAt: string;
+  dueAtIso: string | null;
   fileId: string | null;
   submissionId: string | null;
   fileName: string;
@@ -122,6 +126,8 @@ export type DocumentRecord = {
   latestFeedback: string;
   allowedMimeTypes: string[];
   maxFileSizeBytes: number;
+  canWithdraw: boolean;
+  withdrawalBlockedReason: string;
 };
 
 export type DocumentTemplateRecord = {
@@ -266,6 +272,7 @@ export type PartnerHteRecord = {
   status: string;
   industry: string;
   location: string;
+  dailyRequiredHours: number | null;
 };
 
 export type AssignmentOption = { id: string; label: string };
@@ -343,13 +350,29 @@ export type ContactMessageRecord = {
   subject: string;
   message: string;
   status: "New" | "Read" | "Resolved";
+  readStatus: "Unread" | "Read";
+  caseStatus: "Open" | "Resolved";
+  readAt: string | null;
+  resolvedAt: string | null;
   receivedAt: string;
+  replies: SupportMessageReplyRecord[];
+};
+
+export type SupportMessageReplyRecord = {
+  id: string;
+  subject: string;
+  body: string;
+  deliveryStatus: "Attempting" | "Accepted" | "Failed";
+  attemptedAt: string;
+  providerAcceptedAt: string | null;
 };
 
 export type FeedbackRecord = {
   id: string;
   assignmentId: string;
   studentName: string;
+  section: string;
+  hte: string;
   subject: string;
   message: string;
   authorName: string;
@@ -2133,7 +2156,7 @@ export const documentService = {
     const { data, error } = await supabase
       .from("document_requirements")
       .select(
-        "id,internship_assignment_id,due_at,status,internship_assignments(student_user_id),document_requirement_templates(name,phase,allowed_mime_types,max_file_size_bytes,display_order)",
+        "id,internship_assignment_id,due_at,status,internship_assignments(student_user_id,student_profiles(section),hte_organizations(name,trade_name),academic_terms(term,academic_years(label))),document_requirement_templates(name,phase,allowed_mime_types,max_file_size_bytes,display_order)",
       )
       .order("created_at", { ascending: true });
     if (error) throw new Error(error.message);
@@ -2144,8 +2167,18 @@ export const documentService = {
       due_at: string | null;
       status: string;
       internship_assignments?:
-        | { student_user_id?: string }
-        | Array<{ student_user_id?: string }>
+        | {
+            student_user_id?: string;
+            student_profiles?: { section: string | null } | Array<{ section: string | null }> | null;
+            hte_organizations?: { name: string; trade_name: string | null } | Array<{ name: string; trade_name: string | null }> | null;
+            academic_terms?: { term: string; academic_years?: { label: string } | Array<{ label: string }> | null } | Array<{ term: string; academic_years?: { label: string } | Array<{ label: string }> | null }> | null;
+          }
+        | Array<{
+            student_user_id?: string;
+            student_profiles?: { section: string | null } | Array<{ section: string | null }> | null;
+            hte_organizations?: { name: string; trade_name: string | null } | Array<{ name: string; trade_name: string | null }> | null;
+            academic_terms?: { term: string; academic_years?: { label: string } | Array<{ label: string }> | null } | Array<{ term: string; academic_years?: { label: string } | Array<{ label: string }> | null }> | null;
+          }>
         | null;
       document_requirement_templates?:
         | {
@@ -2168,6 +2201,7 @@ export const documentService = {
         file_id: string;
         version_number: number;
         submitted_at: string;
+        withdrawn_at: string | null;
         files?:
           | { original_name: string; object_path: string; mime_type: string }
           | Array<{
@@ -2188,7 +2222,7 @@ export const documentService = {
       const { data: submissions, error: submissionError } = await supabase
         .from("document_submissions")
         .select(
-          "id,document_requirement_id,file_id,version_number,submitted_at,files(original_name,object_path,mime_type),document_reviews(feedback,reviewed_at)",
+          "id,document_requirement_id,file_id,version_number,submitted_at,withdrawn_at,files(original_name,object_path,mime_type),document_reviews(feedback,reviewed_at)",
         )
         .in("document_requirement_id", requirementIds);
       if (submissionError) throw new Error(submissionError.message);
@@ -2247,12 +2281,16 @@ export const documentService = {
       const assignment = Array.isArray(row.internship_assignments)
         ? row.internship_assignments[0]
         : row.internship_assignments;
+      const studentProfile = joinedOne(assignment?.student_profiles);
+      const hte = joinedOne(assignment?.hte_organizations);
+      const academicTerm = joinedOne(assignment?.academic_terms);
+      const academicYear = joinedOne(academicTerm?.academic_years);
       const template = Array.isArray(row.document_requirement_templates)
         ? row.document_requirement_templates[0]
         : row.document_requirement_templates;
-      const submissions = [...(row.document_submissions ?? [])].sort(
-        (a, b) => b.version_number - a.version_number,
-      );
+      const submissions = [...(row.document_submissions ?? [])]
+        .filter((submission) => !submission.withdrawn_at)
+        .sort((a, b) => b.version_number - a.version_number);
       const latest = submissions[0];
       const file = Array.isArray(latest?.files)
         ? latest.files[0]
@@ -2260,12 +2298,36 @@ export const documentService = {
       const review = [...(latest?.document_reviews ?? [])].sort((a, b) =>
         b.reviewed_at.localeCompare(a.reviewed_at),
       )[0];
+      const deadlineOpen = row.due_at
+        ? Date.now() < new Date(row.due_at).getTime()
+        : false;
+      const withdrawalStateEligible =
+        row.status === "submitted" || row.status === "under_review";
+      const canWithdraw = Boolean(
+        latest && withdrawalStateEligible && !review && deadlineOpen,
+      );
+      const withdrawalBlockedReason = !latest
+        ? ""
+        : review
+          ? "A reviewer has already acted on this submission."
+          : !withdrawalStateEligible
+            ? "This submission is no longer awaiting review."
+            : !row.due_at
+              ? "Withdrawal requires an authorized submission deadline."
+              : !deadlineOpen
+                ? "The submission deadline has passed."
+                : "";
       return {
         id: row.id,
         assignmentId: row.internship_assignment_id,
         studentName: assignment?.student_user_id
           ? (nameById.get(assignment.student_user_id) ?? "Assigned intern")
           : "Assigned intern",
+        section: studentProfile?.section || "Not recorded",
+        hte: hte?.trade_name || hte?.name || "Not assigned",
+        term: academicTerm
+          ? `${academicTerm.term} · ${academicYear?.label || "Academic year not recorded"}`
+          : "Not recorded",
         templateName: template?.name ?? "Internship document",
         phase: documentPhase[template?.phase ?? ""] ?? "During Internship",
         status: documentStatus[row.status] ?? row.status,
@@ -2277,6 +2339,7 @@ export const documentService = {
               year: "numeric",
             }).format(new Date(row.due_at))
           : "No due date",
+        dueAtIso: row.due_at,
         fileId: latest?.file_id ?? null,
         submissionId: latest?.id ?? null,
         fileName: file?.original_name ?? "No file uploaded",
@@ -2287,6 +2350,8 @@ export const documentService = {
         maxFileSizeBytes: Number(
           template?.max_file_size_bytes ?? 20 * 1024 * 1024,
         ),
+        canWithdraw,
+        withdrawalBlockedReason,
       };
     });
   },
@@ -2399,6 +2464,20 @@ export const documentService = {
       p_decision: decision,
       p_feedback: feedback.trim() || null,
     });
+    if (error) throw new Error(error.message);
+  },
+  async withdraw(record: DocumentRecord): Promise<void> {
+    if (!record.submissionId)
+      throw new Error(
+        "No current document submission is available to withdraw.",
+      );
+    const { error } = await createClient().rpc(
+      "withdraw_document_submission_v27",
+      {
+        p_submission_id: record.submissionId,
+        p_reason: "Withdrawn by the Student Intern before review",
+      },
+    );
     if (error) throw new Error(error.message);
   },
 };
@@ -2981,7 +3060,10 @@ export const adminService = {
           (row) =>
             Boolean(row.requester_user_id) && Boolean(row.reference_no?.trim()),
         )
-        .map((row) => [row.requester_user_id as string, row.reference_no!.trim()]),
+        .map((row) => [
+          row.requester_user_id as string,
+          row.reference_no!.trim(),
+        ]),
     );
     const displayStatus = (status: string) =>
       status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ");
@@ -2996,7 +3078,8 @@ export const adminService = {
               .filter(Boolean)
               .join(" ")
               .trim(),
-          ].find((value) => value && !value.includes("@")) || "Name not recorded",
+          ].find((value) => value && !value.includes("@")) ||
+          "Name not recorded",
         email: profile.email,
         role: activeRoles.join(", ") || "No active role",
         reference:
@@ -3131,7 +3214,9 @@ export const adminService = {
   async listContactMessages(): Promise<ContactMessageRecord[]> {
     const { data, error } = await createClient()
       .from("contact_messages")
-      .select("id,sender_name,sender_email,subject,message,status,received_at")
+      .select(
+        "id,sender_name,sender_email,subject,message,status,read_at,case_status,resolved_at,received_at,support_message_replies(id,subject,body,delivery_status,attempted_at,provider_accepted_at)",
+      )
       .order("received_at", { ascending: false })
       .limit(500);
     if (error) throw new Error(error.message);
@@ -3142,7 +3227,18 @@ export const adminService = {
       subject: string;
       message: string;
       status: "new" | "read" | "resolved";
+      read_at: string | null;
+      case_status: "open" | "resolved";
+      resolved_at: string | null;
       received_at: string;
+      support_message_replies: Array<{
+        id: string;
+        subject: string;
+        body: string;
+        delivery_status: "attempting" | "accepted" | "failed";
+        attempted_at: string;
+        provider_accepted_at: string | null;
+      }> | null;
     };
     return ((data ?? []) as ContactRow[]).map((row) => ({
       id: row.id,
@@ -3156,18 +3252,64 @@ export const adminService = {
           : row.status === "read"
             ? "Read"
             : "New",
+      readStatus: row.read_at ? "Read" : "Unread",
+      caseStatus: row.case_status === "resolved" ? "Resolved" : "Open",
+      readAt: row.read_at,
+      resolvedAt: row.resolved_at,
       receivedAt: row.received_at,
+      replies: (row.support_message_replies ?? [])
+        .sort((a, b) => a.attempted_at.localeCompare(b.attempted_at))
+        .map((reply) => ({
+          id: reply.id,
+          subject: reply.subject,
+          body: reply.body,
+          deliveryStatus:
+            reply.delivery_status === "accepted"
+              ? "Accepted"
+              : reply.delivery_status === "failed"
+                ? "Failed"
+                : "Attempting",
+          attemptedAt: reply.attempted_at,
+          providerAcceptedAt: reply.provider_accepted_at,
+        })),
     }));
   },
-  async updateContactMessageStatus(
-    messageId: string,
-    status: "read" | "resolved",
-  ): Promise<void> {
-    const { error } = await createClient()
-      .from("contact_messages")
-      .update({ status })
-      .eq("id", messageId);
+  async markContactMessageRead(messageId: string): Promise<void> {
+    const { error } = await createClient().rpc("mark_support_message_read_v27", {
+      p_message_id: messageId,
+    });
     if (error) throw new Error(error.message);
+  },
+  async setSupportCaseStatus(
+    messageId: string,
+    status: "open" | "resolved",
+  ): Promise<void> {
+    const { error } = await createClient().rpc("set_support_case_status_v27", {
+      p_message_id: messageId,
+      p_case_status: status,
+    });
+    if (error) throw new Error(error.message);
+  },
+  async replyToSupportMessage(input: {
+    messageId: string;
+    subject: string;
+    message: string;
+    privacyAcknowledged: boolean;
+  }): Promise<string> {
+    const { data, error } = await createClient().auth.getSession();
+    if (error || !data.session?.access_token)
+      throw new Error("Your session expired. Sign in again before replying.");
+    const result = await fetch("/api/support/reply", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${data.session.access_token}`,
+      },
+      body: JSON.stringify(input),
+    });
+    const payload = (await result.json()) as { error?: string; message?: string };
+    if (!result.ok) throw new Error(payload.error ?? "The reply could not be sent.");
+    return payload.message ?? "Reply accepted by the configured email provider.";
   },
   async reviewHteOrganization(
     hteId: string,
@@ -3204,19 +3346,19 @@ export const hteWorkSetupService = {
       updated_at: string;
     };
     return ((data ?? []) as unknown as Row[]).map((row) => ({
-        id: row.id,
-        hteId: row.hte_id,
-        hteName: row.hte_name || "Authorized HTE",
-        academicTermId: row.academic_term_id,
-        termLabel: row.term_label || "All terms in effective period",
-        dailyRequiredHours: Number(row.daily_required_hours),
-        effectiveFrom: row.effective_from,
-        effectiveTo: row.effective_to,
-        status: row.status === "active" ? "Active" : "Retired",
-        correctionReason: row.correction_reason ?? "",
-        configuredBy: row.configured_by || "Authorized user",
-        updatedAt: row.updated_at,
-      }));
+      id: row.id,
+      hteId: row.hte_id,
+      hteName: row.hte_name || "Authorized HTE",
+      academicTermId: row.academic_term_id,
+      termLabel: row.term_label || "All terms in effective period",
+      dailyRequiredHours: Number(row.daily_required_hours),
+      effectiveFrom: row.effective_from,
+      effectiveTo: row.effective_to,
+      status: row.status === "active" ? "Active" : "Retired",
+      correctionReason: row.correction_reason ?? "",
+      configuredBy: row.configured_by || "Authorized user",
+      updatedAt: row.updated_at,
+    }));
   },
   async getMyHteId(): Promise<string> {
     const userId = await currentUserId();
@@ -3350,7 +3492,7 @@ export const coordinatorService = {
   },
   async listPartnerHtes(): Promise<PartnerHteRecord[]> {
     const supabase = createClient();
-    const [hteResult, assignmentResult] = await Promise.all([
+    const [hteResult, assignmentResult, hourConfigResult] = await Promise.all([
       supabase
         .from("hte_organizations")
         .select(
@@ -3363,9 +3505,17 @@ export const coordinatorService = {
         .select("hte_id")
         .is("deleted_at", null)
         .not("status", "in", "(draft,cancelled)"),
+      supabase
+        .from("hte_daily_hour_configs")
+        .select("hte_id,daily_required_hours,effective_from,effective_to,updated_at")
+        .eq("status", "active")
+        .lte("effective_from", new Date().toISOString().slice(0, 10))
+        .order("effective_from", { ascending: false })
+        .order("updated_at", { ascending: false }),
     ]);
     if (hteResult.error) throw new Error(hteResult.error.message);
     if (assignmentResult.error) throw new Error(assignmentResult.error.message);
+    if (hourConfigResult.error) throw new Error(hourConfigResult.error.message);
     type HteRow = {
       id: string;
       name: string;
@@ -3400,6 +3550,16 @@ export const coordinatorService = {
       hte_id: string;
     }>)
       counts.set(row.hte_id, (counts.get(row.hte_id) ?? 0) + 1);
+    const dailyHours = new Map<string, number>();
+    for (const row of (hourConfigResult.data ?? []) as Array<{
+      hte_id: string;
+      daily_required_hours: number | string;
+      effective_to: string | null;
+    }>) {
+      if (row.effective_to && row.effective_to < today) continue;
+      if (!dailyHours.has(row.hte_id))
+        dailyHours.set(row.hte_id, Number(row.daily_required_hours));
+    }
     return hteRows.map((hte) => {
       const representative = [...(hte.hte_representatives ?? [])]
         .filter(
@@ -3423,6 +3583,7 @@ export const coordinatorService = {
         location:
           [hte.city_municipality, hte.province].filter(Boolean).join(", ") ||
           "Not specified",
+        dailyRequiredHours: dailyHours.get(hte.id) ?? null,
       };
     });
   },
@@ -3504,8 +3665,13 @@ export const coordinatorService = {
     );
     if (error) throw new Error(error.message);
   },
-  async createAssignmentsBulk(inputs: CreateAssignmentInput[]): Promise<{ createdCount: number }> {
-    if (inputs.length < 2) throw new Error("Select at least two Student Interns for bulk assignment.");
+  async createAssignmentsBulk(
+    inputs: CreateAssignmentInput[],
+  ): Promise<{ createdCount: number }> {
+    if (inputs.length < 2)
+      throw new Error(
+        "Select at least two Student Interns for bulk assignment.",
+      );
     const { data, error } = await createClient().rpc(
       "create_coordinator_assignments_bulk",
       {
@@ -3521,7 +3687,11 @@ export const coordinatorService = {
       },
     );
     if (error) throw new Error(error.message);
-    return { createdCount: Number((data as { createdCount?: number } | null)?.createdCount ?? 0) };
+    return {
+      createdCount: Number(
+        (data as { createdCount?: number } | null)?.createdCount ?? 0,
+      ),
+    };
   },
   async getRequirementConfig(
     studentUserId: string,
@@ -3600,12 +3770,10 @@ export const coordinatorService = {
     );
     if (error) throw new Error(error.message);
     const row = (
-      data as
-        | Array<{
-            configuration_id: string;
-            updated_assignments: number;
-          }>
-        | null
+      data as Array<{
+        configuration_id: string;
+        updated_assignments: number;
+      }> | null
     )?.[0];
     if (!row) throw new Error("The requirement update returned no result.");
     return {
@@ -3638,7 +3806,7 @@ export const feedbackService = {
     const { data, error } = await createClient()
       .from("internship_feedback")
       .select(
-        "id,internship_assignment_id,author_user_id,author_role,subject,message,status,created_at,recipient_read_at,internship_assignments(student_user_id)",
+        "id,internship_assignment_id,author_user_id,author_role,subject,message,status,created_at,recipient_read_at,internship_assignments(student_user_id,student_profiles(section),hte_organizations(name,trade_name))",
       )
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -3654,7 +3822,17 @@ export const feedbackService = {
       created_at: string;
       recipient_read_at: string | null;
       internship_assignments?:
-        { student_user_id: string } | Array<{ student_user_id: string }> | null;
+        | {
+            student_user_id: string;
+            student_profiles?: { section: string | null } | Array<{ section: string | null }> | null;
+            hte_organizations?: { name: string; trade_name: string | null } | Array<{ name: string; trade_name: string | null }> | null;
+          }
+        | Array<{
+            student_user_id: string;
+            student_profiles?: { section: string | null } | Array<{ section: string | null }> | null;
+            hte_organizations?: { name: string; trade_name: string | null } | Array<{ name: string; trade_name: string | null }> | null;
+          }>
+        | null;
     };
     const rows = (data ?? []) as unknown as Row[];
     const userIds = rows.flatMap((row) => [
@@ -3665,13 +3843,18 @@ export const feedbackService = {
     ]);
     const names = await namesForUsers(userIds);
     return rows.map((row) => {
-      const studentId = joinedOne(row.internship_assignments)?.student_user_id;
+      const assignment = joinedOne(row.internship_assignments);
+      const studentId = assignment?.student_user_id;
+      const profile = joinedOne(assignment?.student_profiles);
+      const hte = joinedOne(assignment?.hte_organizations);
       return {
         id: row.id,
         assignmentId: row.internship_assignment_id,
         studentName: studentId
           ? (names.get(studentId) ?? "Assigned intern")
           : "Assigned intern",
+        section: profile?.section || "Not recorded",
+        hte: hte?.trade_name || hte?.name || "Not assigned",
         subject: row.subject,
         message: row.message,
         authorName: names.get(row.author_user_id) ?? "Authorized user",

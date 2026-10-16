@@ -160,15 +160,11 @@ test("evaluation reports separate reviewer details from student finalized PDF ac
     /r\.status === "Finalized" && \( <EvaluationPdfDownload/,
   );
   assert.doesNotMatch(evaluation, />View report<\/button>/);
-  for (const action of ["Official PDF", "Open in new tab"])
+  for (const action of ["Official PDF", "View PDF", "Download", "Open in new tab"])
     assert.match(pdfViewer, new RegExp(action));
-  assert.doesNotMatch(
-    pdfViewer,
-    /<Printer|<Download|Print evaluation PDF\?|Download evaluation PDF\?/,
-  );
   assert.match(pdfViewer, /<iframe/);
   assert.match(pdfViewer, /target="_blank" rel="noopener noreferrer"/);
-  assert.match(pdfViewer, /title="Official PSU-F-PLU-02 evaluation PDF"/);
+  assert.match(pdfViewer, /title="Finalized official evaluation PDF"/);
 });
 
 test("v11 public interactions are connected, keyboard-ready, and use one contextual description", () => {
@@ -211,8 +207,8 @@ test("attendance and feedback workflows expose the requested filters and indepen
   assert.match(app, /<span>Month<\/span>/);
   assert.match(app, /<span>Year<\/span>/);
   assert.match(app, /Export filtered CSV/);
-  assert.match(app, /<th className="feedback-status-cell">Status<\/th>/);
-  assert.doesNotMatch(app, /<th>Follow-up status<\/th>/);
+  assert.match(app, /<th className="feedback-status-cell">Follow-up<\/th>/);
+  assert.match(app, /<th className="feedback-status-cell">Read<\/th>/);
   assert.match(services, /recipient_read_at/);
   assert.match(
     services,

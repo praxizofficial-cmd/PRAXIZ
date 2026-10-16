@@ -478,7 +478,9 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
         setAssignments(await evaluationService.listAssignments());
         const options = await evaluationService.listActiveTemplates();
         setTemplates(options);
-        setTemplate(options[0] ?? null);
+        // Until an exact assignment-scoped resolver returns one published form,
+        // never choose an arbitrary active template from a conflicting set.
+        setTemplate(options.length === 1 ? options[0] : null);
       }
     } catch (reason) {
       setError(userError(reason));
@@ -576,26 +578,13 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
         </p>
       )}
       {role === "hte" && templates.length > 1 && (
-        <label className="field">
-          <span>HTE evaluation form</span>
-          <select
-            value={template?.id || ""}
-            onChange={(e) =>
-              setTemplate(
-                templates.find((t) => t.id === e.target.value) ?? null,
-              )
-            }
-          >
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-                {t.metadata ? " · Official PSU form" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+        <p className="form-error" role="alert">
+          Multiple published HTE evaluation forms currently match this workspace.
+          Evaluation creation is blocked until an administrator resolves the form
+          scope; PRAXIZ will not select one arbitrarily.
+        </p>
       )}
-      {role === "hte" && !loading && !template && (
+      {role === "hte" && !loading && !template && templates.length <= 1 && (
         <p className="muted-note">
           No active HTE evaluation template is available. Existing records
           remain available below.
@@ -662,7 +651,7 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
                   <th>Student</th>
                   <th>Evaluation</th>
                   <th>Evaluator</th>
-                  <th>Submitted</th>
+                  <th>{student ? "Finalized / released" : "Submitted"}</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -673,9 +662,14 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
                     <td>
                       <b>{r.studentName}</b>
                     </td>
-                    <td>{r.templateName}</td>
+                    <td>
+                      {r.templateName}
+                      {student && r.context.ratingPeriod && (
+                        <small>{r.context.ratingPeriod}</small>
+                      )}
+                    </td>
                     <td>{r.evaluatorName}</td>
-                    <td>{r.submittedAt}</td>
+                    <td>{student ? r.reviewedAt : r.submittedAt}</td>
                     <td>
                       <StatusBadge status={r.status} />
                     </td>
