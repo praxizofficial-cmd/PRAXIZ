@@ -2983,7 +2983,7 @@ function AppShell({
         className={`sidebar ${mobileNav ? "sidebar-open" : ""} ${expanded ? "sidebar-expanded" : ""}`}
       >
         <div className="sidebar-top">
-          <Link href={`/${role}/dashboard`}>
+          <Link href={`/${role}/dashboard`} aria-label="PRAXIZ dashboard">
             <Logo />
           </Link>
           <button
@@ -3967,6 +3967,7 @@ function CoordinatorDashboard() {
         />
       </div>
       <div className="chart-grid">
+        <div className="coordinator-portfolio-stack">
         <section className="card">
           <h2>Portfolio attendance verification</h2>
           <div className="progress-card">
@@ -3981,6 +3982,22 @@ function CoordinatorDashboard() {
             </p>
           </div>
         </section>
+        <section className="card hte-bars-card">
+          <h2>Interns by host training establishment</h2>
+          <div className="horizontal-bars">
+            {hteCounts.map(([label, value]) => (
+              <div key={label}>
+                <span>{label}</span>
+                <b style={{ width: `${(value / maxHteCount) * 100}%` }} />
+                <em>{value}</em>
+              </div>
+            ))}
+            {hteCounts.length === 0 && (
+              <p className="muted-note">No HTE assignments are visible yet.</p>
+            )}
+          </div>
+        </section>
+        </div>
         <section className="card donut-card">
           <h2>Document compliance</h2>
           {compliance ? (
@@ -4027,21 +4044,6 @@ function CoordinatorDashboard() {
           )}
         </section>
       </div>
-      <section className="card hte-bars-card">
-        <h2>Interns by host training establishment</h2>
-        <div className="horizontal-bars">
-          {hteCounts.map(([label, value]) => (
-            <div key={label}>
-              <span>{label}</span>
-              <b style={{ width: `${(value / maxHteCount) * 100}%` }} />
-              <em>{value}</em>
-            </div>
-          ))}
-          {hteCounts.length === 0 && (
-            <p className="muted-note">No HTE assignments are visible yet.</p>
-          )}
-        </div>
-      </section>
       <section className="card table-card">
         <div className="card-title">
           <h2>Interns needing attention</h2>
@@ -5762,7 +5764,7 @@ function WeeklyLogsPage({ role }: { role: RoleId }) {
                     )}
                   </td>
                   <td>{log.hours}</td>
-                  <td className="summary-cell">{log.summary}</td>
+                  <td className="summary-cell"><span>{log.summary}</span></td>
                   <td>{log.submitted}</td>
                   <td>
                     <StatusBadge status={log.status} />
@@ -6209,8 +6211,8 @@ function DocumentsPage({ role }: { role: RoleId }) {
         </p>
       )}
       {!canUpload && (
-        <section className="card placement-filters compact" aria-label="Document compliance filters">
-          <label className="field"><span>Search</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Student, requirement, HTE, file…" /></label>
+        <section className="card document-compliance-filters" aria-label="Document compliance filters">
+          <label className="field"><span>Search</span><div className="document-compliance-search"><Search size={18} aria-hidden="true" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Student, requirement, HTE, file…" /></div></label>
           <label className="field"><span>Section</span><select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value)}><option>All</option>{[...new Set(records.map((record) => record.section))].map((value) => <option key={value}>{value}</option>)}</select></label>
           <label className="field"><span>HTE</span><select value={hteFilter} onChange={(event) => setHteFilter(event.target.value)}><option>All</option>{[...new Set(records.map((record) => record.hte))].map((value) => <option key={value}>{value}</option>)}</select></label>
           <label className="field"><span>Academic term</span><select value={termFilter} onChange={(event) => setTermFilter(event.target.value)}><option>All</option>{[...new Set(records.map((record) => record.term))].map((value) => <option key={value}>{value}</option>)}</select></label>
@@ -8284,11 +8286,14 @@ function ReportsPage() {
           </label>
           <label className="field">
             <span>Search report</span>
+            <div className="search-field-control">
+            <Search size={18} aria-hidden="true" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Student or report detail"
             />
+            </div>
           </label>
           {type === "Internship progress" && (
             <>
@@ -8689,8 +8694,8 @@ function FeedbackPage() {
       </div>
       <section className="card table-card">
         <div className="card-title"><div><h2>{loading ? "Loading feedback…" : `${shown.length} feedback record${shown.length === 1 ? "" : "s"}`}</h2><p>Read state and follow-up workflow are tracked independently.</p></div></div>
-        <div className="placement-filters compact">
-          <label className="field"><span>Search</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Student, subject, HTE, message…" /></label>
+        <div className="feedback-filters">
+          <label className="field"><span>Search</span><div className="search-field-control"><Search size={18} aria-hidden="true" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Student, subject, HTE, message…" /></div></label>
           <label className="field"><span>Section</span><select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value)}><option>All</option>{[...new Set(records.map((item) => item.section))].map((value) => <option key={value}>{value}</option>)}</select></label>
           <label className="field"><span>HTE</span><select value={hteFilter} onChange={(event) => setHteFilter(event.target.value)}><option>All</option>{[...new Set(records.map((item) => item.hte))].map((value) => <option key={value}>{value}</option>)}</select></label>
           <label className="field"><span>Follow-up</span><select value={workflowFilter} onChange={(event) => setWorkflowFilter(event.target.value)}><option>All</option><option>Open</option><option>In Progress</option><option>Resolved</option></select></label>
@@ -8701,7 +8706,8 @@ function FeedbackPage() {
             <thead>
               <tr>
                 <th>Student</th>
-                <th>Section / HTE</th>
+                <th>Section</th>
+                <th>HTE</th>
                 <th>Subject</th>
                 <th>Feedback</th>
                 <th>Author</th>
@@ -8718,7 +8724,8 @@ function FeedbackPage() {
                   <td>
                     <b>{item.studentName}</b>
                   </td>
-                  <td>{item.section}<small>{item.hte}</small></td>
+                  <td>{item.section}</td>
+                  <td>{item.hte}</td>
                   <td>
                     <b>{item.subject}</b>
                   </td>
@@ -8756,7 +8763,7 @@ function FeedbackPage() {
               ))}
               {!loading && shown.length === 0 && (
                 <tr>
-                  <td colSpan={10}>
+                  <td colSpan={11}>
                     {records.length ? "No feedback matches the selected filters." : "No feedback has been recorded for your authorized assignments."}
                   </td>
                 </tr>
@@ -10197,7 +10204,8 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
                         : "Not provided")}
                   </td>
                   <td>{formatTimestamp(record.updatedAt)}</td>
-                  <td className="table-actions">
+                  <td>
+                    <div className="work-setup-history-actions">
                     <button
                       className="table-link"
                       onClick={() => setSelectedConfiguration(record)}
@@ -10212,6 +10220,7 @@ function HteWorkSetupPage({ admin = false }: { admin?: boolean }) {
                         Correct / Override
                       </button>
                     )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -11627,13 +11636,14 @@ function SupportInboxPage() {
               ? "Loading support messages…"
               : `${shown.length} message${shown.length === 1 ? "" : "s"}`}
           </h2>
-          <div className="table-controls">
+          <div className="table-controls support-message-controls">
             <label className="table-search">
               <Search size={17} />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search sender, email, or subject…"
+                aria-label="Search support messages"
               />
             </label>
             <select
@@ -11669,7 +11679,7 @@ function SupportInboxPage() {
                     <b>{item.senderName}</b>
                   </td>
                   <td>{item.senderEmail}</td>
-                  <td className="summary-cell">{item.subject}</td>
+                  <td className="support-subject-cell">{item.subject}</td>
                   <td>{formatTimestamp(item.receivedAt)}</td>
                   <td>
                     <StatusBadge status={item.readStatus} />
@@ -13538,7 +13548,7 @@ function WorkflowTemplatesPage() {
         </section>
       )}
       {section === "evaluations" && (
-        <div className="card">
+        <div className="card official-hte-evaluation-card">
           <h2>Official HTE evaluation</h2>
           <p>
             PSU-F-PLU-02 · Rev. No. 00 · January 2, 2026. Completed by an
@@ -13841,7 +13851,11 @@ function RegistrationTable({
           <article className="stat-card"><div><span>Under review</span><strong>{records.filter((record) => record.status === "Under Review").length}</strong></div><Eye /></article>
           <article className="stat-card"><div><span>Reviewed</span><strong>{records.filter((record) => !["Pending", "Under Review"].includes(record.status)).length}</strong></div><CheckCircle2 /></article>
         </div>
-        <div className="card-title">
+        </>
+      )}
+      <div className={includeReviewed ? "card table-card registration-list-card" : undefined}>
+      {includeReviewed && (
+        <div className="card-title registration-toolbar">
           <div>
             <h2>
               {loading
@@ -13867,7 +13881,6 @@ function RegistrationTable({
             </select>
           </label>
         </div>
-        </>
       )}
       {error && (
         <p className="form-error">
@@ -13912,7 +13925,7 @@ function RegistrationTable({
                     >
                       Review
                     </button>
-                  ) : <button className="table-link" onClick={() => setSelected(item)}>View decision</button>}
+                  ) : <button className="table-link" onClick={() => setSelected(item)}>View details</button>}
                 </td>
               </tr>
             ))}
@@ -13925,6 +13938,7 @@ function RegistrationTable({
             )}
           </tbody>
         </table>
+      </div>
       </div>
       {selected && (
         <RegistrationReviewDialog
@@ -13947,9 +13961,7 @@ function RegistrationsPage() {
         title="Registrations"
         subtitle="Verify identities and role requests before account activation."
       />
-      <section className="card table-card">
-        <RegistrationTable includeReviewed />
-      </section>
+      <RegistrationTable includeReviewed />
     </>
   );
 }

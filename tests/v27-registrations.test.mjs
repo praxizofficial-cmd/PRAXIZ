@@ -16,7 +16,7 @@ test("v27 reviewed registrations open as read-only history instead of a static l
   const dialog = app.slice(app.indexOf("function RegistrationReviewDialog"), app.indexOf("function RegistrationTable"));
   assert.match(dialog, /const reviewable/);
   assert.match(dialog, /already been reviewed/);
-  assert.match(app, /View decision/);
+  assert.match(app, /View details/);
   assert.match(dialog, /reviewable \? <>/);
 });
 

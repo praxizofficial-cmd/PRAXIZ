@@ -140,7 +140,7 @@ export function HtePhotoPolicy() {
       <div><dt>Maximum photos per day</dt><dd>{policy.max_photos_per_day}</dd></div>
       <div><dt>Effective scope</dt><dd>Future Weekly Logs for this HTE organization</dd></div>
     </dl>}
-    <p>Policy changes apply to future logs. Existing submitted and historical Weekly Log requirements stay unchanged.</p>
+    <p className="photo-policy-note">Policy changes apply to future logs. Existing submitted and historical Weekly Log requirements stay unchanged.</p>
     {message && <p role="status">{message}</p>}
     {policy && editing && <div className="photo-policy-editor"><div className="two-fields">
       <label className="field"><span>Requirement</span><select disabled={busy} value={mode} onChange={event => setMode(event.target.value)}><option value="optional">Optional</option><option value="required">Required daily</option></select></label>

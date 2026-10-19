@@ -13,6 +13,7 @@ import {
   History,
   LoaderCircle,
   Search,
+  Plus,
   Undo2,
   Upload,
   UsersRound,
@@ -126,8 +127,8 @@ function PlacementDashboard() {
       />
       <LoadingOrError loading={loading} error={error} />
       {!loading && !error && (
-        <>
-          <section className="card placement-filters compact" aria-label="Institutional placement filters">
+        <div className="placement-dashboard-content">
+          <section className="card placement-filters" aria-label="Institutional placement filters">
             <label className="field"><span>Campus</span><select value={campus} onChange={(event) => { setCampus(event.target.value); setCollege("All"); }}><option>All</option>{[...new Set(placements.map((item) => item.campus))].map((value) => <option key={value}>{value}</option>)}</select></label>
             <label className="field"><span>College</span><select value={college} onChange={(event) => setCollege(event.target.value)}><option>All</option>{[...new Set(placements.filter((item) => campus === "All" || item.campus === campus).map((item) => item.college))].map((value) => <option key={value}>{value}</option>)}</select></label>
             <label className="field"><span>Academic term</span><select value={term} onChange={(event) => setTerm(event.target.value)}><option>All</option>{[...new Set(placements.map((item) => item.term))].map((value) => <option key={value}>{value}</option>)}</select></label>
@@ -206,7 +207,7 @@ function PlacementDashboard() {
               <div className="table-scroll"><table className="data-table"><thead><tr><th>Requirement</th><th>Coordinator</th><th>Status</th><th>Due date</th></tr></thead><tbody>{missingRecords.slice(0, 5).map((item, index) => <tr key={`${item.requirementId}-${item.submissionId ?? index}`}><td><b>{item.title}</b></td><td>{item.coordinatorName}</td><td><StatusBadge status={item.status} /></td><td>{formatDate(item.dueAt)}</td></tr>)}</tbody></table></div>
             ) : <p className="table-empty">No placement compliance records currently require action.</p>}
           </section>
-        </>
+        </div>
       )}
     </>
   );
@@ -281,11 +282,11 @@ function StudentOverview() {
             <p>Only assignments inside your authorized institutional scope are shown.</p>
           </div>
         </div>
-        <div className="placement-filters">
+        <div className="placement-filters placement-student-filters">
           <label className="field">
             <span>Search</span>
             <div className="search-field">
-              <Search size={18} />
+              <Search size={18} aria-hidden="true" />
               <input
                 value={search}
                 onChange={(event) => {
@@ -385,6 +386,7 @@ function StudentOverview() {
                     <td>{item.coordinator}</td>
                     <td>{item.term}</td>
                     <td>
+                      <div className="placement-student-status">
                       <StatusBadge status={item.status} />
                       <button
                         className="table-link"
@@ -392,6 +394,7 @@ function StudentOverview() {
                       >
                         View details
                       </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -407,10 +410,11 @@ function StudentOverview() {
           </div>
         )}
         {!loading && !error && shown.length > 0 && (
-          <div className="modal-actions" aria-label="Student placement pages">
+          <div className="placement-student-pagination" aria-label="Student placement pages">
             <span className="table-page-summary">
               Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, shown.length)} of {shown.length}
             </span>
+            <div className="placement-student-page-controls">
             <button
               className="button button-secondary button-small"
               disabled={page === 1}
@@ -426,6 +430,7 @@ function StudentOverview() {
             >
               Next
             </button>
+            </div>
           </div>
         )}
       </section>
@@ -718,21 +723,24 @@ function ComplianceWorkspace({
   return (
     <>
       <WorkspaceHeader title={title} subtitle={subtitle} />
-      <div className="stats-grid three">
-        <article className="stat-card"><div><span>Approved</span><strong>{approved}</strong></div><CheckCircle2 /></article>
-        <article className="stat-card"><div><span>Awaiting review</span><strong>{reviewQueue}</strong></div><Clock3 /></article>
-        <article className="stat-card"><div><span>Needs action</span><strong>{needsAction}</strong></div><AlertTriangle /></article>
+      <div className="stats-grid three placement-compliance-stats">
+        <article className="stat-card"><CheckCircle2 aria-hidden="true" /><span>Approved</span><strong>{approved}</strong></article>
+        <article className="stat-card"><Clock3 aria-hidden="true" /><span>Awaiting review</span><strong>{reviewQueue}</strong></article>
+        <article className="stat-card"><AlertTriangle aria-hidden="true" /><span>Needs action</span><strong>{needsAction}</strong></article>
       </div>
       <section className="card table-card">
         <div className="card-title">
           <div className="placement-filters compact">
             <label className="field">
               <span>Search records</span>
+              <div className="search-field-control">
+              <Search size={18} aria-hidden="true" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Requirement, file, coordinator…"
               />
+              </div>
             </label>
             <label className="field">
               <span>Status</span>
@@ -754,6 +762,7 @@ function ComplianceWorkspace({
               className="button button-primary"
               onClick={() => setCreating(true)}
             >
+              <Plus size={18} aria-hidden="true" />
               Create requirement
             </button>
           )}
@@ -1114,6 +1123,7 @@ function RequiredFormats({ admin = false }: { admin?: boolean }) {
               className="button button-primary"
               onClick={() => setCreating(true)}
             >
+              <Plus size={18} aria-hidden="true" />
               Add format
             </button>
           )}
@@ -1409,7 +1419,7 @@ function PlacementAnalytics() {
         <LoadingOrError loading={loading} error={loadError} />
         {!loading && !loadError && (
           <>
-            <div className="placement-summary-grid">
+            <div className="placement-summary-grid placement-analytics-summary">
               <article>
                 <UsersRound />
                 <span>Visible interns</span>
