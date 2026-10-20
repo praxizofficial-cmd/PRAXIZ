@@ -5,6 +5,10 @@ import {
   applyAssignmentScopeFilters,
   assignmentSelectForScope,
 } from "../app/api/ai/analytics/assignment-query.ts";
+import {
+  AnalyticsDataQueryError,
+  analyticsDataQueryFailure,
+} from "../app/api/ai/analytics/errors.ts";
 
 const route = await readFile(
   new URL("../app/api/ai/analytics/route.ts", import.meta.url),
@@ -54,11 +58,20 @@ test("overall insights query RLS-visible assignments without requiring a coordin
   assert.deepEqual(operations, []);
   assert.doesNotMatch(
     assignmentSelectForScope("overall"),
-    /internship_supervisors/,
+    /internship_supervisors|student_profiles/,
   );
   assert.match(
     route.replace(/\s+/g, " "),
     /\.in\("status", \["active", "completed"\]\) \.is\("deleted_at", null\)/,
+  );
+});
+
+test("non-section Placement Head scopes do not require profile enrichment", () => {
+  for (const scope of ["overall", "student", "hte"])
+    assert.doesNotMatch(assignmentSelectForScope(scope), /!inner/);
+  assert.match(
+    assignmentSelectForScope("section"),
+    /student_profiles!inner\(section\)/,
   );
 });
 
@@ -99,4 +112,23 @@ test("analytics rejects unauthenticated requests before role or assignment queri
     route.indexOf("if (authError || !user)") <
       route.indexOf('.from("role_assignments")'),
   );
+});
+
+test("Supabase failures are safely distinguished from authorization and AI failures", () => {
+  const error = new AnalyticsDataQueryError();
+  assert.equal(error.name, "AnalyticsDataQueryError");
+  assert.deepEqual(analyticsDataQueryFailure(), {
+    status: 503,
+    body: {
+      error:
+        "Verified analytics data is temporarily unavailable. Please try again.",
+      kind: "DATA_QUERY_FAILED",
+      retryable: true,
+    },
+  });
+  assert.match(
+    route,
+    /if \(roleError \|\| profileResult\.error\) throw new AnalyticsDataQueryError\(\)/,
+  );
+  assert.doesNotMatch(route, /new Error\(assignmentError\.message\)/);
 });

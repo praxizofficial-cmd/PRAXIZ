@@ -22,13 +22,14 @@ type AssignmentFilterBuilder = {
   ): AssignmentFilterBuilder;
 };
 
-const BASE_ASSIGNMENT_SELECT =
-  "id,student_user_id,hte_id,status,student_profiles!inner(section)";
+const BASE_ASSIGNMENT_SELECT = "id,student_user_id,hte_id,status";
 
 export function assignmentSelectForScope(scope: AnalysisScope) {
-  return scope === "coordinator"
-    ? `${BASE_ASSIGNMENT_SELECT},internship_supervisors!inner(supervisor_user_id)`
-    : BASE_ASSIGNMENT_SELECT;
+  if (scope === "section")
+    return `${BASE_ASSIGNMENT_SELECT},student_profiles!inner(section)`;
+  if (scope === "coordinator")
+    return `${BASE_ASSIGNMENT_SELECT},internship_supervisors!inner(supervisor_user_id)`;
+  return BASE_ASSIGNMENT_SELECT;
 }
 
 export function applyAssignmentScopeFilters<T extends AssignmentFilterBuilder>(

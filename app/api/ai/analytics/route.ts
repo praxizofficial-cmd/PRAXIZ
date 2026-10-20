@@ -15,6 +15,10 @@ import {
   assignmentSelectForScope,
   type AnalysisScope,
 } from "./assignment-query";
+import {
+  AnalyticsDataQueryError,
+  analyticsDataQueryFailure,
+} from "./errors";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -70,7 +74,8 @@ export async function POST(request: Request) {
       supabase.from("profiles").select("account_status").eq("id", user.id).single(),
     ]);
     const { data: roleRows, error: roleError } = roleResult;
-    if (roleError || profileResult.error || profileResult.data?.account_status !== "active" || !roleRows?.length)
+    if (roleError || profileResult.error) throw new AnalyticsDataQueryError();
+    if (profileResult.data?.account_status !== "active" || !roleRows?.length)
       return NextResponse.json(
         {
           error: "You are not authorized to generate these insights.",
@@ -153,7 +158,7 @@ export async function POST(request: Request) {
     );
     const { data: assignmentData, error: assignmentError } =
       await assignmentQuery;
-    if (assignmentError) throw new Error(assignmentError.message);
+    if (assignmentError) throw new AnalyticsDataQueryError();
     const assignments = (assignmentData ?? []) as unknown as AssignmentRow[];
     if (!assignments.length) {
       const message =
@@ -187,8 +192,8 @@ export async function POST(request: Request) {
         .eq("evaluation_templates.evaluator_type", "hte")
         .is("deleted_at", null),
     ]);
-    if (progressError) throw new Error(progressError.message);
-    if (evaluationError) throw new Error(evaluationError.message);
+    if (progressError || evaluationError)
+      throw new AnalyticsDataQueryError();
     const progress = (progressData ?? []) as ProgressRow[];
     const sum = (
       key: keyof Pick<
@@ -300,6 +305,16 @@ Return only valid JSON: {"summary":"Short assessment","patterns":["Observation"]
       { headers: { "Cache-Control": "private, no-store, max-age=0" } },
     );
   } catch (error) {
+    if (error instanceof AnalyticsDataQueryError) {
+      const failure = analyticsDataQueryFailure();
+      console.error("PRAXIZ AI analytics failed", {
+        category: error.name,
+        code: failure.body.kind,
+        stage,
+        durationMs: Date.now() - startedAt,
+      });
+      return NextResponse.json(failure.body, { status: failure.status });
+    }
     const failure = ollamaErrorResponse(error);
     console.error("PRAXIZ AI analytics failed", {
       category: error instanceof Error ? error.name : "UnknownError",
