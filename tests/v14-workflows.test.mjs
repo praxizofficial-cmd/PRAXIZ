@@ -34,8 +34,12 @@ test("HTE provisioning generates a unique PRAXIZ reference, keeps the external I
 
 test("analytics scope is server-authorized and calculated from RLS-visible records", () => {
   const route = read("app/api/ai/analytics/route.ts");
+  const assignmentQuery = read(
+    "app/api/ai/analytics/assignment-query.ts",
+  );
   const app = read("app/PraxizApp.tsx");
   const compactRoute = route.replace(/\s+/g, " ");
+  const compactAssignmentQuery = assignmentQuery.replace(/\s+/g, " ");
   assert.match(app, /Analysis scope/);
   assert.match(app, /\["overall", "Overall"\]/);
   assert.match(app, /\["hte", "By HTE"\]/);
@@ -45,12 +49,12 @@ test("analytics scope is server-authorized and calculated from RLS-visible recor
     /\.in\("roles\.code", \["internship_coordinator", "placement_head"\]\)/,
   );
   assert.match(
-    compactRoute,
-    /if \(scope === "hte"\) assignmentQuery = assignmentQuery\.eq\("hte_id", hteId\)/,
+    compactAssignmentQuery,
+    /if \(scope === "hte"\) query\.eq\("hte_id", targets\.hteId\)/,
   );
   assert.match(
-    compactRoute,
-    /if \(scope === "student"\) assignmentQuery = assignmentQuery\.eq\("student_user_id", studentId\)/,
+    compactAssignmentQuery,
+    /if \(scope === "student"\) query\.eq\("student_user_id", targets\.studentId\)/,
   );
   assert.match(route, /\.from\("assignment_progress"\)/);
   assert.doesNotMatch(app, /attendanceVerified: attendanceMetric\.numerator/);

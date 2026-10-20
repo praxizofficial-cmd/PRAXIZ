@@ -18,8 +18,8 @@ const profile = readFileSync(
   new URL("../app/components/ProfileDetails.tsx", import.meta.url),
   "utf8",
 );
-const analyticsRoute = readFileSync(
-  new URL("../app/api/ai/analytics/route.ts", import.meta.url),
+const analyticsAssignmentQuery = readFileSync(
+  new URL("../app/api/ai/analytics/assignment-query.ts", import.meta.url),
   "utf8",
 );
 const migration = readFileSync(
@@ -80,8 +80,8 @@ test("Section A-E is editable and visible in reports and analytics", () => {
   assert.match(profile, /p_section/);
   assert.match(compactApp, /"Student", "Campus", "Program", "Section"/);
   assert.match(compactApp, /\["section", "By Section"\]/);
-  assert.match(analyticsRoute, /student_profiles!inner\(section\)/);
-  assert.match(analyticsRoute, /student_profiles\.section/);
+  assert.match(analyticsAssignmentQuery, /student_profiles!inner\(section\)/);
+  assert.match(analyticsAssignmentQuery, /student_profiles\.section/);
 });
 
 test("AI assistant uses a bounded conversational layout and integrated actions", () => {

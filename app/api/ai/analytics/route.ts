@@ -10,16 +10,19 @@ import {
   parseAnalyticsModelResponse,
   type AnalyticsEvidence,
 } from "../../../analytics-insights";
+import {
+  applyAssignmentScopeFilters,
+  assignmentSelectForScope,
+  type AnalysisScope,
+} from "./assignment-query";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-type AnalysisScope = "overall" | "section" | "hte" | "student" | "coordinator";
 type AssignmentRow = {
   id: string;
   student_user_id: string;
   hte_id: string;
-  coordinator_user_id: string;
   status: string;
 };
 type ProgressRow = {
@@ -138,27 +141,20 @@ export async function POST(request: Request) {
     // then intersected with those already-authorized assignment rows, so changing
     // an ID in the request cannot widen the coordinator's scope.
     stage = "load-authorized-assignments";
-    let assignmentQuery = supabase
-      .from("internship_assignments")
-      .select(
-        "id,student_user_id,hte_id,coordinator_user_id,status,student_profiles!inner(section)",
-      )
-      .in("status", ["active", "completed"])
-      .is("deleted_at", null);
-    if (scope === "hte") assignmentQuery = assignmentQuery.eq("hte_id", hteId);
-    if (scope === "student")
-      assignmentQuery = assignmentQuery.eq("student_user_id", studentId);
-    if (scope === "section")
-      assignmentQuery = assignmentQuery.eq("student_profiles.section", section);
-    if (scope === "coordinator")
-      assignmentQuery = assignmentQuery.eq(
-        "coordinator_user_id",
-        coordinatorId,
-      );
+    const assignmentQuery = applyAssignmentScopeFilters(
+      supabase
+        .from("internship_assignments")
+        .select<string, AssignmentRow>(assignmentSelectForScope(scope))
+        .in("status", ["active", "completed"])
+        .is("deleted_at", null),
+      scope,
+      { section, hteId, studentId, coordinatorId },
+      now,
+    );
     const { data: assignmentData, error: assignmentError } =
       await assignmentQuery;
     if (assignmentError) throw new Error(assignmentError.message);
-    const assignments = (assignmentData ?? []) as AssignmentRow[];
+    const assignments = (assignmentData ?? []) as unknown as AssignmentRow[];
     if (!assignments.length) {
       const message =
         scope === "overall"
