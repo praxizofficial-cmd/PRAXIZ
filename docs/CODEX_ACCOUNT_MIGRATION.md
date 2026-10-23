@@ -102,4 +102,3 @@ results with fabricated responses.
 - Supabase RLS remains enabled and no service-role client is introduced.
 - Preview authentication callbacks, private files, and AI failure handling are
   verified before production access is transferred.
-
