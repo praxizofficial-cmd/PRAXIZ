@@ -4137,25 +4137,31 @@ function AdminDashboard() {
         aria-labelledby="admin-quick-actions-title"
       >
         <div>
-          <span className="eyebrow dark">Authorized shortcuts</span>
+          <span className="eyebrow dark">Administration</span>
           <h2 id="admin-quick-actions-title">Quick actions</h2>
+          <p>Manage accounts, approvals, and academic settings.</p>
         </div>
         <nav aria-label="Administrative quick actions">
-          <Link href="/admin/registrations">
-            <UserCheck size={18} /> Review registrations
-          </Link>
-          <Link href="/admin/users?create=coordinator">
-            <Plus size={18} /> Create Internship Coordinator
-          </Link>
-          <Link href="/admin/users?create=placement">
-            <Plus size={18} /> Create Placement Head
-          </Link>
-          <Link href="/admin/hte-verification">
-            <ShieldCheck size={18} /> Review HTE verification
-          </Link>
-          <Link href="/admin/master-data">
-            <CalendarCheck2 size={18} /> Academic terms
-          </Link>
+          <div className="admin-action-group">
+            <h3>Approvals &amp; verification</h3>
+            <div className="admin-action-grid">
+              <Link href="/admin/registrations" aria-label="Review registrations"><span><strong>Registrations</strong><small>Review new accounts</small></span><UserCheck size={20} /></Link>
+              <Link href="/admin/hte-verification"><span><strong>HTE Verification</strong><small>Verify partner organizations</small></span><ShieldCheck size={20} /></Link>
+            </div>
+          </div>
+          <div className="admin-action-group">
+            <h3>Account management</h3>
+            <div className="admin-action-grid">
+              <Link href="/admin/users?create=coordinator" aria-label="Create Internship Coordinator"><span><strong>Internship Coordinator</strong><small>Create coordinator account</small></span><Plus size={20} /></Link>
+              <Link href="/admin/users?create=placement" aria-label="Create Placement Head"><span><strong>Placement Head</strong><small>Create placement head account</small></span><Plus size={20} /></Link>
+            </div>
+          </div>
+          <div className="admin-action-group">
+            <h3>Academic configuration</h3>
+            <div className="admin-action-grid">
+              <Link href="/admin/master-data"><span><strong>Academic Terms</strong><small>Manage semesters and academic years</small></span><CalendarCheck2 size={20} /></Link>
+            </div>
+          </div>
         </nav>
       </section>
       <div className="stats-grid four">

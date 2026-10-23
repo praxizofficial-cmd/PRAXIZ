@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   BarChart3,
   AlertTriangle,
+  Building2,
+  ChevronRight,
+  SlidersHorizontal,
   CheckCircle2,
   Clock3,
   FileCheck2,
@@ -123,13 +126,14 @@ function PlacementDashboard() {
   return (
     <>
       <WorkspaceHeader
-        title="Placement oversight"
+        title="Dashboard overview"
         subtitle="Institution-wide internship placement and compliance records in your authorized scope."
       />
       <LoadingOrError loading={loading} error={error} />
       {!loading && !error && (
         <div className="placement-dashboard-content">
           <section className="card placement-filters" aria-label="Institutional placement filters">
+            <h2><SlidersHorizontal size={18} /> Filters</h2>
             <label className="field"><span>Campus</span><select value={campus} onChange={(event) => { setCampus(event.target.value); setCollege("All"); }}><option>All</option>{[...new Set(placements.map((item) => item.campus))].map((value) => <option key={value}>{value}</option>)}</select></label>
             <label className="field"><span>College</span><select value={college} onChange={(event) => setCollege(event.target.value)}><option>All</option>{[...new Set(placements.filter((item) => campus === "All" || item.campus === campus).map((item) => item.college))].map((value) => <option key={value}>{value}</option>)}</select></label>
             <label className="field"><span>Academic term</span><select value={term} onChange={(event) => setTerm(event.target.value)}><option>All</option>{[...new Set(placements.map((item) => item.term))].map((value) => <option key={value}>{value}</option>)}</select></label>
@@ -140,26 +144,26 @@ function PlacementDashboard() {
           >
             <article className="card">
               <UsersRound />
-              <span>Assigned interns</span>
               <strong>{filteredPlacements.length}</strong>
+              <span>Assigned interns</span>
             </article>
             <article className="card">
-              <FileCheck2 />
-              <span>Campuses / colleges</span>
+              <Building2 />
               <strong>
                 {campuses} / {colleges}
               </strong>
+              <span>Campuses / colleges</span>
             </article>
             <article className="card">
               <FileText />
-              <span>Compliance needing action</span>
               <strong>{missingRecords.length}</strong>
+              <span>Needs attention</span>
             </article>
           </section>
           <section className="card placement-hierarchy">
             <div className="card-title">
               <div>
-                <h2>Institutional placement hierarchy</h2>
+                <h2>Institutional hierarchy</h2>
                 <p>
                   Expand a campus to inspect its colleges and assigned interns.
                 </p>
@@ -173,11 +177,12 @@ function PlacementDashboard() {
                 return (
                   <details key={campus}>
                     <summary>
-                      <b>{campus}</b>
+                      <b><Building2 size={18} /> {campus}</b>
                       <span>
                         {campusRows.length} intern
                         {campusRows.length === 1 ? "" : "s"}
                       </span>
+                      <ChevronRight className="placement-hierarchy-chevron" size={18} />
                     </summary>
                     {[...new Set(campusRows.map((item) => item.college))].map(
                       (college) => {
@@ -725,11 +730,12 @@ function ComplianceWorkspace({
     <>
       <WorkspaceHeader title={title} subtitle={subtitle} />
       <div className="stats-grid three placement-compliance-stats">
-        <article className="stat-card"><CheckCircle2 aria-hidden="true" /><span>Approved</span><strong>{approved}</strong></article>
-        <article className="stat-card"><Clock3 aria-hidden="true" /><span>Awaiting review</span><strong>{reviewQueue}</strong></article>
-        <article className="stat-card"><AlertTriangle aria-hidden="true" /><span>Needs action</span><strong>{needsAction}</strong></article>
+        <article className="stat-card"><CheckCircle2 aria-hidden="true" /><strong>{approved}</strong><span>Approved</span></article>
+        <article className="stat-card"><Clock3 aria-hidden="true" /><strong>{reviewQueue}</strong><span>Awaiting review</span></article>
+        <article className="stat-card"><AlertTriangle aria-hidden="true" /><strong>{needsAction}</strong><span>Needs action</span></article>
       </div>
-      <section className="card table-card">
+      <section className="card table-card placement-compliance-records">
+        <div className="placement-records-heading"><div><h2>Compliance records</h2><p>{shown.length} requirement{shown.length === 1 ? "" : "s"} in current view</p></div><FileText size={22} aria-hidden="true" /></div>
         <div className="card-title">
           <div className="placement-filters compact">
             <label className="field">

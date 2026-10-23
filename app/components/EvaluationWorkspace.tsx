@@ -645,7 +645,7 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
       ) : (
         <section className="card table-card evaluation-review-card">
           <div className="table-scroll">
-            <table className="data-table">
+            <table className="data-table evaluation-data-table">
               <thead>
                 <tr>
                   <th>Student</th>
