@@ -21,8 +21,8 @@ test("v27 Placement Head student records expose counts, pagination, and in-app d
 });
 
 test("v27 Placement Head verified analytics remain visible when AI generation fails", () => {
-  assert.match(workspace, /AI insight unavailable\. Verified analytics remain available\./);
-  assert.match(workspace, /AI insights are advisory/);
+  assert.match(workspace, /<AIInsightsPanel/);
+  assert.match(workspace, /result=\{insight\}/);
   assert.match(workspace, /placementService\.listPlacements\(\)/);
 });
 

@@ -31,7 +31,7 @@ const policyCopy = {
       [
         "Who can access information",
         [
-          "Student Interns, Internship Coordinators, authorized HTE Representatives, and System Administrators receive access according to their legitimate role and scope.",
+          "Student Interns, Internship Coordinators, HTE Representatives, Placement Heads, and System Administrators receive access according to their authorized role and organizational scope.",
           "Access to records is controlled by authenticated sessions, role assignments, and database access controls.",
         ],
       ],
@@ -39,7 +39,7 @@ const policyCopy = {
         "AI-assisted features",
         [
           "AI-assisted interpretation is advisory. Verified PRAXIZ records, configured monitoring rules, and authorized institutional decisions remain authoritative.",
-          "PRAXIZ does not describe AI output as an independent decision or as a replacement for authorized review.",
+          "The conversational AI assistant gives workflow guidance without retrieving live individual records. AI analytics uses server-authorized aggregate indicators when invoked. Neither can independently approve, grade, or finalize internship records.",
         ],
       ],
       [
@@ -72,7 +72,7 @@ const policyCopy = {
       [
         "Authorized users",
         [
-          "Student Interns, Internship Coordinators, authorized HTE Representatives, and System Administrators use the workspaces assigned to their role.",
+          "Student Interns, Internship Coordinators, HTE Representatives, Placement Heads, and System Administrators use workspaces within their authorized organizational scope.",
         ],
       ],
       [

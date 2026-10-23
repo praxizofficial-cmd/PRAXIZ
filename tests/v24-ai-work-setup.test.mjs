@@ -5,6 +5,7 @@ import test from "node:test";
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const app = read("../app/PraxizApp.tsx");
 const assistant = read("../app/components/PraxizAiAssistant.tsx");
+const insightsPanel = read("../app/components/AIInsightsPanel.tsx");
 const generalRoute = read("../app/api/ai/route.ts");
 const analyticsRoute = read("../app/api/ai/analytics/route.ts");
 const ollama = read("../lib/ollama.ts");
@@ -33,8 +34,8 @@ test("V24 preserves trusted role authorization on both AI routes", () => {
 test("V24 exposes branded thinking and only meaningful retry controls", () => {
   assert.match(assistant, /<strong>PRAXIZ AI<\/strong><span>Thinking…<\/span>/);
   assert.match(assistant, /retryable &&/);
-  assert.match(app, /Analyzing verified internship indicators…/);
-  assert.match(app, /aiRetryable &&/);
+  assert.match(insightsPanel, /Generating AI insights/);
+  assert.match(insightsPanel, /retryable &&/);
 });
 
 test("V24 work setup uses stacked surfaces and purpose-built responsive rows", () => {

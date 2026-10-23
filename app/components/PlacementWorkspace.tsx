@@ -27,6 +27,7 @@ import {
 } from "../services/placement-service";
 import { Dialog } from "./Dialog";
 import { StatusBadge } from "./StatusBadge";
+import { AIInsightsPanel, useAIInsights } from "./AIInsightsPanel";
 
 function WorkspaceHeader({
   title,
@@ -1281,13 +1282,15 @@ function PlacementAnalytics() {
   const [target, setTarget] = useState("All");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [aiError, setAiError] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [insight, setInsight] = useState<{
-    summary: string;
-    patterns: string[];
-    recommendations: string[];
-  } | null>(null);
+  const {
+    result: insight,
+    loading: generating,
+    error: aiError,
+    retryable: aiRetryable,
+    confirmedEmpty: aiConfirmedEmpty,
+    generate: requestAiInsights,
+    resetForScope: resetAiInsights,
+  } = useAIInsights();
   useEffect(() => {
     placementService
       .listPlacements()
@@ -1322,55 +1325,28 @@ function PlacementAnalytics() {
   ).length;
   const htes = new Set(shown.map((item) => item.hte)).size;
   async function generateInsight() {
-    setGenerating(true);
-    setAiError("");
-    setInsight(null);
-    try {
-      const selected =
-        target === "All"
-          ? null
-          : records.find(
-              (item) => key && String(item[key] ?? "Not recorded") === target,
-            );
-      const payload: Record<string, string> = { scope };
-      if (scope === "student" && selected)
-        payload.studentId = selected.studentId;
-      if (scope === "hte" && selected) payload.hteId = selected.hteId;
-      if (scope === "coordinator" && selected)
-        payload.coordinatorId = selected.coordinatorId;
-      if (scope === "section" && target !== "All") payload.section = target;
-      const response = await fetch("/api/ai/analytics", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(45_000),
-      });
-      const result = (await response.json()) as {
-        error?: string;
-        summary?: string;
-        patterns?: string[];
-        recommendations?: string[];
-      };
-      if (!response.ok || !result.summary)
-        throw new Error(result.error || "AI analytics are unavailable.");
-      setInsight({
-        summary: result.summary,
-        patterns: result.patterns ?? [],
-        recommendations: result.recommendations ?? [],
-      });
-    } catch (reason) {
-      setAiError(
-        reason instanceof DOMException && reason.name === "TimeoutError"
-          ? "AI analysis timed out. Verified analytics remain available; try again when the AI service is ready."
-          : userError(
-              reason,
-              "AI insight unavailable. Verified analytics remain available.",
-            ),
-      );
-    } finally {
-      setGenerating(false);
-    }
+    const selected =
+      target === "All"
+        ? null
+        : records.find(
+            (item) => key && String(item[key] ?? "Not recorded") === target,
+          );
+    const payload: Record<string, string> = { scope };
+    if (scope === "student" && selected)
+      payload.studentId = selected.studentId;
+    if (scope === "hte" && selected) payload.hteId = selected.hteId;
+    if (scope === "coordinator" && selected)
+      payload.coordinatorId = selected.coordinatorId;
+    if (scope === "section" && target !== "All") payload.section = target;
+    await requestAiInsights(payload, analyticsScopeKey);
   }
+  const analyticsScopeKey = `${scope}:${target}`;
+  const analyticsScopeLabel =
+    scope === "overall"
+      ? "Institution-wide authorized scope"
+      : target === "All"
+        ? `All authorized ${scope} records`
+        : target;
   return (
     <>
       <WorkspaceHeader
@@ -1386,8 +1362,7 @@ function PlacementAnalytics() {
               onChange={(e) => {
                 setScope(e.target.value);
                 setTarget("All");
-                setInsight(null);
-                setAiError("");
+                resetAiInsights();
               }}
             >
               <option value="overall">Overall</option>
@@ -1404,8 +1379,7 @@ function PlacementAnalytics() {
                 value={target}
                 onChange={(e) => {
                   setTarget(e.target.value);
-                  setInsight(null);
-                  setAiError("");
+                  resetAiInsights();
                 }}
               >
                 <option>All</option>
@@ -1437,20 +1411,7 @@ function PlacementAnalytics() {
               </article>
             </div>
             <div className="ai-evidence">
-              <div className="card-title">
-                <h2>Verified record summary</h2>
-                <button
-                  className="button button-primary button-small"
-                  disabled={
-                    generating ||
-                    !shown.length ||
-                    (scope !== "overall" && target === "All")
-                  }
-                  onClick={() => void generateInsight()}
-                >
-                  {generating ? "Analyzing…" : "Generate AI insight"}
-                </button>
-              </div>
+              <h2>Verified record summary</h2>
               <p>
                 {shown.length
                   ? `${shown.length} authorized assignment${shown.length === 1 ? " is" : "s are"} included. ${active} are active across ${htes} HTE${htes === 1 ? "" : "s"}.`
@@ -1463,50 +1424,19 @@ function PlacementAnalytics() {
                   daily-hours requirement.
                 </p>
               )}
-              <p className="form-hint">
-                AI insights are advisory. Verified PRAXIZ records and authorized
-                human decisions remain authoritative.
-              </p>
-              {aiError && (
-                <div className="ai-error" role="alert">
-                  <AlertTriangle size={16} />
-                  <span>{aiError}</span>
-                  <button
-                    className="table-link"
-                    onClick={() => void generateInsight()}
-                    disabled={generating}
-                  >
-                    Try again
-                  </button>
-                </div>
-              )}
-              {insight && (
-                <div className="analytics-insight" role="status">
-                  <h3>Advisory insight</h3>
-                  <p>{insight.summary}</p>
-                  {insight.patterns.length > 0 && (
-                    <>
-                      <h4>Key findings</h4>
-                      <ul>
-                        {insight.patterns.map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                  {insight.recommendations.length > 0 && (
-                    <>
-                      <h4>Suggested areas to inspect</h4>
-                      <ul>
-                        {insight.recommendations.map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </div>
-              )}
             </div>
+            <AIInsightsPanel
+              result={insight}
+              loading={generating}
+              error={aiError}
+              retryable={aiRetryable}
+              confirmedEmpty={aiConfirmedEmpty}
+              hasData={shown.length > 0}
+              canGenerate={scope === "overall" || target !== "All"}
+              scopeKey={analyticsScopeKey}
+              scopeLabel={analyticsScopeLabel}
+              onGenerate={() => void generateInsight()}
+            />
           </>
         )}
       </section>

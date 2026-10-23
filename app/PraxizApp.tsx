@@ -54,7 +54,6 @@ import {
   Send,
   Settings,
   ShieldCheck,
-  Sparkles,
   Star,
   Upload,
   Undo2,
@@ -80,6 +79,10 @@ import { PasswordInput } from "./components/PasswordInput";
 import { PlacementWorkspace } from "./components/PlacementWorkspace";
 import { SearchInput } from "./components/SearchInput";
 import { MonthlyDtrWorkspace } from "./components/MonthlyDtrWorkspace";
+import {
+  AIInsightsPanel,
+  useAIInsights,
+} from "./components/AIInsightsPanel";
 import {
   WeeklyLogPhotoEvidence,
   HtePhotoPolicy,
@@ -603,7 +606,8 @@ function PublicFooter() {
     <footer className="landing-footer">
       <div className="landing-footer-placeholder">
         <span className="landing-footer-credit">
-          © 2026 Partido State University · PRAXIZ. All rights reserved.
+          © 2026 PRAXIZ Capstone Project · Developed for academic evaluation at
+          Partido State University.
         </span>
         <nav aria-label="Footer navigation">
           <PublicSectionLink href="/#about">About</PublicSectionLink>
@@ -855,13 +859,13 @@ function LandingPage() {
             </span>
             <h2>From internship records to meaningful insights.</h2>
             <p>
-              Verified records flow into interpretation and authorized
-              coordinator action—without fabricated metrics.
+              This conceptual illustration shows how authorized records can
+              support human review. It does not display live statistics.
             </p>
           </div>
           <div
             className="analytics-preview"
-            aria-label="Illustrative analytics workflow"
+            aria-label="Conceptual analytics workflow, not live data"
           >
             <div className="analytics-inputs">
               {analyticsInputs.map(([Icon, label], index) => {
@@ -2670,24 +2674,43 @@ function RegisterPage() {
 }
 
 function RegistrationSuccessPage() {
-  const [registeredEmail] = useState(() => {
-    if (typeof window === "undefined") return "";
+  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
+  useEffect(() => {
+    let email = "";
     try {
       const raw = sessionStorage.getItem("praxiz-registration-submission");
-      if (!raw) return "";
-      const parsed = JSON.parse(raw) as {
-        email?: unknown;
-        submittedAt?: unknown;
-      };
-      return typeof parsed.email === "string" &&
-        typeof parsed.submittedAt === "string"
-        ? parsed.email
-        : "";
+      if (raw) {
+        const parsed = JSON.parse(raw) as {
+          email?: unknown;
+          submittedAt?: unknown;
+        };
+        if (
+          typeof parsed?.email === "string" &&
+          typeof parsed?.submittedAt === "string"
+        ) {
+          email = parsed.email;
+        }
+      }
     } catch {
-      return "";
+      // Unavailable or invalid storage cannot confirm a submission.
     }
-  });
-  const inbox = inboxLinkForEmail(registeredEmail);
+    // Browser-only submission proof must be read after the shared hydration render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRegisteredEmail(email);
+  }, []);
+  const inbox = inboxLinkForEmail(registeredEmail ?? "");
+  if (registeredEmail === null) {
+    return (
+      <div className="success-page registration-success-page">
+        <PublicHeader />
+        <main>
+          <section className="registration-success-card" role="status">
+            <p>Checking registration status…</p>
+          </section>
+        </main>
+      </div>
+    );
+  }
   if (!registeredEmail) {
     return (
       <div className="success-page registration-success-page">
@@ -2727,14 +2750,17 @@ function RegistrationSuccessPage() {
           </span>
           <span className="eyebrow dark">Application received</span>
           <h1>Registration submitted</h1>
-          <p>
-            Your application was submitted for {registeredEmail}. Complete the
-            separate email-verification and institutional-review steps before
-            signing in.
+          <p className="registration-success-message">
+            Your application was submitted for{" "}
+            <strong className="registration-success-email">
+              {registeredEmail}
+            </strong>
+            . Complete the separate email-verification and institutional-review
+            steps before signing in.
           </p>
           <ol className="registration-success-steps">
             <li>
-              <span>1</span>
+              <span className="registration-success-step-number">01</span>
               <div>
                 <strong>Verify your email address</strong>
                 <small>
@@ -2744,21 +2770,22 @@ function RegistrationSuccessPage() {
               </div>
             </li>
             <li>
-              <span>2</span>
+              <span className="registration-success-step-number">02</span>
               <div>
                 <strong>Institutional review</strong>
                 <small>
-                  Your verified Student Intern details remain pending until
-                  approved.
+                  Your registration remains pending until an authorized
+                  reviewer approves it.
                 </small>
               </div>
             </li>
             <li>
-              <span>3</span>
+              <span className="registration-success-step-number">03</span>
               <div>
                 <strong>Sign in after approval</strong>
                 <small>
-                  Use the same institutional email and the password you created.
+                  Use your institutional email address and password after
+                  completing the required verification and approval steps.
                 </small>
               </div>
             </li>
@@ -7286,19 +7313,6 @@ function InternManagementPage({ role }: { role: RoleId }) {
   );
 }
 
-type AnalyticsAiResult = {
-  summary: string;
-  patterns: string[];
-  risks: Array<{
-    severity: "high" | "medium" | "low";
-    indicator: string;
-    message: string;
-  }>;
-  recommendations: string[];
-  model?: string;
-  source?: "ollama";
-};
-
 type AnalyticsMetric = {
   label: string;
   numerator: number;
@@ -7327,10 +7341,15 @@ function AnalyticsPage() {
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [aiInsights, setAiInsights] = useState<AnalyticsAiResult | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState("");
-  const [aiRetryable, setAiRetryable] = useState(false);
+  const {
+    result: aiInsights,
+    loading: aiLoading,
+    error: aiError,
+    retryable: aiRetryable,
+    confirmedEmpty: aiConfirmedEmpty,
+    generate: requestAiInsights,
+    resetForScope: resetAiInsights,
+  } = useAIInsights();
 
   useEffect(() => {
     let active = true;
@@ -7591,44 +7610,32 @@ function AnalyticsPage() {
 
   async function generateAiInsights() {
     if (aiLoading || loading || !hasData) return;
-    setAiLoading(true);
-    setAiError("");
-    setAiRetryable(false);
-    try {
-      const response = await fetch("/api/ai/analytics", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scope: analysisScope,
-          section: analysisScope === "section" ? activeSection : undefined,
-          hteId: analysisScope === "hte" ? activeHteId : undefined,
-          studentId: analysisScope === "student" ? activeStudentId : undefined,
-        }),
-        signal: AbortSignal.timeout(45_000),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setAiRetryable(Boolean(data?.retryable));
-        throw new Error(
-          data?.error || "AI performance analysis could not be generated.",
-        );
-      }
-      setAiInsights(data as AnalyticsAiResult);
-    } catch (reason) {
-      const timedOut =
-        reason instanceof DOMException && reason.name === "TimeoutError";
-      if (timedOut) setAiRetryable(true);
-      setAiError(
-        timedOut
-          ? "AI analysis timed out. Verified analytics remain available; try again when the AI service is ready."
-          : reason instanceof Error
-          ? reason.message
-          : "AI performance analysis could not be generated.",
-      );
-    } finally {
-      setAiLoading(false);
-    }
+    const payload: Record<string, string> = { scope: analysisScope };
+    if (analysisScope === "section") payload.section = activeSection;
+    if (analysisScope === "hte") payload.hteId = activeHteId;
+    if (analysisScope === "student") payload.studentId = activeStudentId;
+    await requestAiInsights(payload, analyticsScopeKey);
   }
+
+  const analyticsScopeKey = `${analysisScope}:${
+    analysisScope === "section"
+      ? activeSection
+      : analysisScope === "hte"
+        ? activeHteId
+        : analysisScope === "student"
+          ? activeStudentId
+          : "all"
+  }`;
+  const analyticsScopeLabel =
+    analysisScope === "section"
+      ? `Section ${activeSection}`
+      : analysisScope === "hte"
+        ? (hteOptions.find((item) => item.id === activeHteId)?.label ??
+          "Selected HTE")
+        : analysisScope === "student"
+          ? (studentOptions.find((item) => item.id === activeStudentId)?.label ??
+            "Selected student")
+          : "Overall authorized coordinator scope";
 
   const scope = [
     user?.campus,
@@ -7681,8 +7688,7 @@ function AnalyticsPage() {
                 aria-pressed={analysisScope === value}
                 onClick={() => {
                   setAnalysisScope(value);
-                  setAiInsights(null);
-                  setAiError("");
+                  resetAiInsights();
                 }}
               >
                 {label}
@@ -7697,7 +7703,7 @@ function AnalyticsPage() {
               value={activeSection}
               onChange={(event) => {
                 setSelectedSection(event.target.value);
-                setAiInsights(null);
+                resetAiInsights();
               }}
             >
               <option value="" disabled>
@@ -7718,7 +7724,7 @@ function AnalyticsPage() {
               value={activeHteId}
               onChange={(event) => {
                 setSelectedHteId(event.target.value);
-                setAiInsights(null);
+                resetAiInsights();
               }}
             >
               <option value="" disabled>
@@ -7739,7 +7745,7 @@ function AnalyticsPage() {
               value={activeStudentId}
               onChange={(event) => {
                 setSelectedStudentId(event.target.value);
-                setAiInsights(null);
+                resetAiInsights();
               }}
             >
               <option value="" disabled>
@@ -7933,125 +7939,25 @@ function AnalyticsPage() {
               </p>
             )}
           </section>
-          <section className="card ai-insights-card">
-            <div className="card-title">
-              <div>
-                <h2>AI Performance Insights</h2>
-                <p className="muted-note">
-                  AI-assisted interpretation of verified PRAXIZ internship
-                  indicators.
-                </p>
-              </div>
-              <ActionButton
-                onClick={generateAiInsights}
-                disabled={aiLoading || !hasData}
-              >
-                {aiLoading
-                  ? "Analyzing…"
-                  : aiInsights
-                    ? "Regenerate insights"
-                    : "Generate AI insights"}
-              </ActionButton>
-            </div>
-            {aiError && (
-              <div className="ai-error" role="alert">
-                <AlertTriangle size={16} />
-                <span>{aiError}</span>
-                {aiRetryable && (
-                  <button
-                    className="table-link"
-                    onClick={() => void generateAiInsights()}
-                    disabled={aiLoading}
-                  >
-                    Try again
-                  </button>
-                )}
-              </div>
-            )}
-            {aiLoading && (
-              <div
-                className="ai-thinking ai-insights-thinking"
-                role="status"
-                aria-live="polite"
-              >
-                <Sparkles size={18} aria-hidden="true" />
-                <div>
-                  <strong>PRAXIZ AI</strong>
-                  <span>Analyzing verified internship indicators…</span>
-                  <span className="ai-thinking-wave" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                </div>
-              </div>
-            )}
-            {!aiInsights && !aiLoading && !aiError && (
-              <p className="muted-note">
-                Generate an AI-assisted analysis of the current attendance,
-                Weekly Log, HTE evaluation, and document-compliance indicators.
-              </p>
-            )}
-            {aiInsights && !aiLoading && (
-              <div className="ai-results">
-                <section>
-                  <h3>Overall assessment</h3>
-                  <p>{aiInsights.summary}</p>
-                </section>
-                <section>
-                  <h3>Key observations</h3>
-                  {aiInsights.patterns.length ? (
-                    <ul className="observation-list">
-                      {aiInsights.patterns.map((pattern, index) => (
-                        <li key={`pattern-${index}`}>{pattern}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="muted-note">
-                      No additional pattern was identified from the available
-                      verified indicators.
-                    </p>
-                  )}
-                </section>
-                <section>
-                  <h3>Recommended actions</h3>
-                  {aiInsights.recommendations.length ? (
-                    <ol className="recommendation-list">
-                      {aiInsights.recommendations.map(
-                        (recommendation, index) => (
-                          <li key={`recommendation-${index}`}>
-                            <span>{recommendation}</span>
-                            {index === 0 && ruleBasedRisks[0] && (
-                              <Link
-                                className="text-link"
-                                href={ruleBasedRisks[0].href}
-                              >
-                                Open workflow
-                              </Link>
-                            )}
-                          </li>
-                        ),
-                      )}
-                    </ol>
-                  ) : (
-                    <p className="muted-note">
-                      No additional coordinator follow-up recommendation was
-                      generated.
-                    </p>
-                  )}
-                </section>
-              </div>
-            )}
-            <div className="ai-disclaimer">
-              <ShieldCheck size={18} />
-              <p>
-                <strong>AI-assisted interpretation.</strong> Verified PRAXIZ
-                records, configured indicators, rule-based alerts, and
-                Internship Coordinator decisions remain authoritative.
-              </p>
-            </div>
-          </section>
+          <AIInsightsPanel
+            result={aiInsights}
+            loading={aiLoading}
+            error={aiError}
+            retryable={aiRetryable}
+            confirmedEmpty={aiConfirmedEmpty}
+            hasData={hasData}
+            scopeKey={analyticsScopeKey}
+            scopeLabel={analyticsScopeLabel}
+            onGenerate={() => void generateAiInsights()}
+            action={
+              ruleBasedRisks[0]
+                ? {
+                    href: ruleBasedRisks[0].href,
+                    label: ruleBasedRisks[0].action,
+                  }
+                : undefined
+            }
+          />
         </>
       )}
     </>

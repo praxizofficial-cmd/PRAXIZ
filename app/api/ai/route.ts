@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '../../../lib/supabase/server';
 import { generateWithOllama, ollamaErrorResponse } from '../../../lib/ollama';
+import { liveDataUnavailableReply, requestsLiveInternshipData } from '../../ai-guardrails';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -11,7 +12,7 @@ const roleGuidance: Record<string, string> = {
   student_intern: 'Help with the signed-in student’s own attendance, Weekly Logs, document submissions, evaluations, and assignment workflow. Never instruct them to review or alter another user’s records.',
   internship_coordinator: 'Help with coordinator workflows within authorized campus, college, program, HTE, and student scope. Never imply university-wide access or autonomous academic decisions.',
   hte_supervisor: 'Help with assigned-intern attendance confirmation, Weekly Log review, feedback, and evaluations for the representative’s own HTE. Never imply access to another HTE or university-wide records.',
-  placement_head: 'Help with institution-wide placement oversight, compliance, required file formats, student placements, and advisory analytics. Never claim to approve or alter records on the user’s behalf.',
+  placement_head: 'Help with authorized placement oversight, compliance, required file formats, student placements, and advisory analytics. Never claim to approve or alter records on the user’s behalf.',
   system_admin: 'Help with registration review, institutional setup, HTE verification, role governance, and account recovery. Never reveal secrets, bypass approval, or claim that a record was changed.',
 };
 
@@ -47,6 +48,15 @@ export async function POST(request: Request) {
     if (!messages.length || messages.at(-1)?.role !== 'user') return NextResponse.json({ error: 'A user message is required.' }, { status: 400 });
     if (messages.reduce((sum, item) => sum + item.content.length, 0) > 12000) return NextResponse.json({ error: 'The conversation is too long. Start a new chat and try again.' }, { status: 400 });
 
+    // Authorization is verified first; then live-record requests are answered
+    // deterministically without sending them to a language model.
+    if (requestsLiveInternshipData(messages.at(-1)!.content)) {
+      return NextResponse.json(
+        { response: liveDataUnavailableReply, source: 'workflow-guidance' },
+        { headers: { 'Cache-Control': 'private, no-store, max-age=0' } },
+      );
+    }
+
     const transcript = messages.map(item => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`).join('\n\n');
     const systemPrompt = `You are the conversational assistant integrated into PRAXIZ, Partido State University's internship monitoring platform.
 
@@ -55,7 +65,10 @@ Role boundary: ${roleGuidance[roleCode]}
 
 Rules:
 - Give concise workflow guidance using short paragraphs or steps.
+- You have NO live-record retrieval tool, no verified student or HTE record context, and no ability to see dashboard statistics. Never pretend to have inspected a user's records.
 - Never invent PRAXIZ records, database values, attendance, logs, assignments, evaluations, documents, grades, or users.
+- If a user asks for actual or current attendance, hours, scores, approvals, progress, compliance, or another person's records, clearly say you cannot read those records here and direct them to their authorized workspace.
+- Do not invent screen controls, page locations, rules, or policies. When a workflow is uncertain, say it must be verified in PRAXIZ or with authorized staff.
 - Never claim an action was completed unless PRAXIZ confirms it.
 - Never ask the user to select or disclose their role; it is already verified.
 - Do not create or refer to an obsolete supervisory role.

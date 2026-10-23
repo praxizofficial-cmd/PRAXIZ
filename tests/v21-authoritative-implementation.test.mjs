@@ -83,7 +83,7 @@ test("responsive placement and AI surfaces use shared breakpoints", () => {
   assert.match(styles, /@media \(max-width: 700px\)/);
   assert.match(styles, /\.placement-summary-grid/);
   assert.match(styles, /\.ai-chat-dialog/);
-  assert.match(placement, /Generate AI insight/);
+  assert.match(placement, /<AIInsightsPanel/);
 });
 
 test("obsolete Faculty Supervisor is absent from V21 runtime files", () => {

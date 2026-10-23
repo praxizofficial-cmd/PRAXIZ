@@ -8,6 +8,7 @@ import {
 import {
   detectAnalyticsConcerns,
   parseAnalyticsModelResponse,
+  validateAnalyticsPercentages,
   type AnalyticsEvidence,
 } from "../../../analytics-insights";
 import {
@@ -262,6 +263,9 @@ Analyze ${scopeLabel}. The indicators below were calculated server-side from Sup
 
 Rules:
 - Never invent or change records, grades, people, assignments, or comparisons.
+- Quote a percentage ONLY if it appears verbatim in the provided structured indicators.
+- You have no historical comparison data, so never claim that a metric improved, declined, increased, or decreased over time.
+- Do not infer performance grades, predictions, student risk scores, or personal characteristics from workflow completion rates.
 - Do not make academic decisions or label a student as good, bad, or high risk.
 - Evaluation finalization is workflow completion, not a grade.
 - Treat deterministic PRAXIZ concerns as authoritative.
@@ -290,6 +294,7 @@ Return only valid JSON: {"summary":"Short assessment","patterns":["Observation"]
     let analysis;
     try {
       analysis = parseAnalyticsModelResponse(ollamaData.response);
+      validateAnalyticsPercentages(analysis, evidence);
     } catch {
       throw new OllamaRequestError("MODEL_OUTPUT_INVALID");
     }
@@ -299,6 +304,7 @@ Return only valid JSON: {"summary":"Short assessment","patterns":["Observation"]
         risks: detectedConcerns,
         evidence,
         scope,
+        generatedAt: new Date().toISOString(),
         model: ollamaData.model,
         source: "ollama",
       },

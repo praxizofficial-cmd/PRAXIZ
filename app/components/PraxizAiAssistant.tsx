@@ -12,7 +12,7 @@ type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string };
 const roleSuggestions: Record<RoleId, string[]> = {
   student: ['How do I submit a Weekly Log?', 'Where can I view my attendance?', 'How do I submit a required document?'],
   coordinator: ['Summarize the monitoring workflow', 'How do I review attendance?', 'Explain the evaluation workflow'],
-  placement: ['Summarize placement compliance', 'Which scopes need attention?', 'Explain the required-file workflow'],
+  placement: ['Summarize placement compliance', 'How do I review attention indicators by scope?', 'Explain the required-file workflow'],
   hte: ['How do I verify attendance?', 'How do I review an assigned intern?', 'How do I complete an evaluation?'],
   admin: ['How do I review registrations?', 'Explain role and scope assignment', 'How do I verify an HTE organization?'],
 };
@@ -139,7 +139,7 @@ export default function PraxizAiAssistant() {
   return <>
     <button type="button" className="ai-assistant-trigger" onClick={() => { stickToLatestRef.current = true; setOpen(true); }} aria-label="Open PRAXIZ AI Assistant" title="Open PRAXIZ AI Assistant">✦</button>
     {open && <Dialog title="PRAXIZ AI Assistant" onClose={() => setOpen(false)} busy={loading} protectChanges={false} className="ai-chat-dialog">
-      <div className="ai-chat-status"><Sparkles size={17} aria-hidden="true" /><span><strong>{role === 'hte' ? 'HTE Representative' : role === 'coordinator' ? 'Internship Coordinator' : role === 'placement' ? 'Placement Head' : role === 'admin' ? 'System Administrator' : 'Student Intern'}</strong> · trusted role context · AI responses may require verification</span></div>
+      <div className="ai-chat-status"><Sparkles size={17} aria-hidden="true" /><span><strong>{role === 'hte' ? 'HTE Representative' : role === 'coordinator' ? 'Internship Coordinator' : role === 'placement' ? 'Placement Head' : role === 'admin' ? 'System Administrator' : 'Student Intern'}</strong> · trusted role context · workflow guidance only · no live record access</span></div>
       <div className="ai-chat-conversation" ref={conversationRef} onScroll={() => {
         const conversation = conversationRef.current;
         if (!conversation) return;
@@ -149,7 +149,7 @@ export default function PraxizAiAssistant() {
         {messages.length === 0 ? <div className="ai-chat-welcome">
           <span className="ai-chat-mark" aria-hidden="true">✦</span>
           <h3>How can I help with PRAXIZ?</h3>
-          <p>Ask about the workflows available in your {role === 'hte' ? 'HTE Representative' : role === 'coordinator' ? 'Internship Coordinator' : role === 'placement' ? 'Placement Head' : role === 'admin' ? 'System Administrator' : 'Student Intern'} workspace.</p>
+          <p>This assistant explains workflows; it cannot check live internship records or confirm official decisions. Ask about the workflows available in your {role === 'hte' ? 'HTE Representative' : role === 'coordinator' ? 'Internship Coordinator' : role === 'placement' ? 'Placement Head' : role === 'admin' ? 'System Administrator' : 'Student Intern'} workspace.</p>
           <div className="ai-chat-suggestions" aria-label="Suggested questions">{suggestions.map(suggestion => <button type="button" key={suggestion} onClick={() => void sendPrompt(suggestion)}>{suggestion}</button>)}</div>
         </div> : messages.map((item, index) => <article key={item.id} className={`ai-chat-message ai-chat-message-${item.role}`}><span>{item.role === 'user' ? 'You' : 'PRAXIZ AI'}</span>{item.role === 'assistant' ? <><div className="ai-chat-markdown"><ReactMarkdown>{item.content}</ReactMarkdown></div><div className="ai-message-actions"><button type="button" onClick={() => void copyAnswer(item)}>{copiedId === item.id ? <Check size={14} /> : <Copy size={14} />}{copiedId === item.id ? 'Copied' : 'Copy'}</button><button type="button" disabled={loading} onClick={() => regenerate(index)}><RefreshCw size={14} />Regenerate</button>{contextualAction(item.content) && <a href={contextualAction(item.content)!.href}><ExternalLink size={14} />{contextualAction(item.content)!.label}</a>}</div></> : <p>{item.content}</p>}</article>)}
         {loading && <article className="ai-thinking" role="status" aria-label="PRAXIZ AI is thinking"><Sparkles size={18} aria-hidden="true" /><div><strong>PRAXIZ AI</strong><span>Thinking…</span><span className="ai-thinking-wave" aria-hidden="true"><i /><i /><i /><i /></span></div></article>}

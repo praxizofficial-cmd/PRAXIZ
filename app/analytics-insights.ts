@@ -79,3 +79,33 @@ export function parseAnalyticsModelResponse(raw: string): AnalyticsModelResult {
     recommendations: cleanList(parsed.recommendations),
   };
 }
+
+/**
+ * Reject percentage claims that are not present in the server-calculated
+ * evidence. This is a narrow fail-closed check, not a general truth guarantee.
+ */
+export function validateAnalyticsPercentages(
+  result: AnalyticsModelResult,
+  evidence: AnalyticsEvidence,
+): void {
+  const verifiedValues = [
+    evidence.attendance,
+    evidence.dailyLogApproval,
+    evidence.evaluationFinalization,
+    evidence.documentCompliance,
+  ].filter((value): value is number => value !== null);
+  const allText = [
+    result.summary,
+    ...result.patterns,
+    ...result.recommendations,
+  ].join(" ");
+  const percentages = [...allText.matchAll(/\b(\d+(?:\.\d+)?)\s*%/g)];
+
+  if (
+    percentages.some(
+      (match) => !verifiedValues.includes(Number(match[1])),
+    )
+  ) {
+    throw new Error("AI analysis contained an unsupported percentage");
+  }
+}

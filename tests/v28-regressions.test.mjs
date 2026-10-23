@@ -24,17 +24,18 @@ test("Partner HTE directory is server-authorized and does not fail through chain
 });
 
 test("AI failures preserve verified analytics and expose bounded retry states", async () => {
-  const [placement, app] = await Promise.all([
+  const [placement, app, panel] = await Promise.all([
     read("app/components/PlacementWorkspace.tsx"),
     read("app/PraxizApp.tsx"),
+    read("app/components/AIInsightsPanel.tsx"),
   ]);
   assert.match(placement, /const \[loadError, setLoadError\]/);
-  assert.match(placement, /const \[aiError, setAiError\]/);
   assert.match(placement, /!loading && !loadError/);
-  assert.match(placement, /AbortSignal\.timeout\(45_000\)/);
-  assert.match(placement, /Try again/);
-  assert.match(app, /AbortSignal\.timeout\(45_000\)/);
-  assert.match(app, /setAiRetryable/);
+  assert.match(placement, /useAIInsights\(\)/);
+  assert.match(app, /useAIInsights\(\)/);
+  assert.match(panel, /45_000/);
+  assert.match(panel, /Try again/);
+  assert.match(panel, /retryable/);
 });
 
 test("Support details retain message content in a compact purpose-labelled dialog", async () => {
