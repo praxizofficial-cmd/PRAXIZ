@@ -36,6 +36,14 @@ Before release, run:
 npm run release:check
 ```
 
+## Move development to another Codex account
+
+Use [the Codex account migration guide](docs/CODEX_ACCOUNT_MIGRATION.md) for a
+safe repository handoff. The guide covers GitHub access, local setup, external
+service access, validation, and the files that must remain outside version
+control. Account sessions and production secrets are not transferred through
+this repository.
+
 ## Prepare a Vercel deployment
 
 PRAXIZ keeps its existing Sites/Cloudflare build in `vite.config.ts` and uses a separate Vercel build in `vite.vercel.config.ts`.
