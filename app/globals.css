@@ -13036,14 +13036,14 @@ html[data-theme="dark"]
   > button[aria-pressed="true"],
 html[data-theme="dark"] .analytics-story .analytics-interpretation,
 html[data-theme="dark"] .analytics-story .analytics-action:hover {
-  color: var(--navy-on-dark);
-  border-color: var(--navy-on-dark);
+  color: var(--accent-text);
+  border-color: var(--accent-text);
 }
 html[data-theme="dark"] .analytics-story .analytics-flow-lines path {
-  stroke: var(--navy-on-dark);
+  stroke: var(--accent-text);
 }
 html[data-theme="dark"] .analytics-story .analytics-flow-lines defs path {
-  fill: var(--navy-on-dark);
+  fill: var(--accent-text);
 }
 
 .feedback-preview {
@@ -13252,6 +13252,9 @@ html[data-theme="dark"] .analytics-story .analytics-flow-lines defs path {
 }
 .academic-term-card > .term-lifecycle {
   margin-inline: clamp(18px, 2.25vw, 30px);
+}
+.academic-term-card > .table-scroll {
+  scrollbar-gutter: auto;
 }
 .academic-term-card .inline-actions {
   display: flex;

@@ -5,6 +5,7 @@ import test from "node:test";
 const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 const app = await read("../app/PraxizApp.tsx");
 const css = await read("../app/globals.css");
+const journey = await read("../app/components/RegistrationJourney.tsx");
 
 const pageStart = app.indexOf("function RegistrationSuccessPage");
 const pageEnd = app.indexOf("function PageHeader", pageStart);
@@ -24,19 +25,18 @@ test("registration success remains gated by the confirmed submission proof", () 
   assert.match(page, /sessionStorage\.getItem\("praxiz-registration-submission"\)/);
   assert.match(page, /if \(!registeredEmail\)/);
   assert.ok(
-    page.indexOf("if (!registeredEmail)") < page.indexOf("Registration submitted"),
+    page.indexOf("if (!registeredEmail)") < page.indexOf("Your registration is submitted!"),
     "the honest missing-submission state must run before the success UI",
   );
 });
 
 test("registration success renders the approved three-step guidance", () => {
-  assert.match(page, />01<\/span>/);
-  assert.match(page, />02<\/span>/);
-  assert.match(page, />03<\/span>/);
-  assert.match(page, /Verify your email address/);
-  assert.match(page, /Open the verification message sent to your institutional/);
-  assert.match(page, /Your registration remains pending until an authorized/);
-  assert.match(page, /Use your institutional email address and password after/);
+  assert.match(page, /<RegistrationJourney/);
+  assert.match(journey, /String\(index \+ 1\)\.padStart\(2, "0"\)/);
+  assert.match(journey, /Verify your email address/);
+  assert.match(journey, /Open the verification message sent to your institutional/);
+  assert.match(journey, /Your registration remains pending until an authorized/);
+  assert.match(journey, /Use your institutional email address and password after/);
   assert.match(page, /className="registration-success-email"/);
   assert.match(page, /href="\/signin"/);
   assert.match(page, /href="\/"/);

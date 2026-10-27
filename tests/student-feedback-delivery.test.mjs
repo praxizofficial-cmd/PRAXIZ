@@ -57,7 +57,7 @@ test("student navigation, read-only detail, and exact notification deep links ar
     /`\/student\/feedback\?feedback=\$\{notification\.related_entity_id\}`/,
   );
   assert.match(compactApp, /canCreate \? \( <ActionButton/);
-  assert.match(app, /Author role/);
+  assert.match(app, /item\.authorName\} · \{item\.authorRole/);
   assert.match(compactApp, /id="feedback-message-heading">Message/);
   assert.match(
     app,

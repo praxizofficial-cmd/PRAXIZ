@@ -30,10 +30,10 @@ test("V20 reads year level and Section from the deployed student profile relatio
   );
 });
 
-test("assignment and requirement empty states use the shared table surface", () => {
+test("assignment and requirement empty states remain explicit on their record surfaces", () => {
   assert.match(
     compactApp,
-    /emptyMessage=\{ !loading && !error \? "No internship assignments/,
+    /!loading && !error && !assignedRows\.length && <p>No internship assignments/,
   );
   assert.match(compactApp, /className="table-empty" colSpan=\{5\}/);
   assert.match(

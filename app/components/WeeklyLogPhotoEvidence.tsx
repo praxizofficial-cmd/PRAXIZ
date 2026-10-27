@@ -60,8 +60,8 @@ export function WeeklyLogPhotoEvidence({ log, editable = false }: { log: WeeklyL
       <p><strong>{bundle.policy?.requirement_mode === "required" ? "Required daily" : "Optional"}</strong> · {covered}/{bundle.days.length} activity dates with approved evidence or exception.</p>
       <p>Dates come from recorded attendance, including unverified or incomplete sessions. Their attendance status remains separate.</p>
       {!bundle.days.length && <p>No recorded activity dates in this reporting week yet.</p>}
-      {bundle.days.map(day => <section className="photo-activity-day" key={day.date}>
-        <h4>{day.date}</h4><p>Attendance: {day.statuses.join(", ").replaceAll("_", " ")}</p>
+      {bundle.days.map(day => <details className="photo-activity-day" key={day.date}>
+        <summary><strong>{day.date}</strong><span>Attendance: {day.statuses.join(", ").replaceAll("_", " ")}</span><small>{current.filter(photo => photo.evidence_date === day.date).length} photos · Exceptions: {bundle.exceptions.filter(item => item.evidence_date === day.date).map(item => item.status).join(", ") || "None"}</small></summary>
         {!current.some(photo => photo.evidence_date === day.date) && <p>No photo attached{bundle.policy?.requirement_mode === "required" ? " — attach evidence or request an exception." : "."}</p>}
         <div className="photo-evidence-grid">{current.filter(photo => photo.evidence_date === day.date).map(photo => <article key={photo.id}>
           {photo.signedUrl ? <a href={photo.signedUrl} target="_blank" rel="noopener noreferrer"><Image unoptimized src={photo.signedUrl} alt={photo.caption || `Activity evidence for ${day.date}`} width={320} height={240} /></a> : <p>Preview unavailable. Refresh this section.</p>}
@@ -75,7 +75,7 @@ export function WeeklyLogPhotoEvidence({ log, editable = false }: { log: WeeklyL
           <strong>Exception: {item.status}</strong><p>{item.reason}</p>{item.review_feedback && <p>HTE feedback: {item.review_feedback}</p>}
           {reviewButtons("exception", item.id)}
         </article>)}
-      </section>)}
+      </details>)}
       {editable && bundle.days.length > 0 && <div className="photo-authoring">
         <label className="field"><span>Activity date</span><select value={date} disabled={busy} onChange={event => { setDate(event.target.value); setReplacement(""); }}>
           {bundle.days.map(day => <option key={day.date} value={day.date}>{day.date}</option>)}
@@ -142,18 +142,19 @@ export function HtePhotoPolicy() {
     </dl>}
     <p className="photo-policy-note">Policy changes apply to future logs. Existing submitted and historical Weekly Log requirements stay unchanged.</p>
     {message && <p role="status">{message}</p>}
-    {policy && editing && <div className="photo-policy-editor"><div className="two-fields">
+    {policy && editing && <div className="photo-policy-editor" onChange={() => setConfirmApply(false)}><h3>Update photo policy</h3><div className="two-fields">
       <label className="field"><span>Requirement</span><select disabled={busy} value={mode} onChange={event => setMode(event.target.value)}><option value="optional">Optional</option><option value="required">Required daily</option></select></label>
       <label className="field"><span>Maximum photos per day</span><input disabled={busy} type="number" min={1} max={5} value={limit} onChange={event => setLimit(Number(event.target.value))} /></label>
     </div><label><input disabled={busy} type="checkbox" checked={apply} onChange={event => setApply(event.target.checked)} /> Apply to future logs of {policy.affected_active_assignments ?? 0} current active assignments</label>
     <label className="field"><span>Reason for change</span><textarea disabled={busy} minLength={10} maxLength={500} value={reason} onChange={event => setReason(event.target.value)} /></label>
-    {apply && confirmApply && <p className="form-warning" role="alert">Confirm this change for future Weekly Logs of the matching active assignments. Existing submitted and historical logs will not change.</p>}
+    {confirmApply && <p className="form-warning" role="status">Review: {mode === "required" ? "Required daily" : "Optional"}, up to {limit} photos per day. {apply ? `Applies to future logs of ${policy.affected_active_assignments ?? 0} matching active assignments.` : "Applies to future assignments."} Existing submitted and historical logs will not change.</p>}
     <div className="modal-actions"><button type="button" className="button button-secondary" disabled={busy} onClick={() => {
       setEditing(false); setApply(false); setReason(""); setConfirmApply(false);
     }}>Cancel</button>
-    <button type="button" className="button button-primary" disabled={busy || reason.trim().length < 10 || limit < 1 || limit > 5} onClick={() => {
-      if (apply && !confirmApply) { setConfirmApply(true); return; }
+    <button type="button" className="button button-secondary" disabled={busy} onClick={() => { setMode(policy.requirement_mode); setLimit(policy.max_photos_per_day); setApply(false); setReason(""); setConfirmApply(false); }}>Reset</button>
+    <button type="button" className="button button-primary" disabled={busy || reason.trim().length < 10 || !Number.isInteger(limit) || limit < 1 || limit > 5} onClick={() => {
+      if (!confirmApply) { setConfirmApply(true); return; }
       void savePolicy();
-    }}>{busy ? "Saving…" : apply && !confirmApply ? "Review impact" : "Confirm and save policy"}</button></div></div>}
+    }}>{busy ? "Saving…" : !confirmApply ? "Review changes" : "Confirm and save policy"}</button></div></div>}
   </section>;
 }

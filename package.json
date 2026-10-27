@@ -19,6 +19,7 @@
     "supabase:types": "supabase gen types typescript --linked > lib/supabase/database.types.ts"
   },
   "dependencies": {
+    "@marsidev/react-turnstile": "^1.6.3",
     "@pdf-lib/fontkit": "1.1.1",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",

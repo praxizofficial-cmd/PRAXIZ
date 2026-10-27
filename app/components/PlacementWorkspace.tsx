@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   BarChart3,
   AlertTriangle,
@@ -29,6 +29,8 @@ import {
   type RequiredFormatRecord,
 } from "../services/placement-service";
 import { Dialog } from "./Dialog";
+import { WorkspaceMetrics } from "./WorkspaceMetrics";
+import { SearchInput } from "./SearchInput";
 import { StatusBadge } from "./StatusBadge";
 import { AIInsightsPanel, useAIInsights } from "./AIInsightsPanel";
 
@@ -478,8 +480,11 @@ function RequirementDialog({
   const [dueAt, setDueAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const lock = useRef(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (lock.current) return;
+    lock.current = true;
     setBusy(true);
     setError("");
     try {
@@ -488,12 +493,27 @@ function RequirementDialog({
     } catch (reason) {
       setError(userError(reason, "The requirement could not be created."));
     } finally {
+      lock.current = false;
       setBusy(false);
     }
   }
   return (
-    <Dialog title="Create placement requirement" onClose={close} busy={busy}>
-      <form onSubmit={submit}>
+    <Dialog title="Create placement requirement" onClose={close} busy={busy} className="form-workspace-dialog" footer={        <div className="modal-actions">
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={close}
+          >
+            Cancel
+          </button>
+          <button
+            form="placement-requirement-form" type="submit" className="button button-primary"
+            disabled={busy || !title.trim()}
+          >
+            {busy ? "Creating…" : "Create requirement"}
+          </button>
+        </div>}>
+      <form id="placement-requirement-form" onSubmit={submit}>
         <label className="field">
           <span>Requirement title</span>
           <input
@@ -517,22 +537,9 @@ function RequirementDialog({
             onChange={(e) => setDueAt(e.target.value)}
           />
         </label>
+        <aside className="info-callout"><strong>Requirement preview</strong><p>{title.trim() || "Enter a requirement title"}</p><p>{description.trim() || "No description provided"}</p><p>{dueAt ? `Deadline: ${dueAt.replace("T", " ")}` : "No deadline selected"}</p><small>This creates a coordinator requirement in your authorized placement scope.</small></aside>
         {error && <p className="form-error">{error}</p>}
-        <div className="modal-actions">
-          <button
-            type="button"
-            className="button button-secondary"
-            onClick={close}
-          >
-            Cancel
-          </button>
-          <button
-            className="button button-primary"
-            disabled={busy || !title.trim()}
-          >
-            {busy ? "Creating…" : "Create requirement"}
-          </button>
-        </div>
+
       </form>
     </Dialog>
   );
@@ -726,15 +733,19 @@ function ComplianceWorkspace({
   const approved = shown.filter((item) => item.status === "Approved").length;
   const reviewQueue = shown.filter((item) => ["Submitted", "Under Review"].includes(item.status)).length;
   const needsAction = shown.filter((item) => ["Missing", "Needs Resubmission"].includes(item.status)).length;
+  function coordinatorCard(item: PlacementComplianceRecord, index: number) {
+    return <article className="record-card" key={`${item.requirementId}-${item.submissionId ?? index}`}>
+      <header><div><h3>{item.title}</h3><p>{item.description}</p></div><StatusBadge status={item.status}/></header>
+      <div className="record-metrics"><div><span>Due date</span><strong>{formatDate(item.dueAt)}</strong></div><div><span>Latest submission</span><strong>{item.originalName || "No submission"}</strong>{item.version ? <small>v{item.version} · {formatDate(item.submittedAt)}</small> : null}</div><div><span>Review feedback</span><strong>{item.feedback || "No feedback recorded"}</strong></div></div>
+      <footer>{item.submissionId && <button className="button button-secondary" onClick={() => void placementService.complianceDownloadUrl(item.submissionId!).then(url => window.open(url,"_blank","noopener,noreferrer")).catch(reason => setError(userError(reason,"The file could not be opened.")))}>View file <Eye size={16}/></button>}{item.history.length > 0 && <button className="button button-secondary" onClick={() => setHistoryRecord(item)}>Version history <History size={16}/></button>}{!recordsOnly && item.status !== "Approved" && <button className="button button-primary" onClick={() => setDialog({record:item,mode:"submit"})}>{item.version ? "Resubmit document" : "Upload document"}<Upload size={16}/></button>}</footer>
+    </article>;
+  }
   return (
     <>
       <WorkspaceHeader title={title} subtitle={subtitle} />
-      <div className="stats-grid three placement-compliance-stats">
-        <article className="stat-card"><CheckCircle2 aria-hidden="true" /><strong>{approved}</strong><span>Approved</span></article>
-        <article className="stat-card"><Clock3 aria-hidden="true" /><strong>{reviewQueue}</strong><span>Awaiting review</span></article>
-        <article className="stat-card"><AlertTriangle aria-hidden="true" /><strong>{needsAction}</strong><span>Needs action</span></article>
-      </div>
-      <section className="card table-card placement-compliance-records">
+      <WorkspaceMetrics items={[{label:"Approved",value:approved,icon:CheckCircle2,tone:"green"},{label:"Awaiting review",value:reviewQueue,icon:Clock3,tone:"orange"},{label:"Needs action",value:needsAction,icon:AlertTriangle,tone:"red"}]} />
+      {actorRole === "coordinator" && !recordsOnly && !loading && !error && <section className="card compact-attention"><div><strong>{records.filter(item => ["Missing", "Needs Resubmission"].includes(item.status)).length} requirements need attention</strong><p>Review missing and returned documents in the records below.</p>{records.filter(item => ["Missing", "Needs Resubmission"].includes(item.status) && item.dueAt).sort((a,b) => (a.dueAt || "").localeCompare(b.dueAt || ""))[0]?.dueAt && <small>Earliest deadline: {formatDate(records.filter(item => ["Missing", "Needs Resubmission"].includes(item.status) && item.dueAt).sort((a,b) => (a.dueAt || "").localeCompare(b.dueAt || ""))[0].dueAt)}</small>}</div><a className="button button-secondary" href="#compliance-records">View records</a></section>}
+      <section id="compliance-records" className="card table-card placement-compliance-records">
         <div className="placement-records-heading"><div><h2>Compliance records</h2><p>{shown.length} requirement{shown.length === 1 ? "" : "s"} in current view</p></div><FileText size={22} aria-hidden="true" /></div>
         <div className="card-title">
           <div className="placement-filters compact">
@@ -775,7 +786,8 @@ function ComplianceWorkspace({
           )}
         </div>
         <LoadingOrError loading={loading} error={error} onRetry={() => void load()} />
-        {!loading && !error && (
+        {!loading && !error && actorRole === "coordinator" && <div className="record-list">{shown.map(coordinatorCard)}{!shown.length && <p>No compliance records match this view.</p>}</div>}
+        {!loading && !error && actorRole === "placement" && (
           <div className="table-scroll">
             <table className="data-table">
               <thead>
@@ -852,18 +864,6 @@ function ComplianceWorkspace({
                           </button>
                         )}
                         {!recordsOnly &&
-                          actorRole === "coordinator" &&
-                          item.status !== "Approved" && (
-                            <button
-                              className="table-link"
-                              onClick={() =>
-                                setDialog({ record: item, mode: "submit" })
-                              }
-                            >
-                              {item.version ? "Resubmit" : "Upload"}
-                            </button>
-                          )}
-                        {!recordsOnly &&
                           actorRole === "placement" &&
                           item.submissionId &&
                           item.status !== "Approved" && (
@@ -885,9 +885,7 @@ function ComplianceWorkspace({
                     <td colSpan={actorRole === "placement" ? 7 : 6}>
                       {records.length
                         ? "No compliance records match this view."
-                        : actorRole === "coordinator"
-                          ? "No placement compliance requirements are assigned to your authorized scope yet."
-                          : "No placement compliance requirements have been created yet."}
+                        : "No placement compliance requirements have been created yet."}
                     </td>
                   </tr>
                 )}
@@ -945,8 +943,11 @@ function FormatDialog({
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const lock = useRef(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (lock.current) return;
+    lock.current = true;
     setBusy(true);
     setError("");
     try {
@@ -955,12 +956,27 @@ function FormatDialog({
     } catch (reason) {
       setError(userError(reason, "The file format could not be created."));
     } finally {
+      lock.current = false;
       setBusy(false);
     }
   }
   return (
-    <Dialog title="Add required file format" onClose={close} busy={busy}>
-      <form onSubmit={submit}>
+    <Dialog title="Add required file format" onClose={close} busy={busy} className="form-workspace-dialog" footer={        <div className="modal-actions">
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={close}
+          >
+            Cancel
+          </button>
+          <button
+            form="required-format-form" type="submit" className="button button-primary"
+            disabled={busy || !code.trim() || !name.trim()}
+          >
+            Create
+          </button>
+        </div>}>
+      <form id="required-format-form" onSubmit={submit}>
         <label className="field">
           <span>Short code</span>
           <input
@@ -985,28 +1001,25 @@ function FormatDialog({
             onChange={(e) => setDescription(e.target.value)}
           />
         </label>
+        <aside className="info-callout"><strong>Format preview</strong><p>{code.trim() || "Short code"} · {name.trim() || "Document title"}</p><p>{description.trim() || "No instructions provided"}</p><small>Use a distinct code. File versions and administrator publication remain separate steps.</small></aside>
         {error && <p className="form-error">{error}</p>}
-        <div className="modal-actions">
-          <button
-            type="button"
-            className="button button-secondary"
-            onClick={close}
-          >
-            Cancel
-          </button>
-          <button
-            className="button button-primary"
-            disabled={busy || !code.trim() || !name.trim()}
-          >
-            Create
-          </button>
-        </div>
+
       </form>
     </Dialog>
   );
 }
 
 function RequiredFormats({ admin = false }: { admin?: boolean }) {
+  const [placements, setPlacements] = useState<PlacementRecord[] | null>(null);
+  const [summaryError, setSummaryError] = useState("");
+  useEffect(() => {
+    if (!admin) return;
+    let active = true;
+    void placementService.listPlacements().then(rows => { if (active) setPlacements(rows); }).catch(reason => { if (active) setSummaryError(userError(reason,"Assignment summary could not be loaded.")); });
+    return () => { active = false; };
+  }, [admin]);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("All");
   const [records, setRecords] = useState<RequiredFormatRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1116,6 +1129,12 @@ function RequiredFormats({ admin = false }: { admin?: boolean }) {
             : "Create controlled templates and submit versioned files for administrator publication."
         }
       />
+      {admin && !loading && !error && <WorkspaceMetrics items={[
+        { label: "Assigned interns", value: placements ? new Set(placements.map(row => row.studentId)).size : summaryError ? "Unavailable" : "Loading…", icon: UsersRound },
+        { label: "Campuses / colleges", value: placements ? `${new Set(placements.map(row => row.campus)).size} / ${new Set(placements.map(row => row.college)).size}` : summaryError ? "Unavailable" : "Loading…", icon: Building2, tone: "green" },
+        { label: "Needs publication action", value: records.filter(record => record.status !== "Published").length, icon: Clock3, tone: "orange" },
+      ]} />}
+      {summaryError && <p role="alert" className="form-error">{summaryError}</p>}
       <section className="card table-card">
         <div className="card-title">
           <div>
@@ -1135,10 +1154,14 @@ function RequiredFormats({ admin = false }: { admin?: boolean }) {
             </button>
           )}
         </div>
+        <div className="library-toolbar">
+          <SearchInput value={search} onChange={setSearch} label="Search document library" placeholder="Search documents, codes, or versions…" />
+          <label className="field"><span>Publication status</span><select value={status} onChange={event => setStatus(event.target.value)}><option>All</option>{[...new Set(records.map(record => record.status))].map(value => <option key={value}>{value}</option>)}</select></label>
+        </div>
         <LoadingOrError loading={loading} error={error} onRetry={() => void load()} />
         {!loading && !error && (
           <div className="format-grid">
-            {records.map((record) => (
+            {records.filter(record => (status === "All" || record.status === status) && `${record.name} ${record.code} ${record.fileName} ${record.version ?? ""}`.toLowerCase().includes(search.trim().toLowerCase())).map((record) => (
               <article className="format-card" key={record.id}>
                 <div>
                   <span className="eyebrow">{record.code}</span>
@@ -1221,9 +1244,9 @@ function RequiredFormats({ admin = false }: { admin?: boolean }) {
                 </div>
               </article>
             ))}
-            {!records.length && (
+            {!records.some(record => (status === "All" || record.status === status) && `${record.name} ${record.code} ${record.fileName} ${record.version ?? ""}`.toLowerCase().includes(search.trim().toLowerCase())) && (
               <p className="table-empty">
-                {admin
+                {records.length ? "No formats match the current search and publication status." : admin
                   ? "No required file formats have been submitted by a Placement Head yet."
                   : "No required file formats have been configured yet. Add the first controlled format to begin."}
               </p>

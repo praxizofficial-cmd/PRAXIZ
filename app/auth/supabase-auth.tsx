@@ -43,16 +43,24 @@ export type RegistrationInput = {
   password: string;
   fullName: string;
   fields: Record<string, string>;
+  captchaToken: string;
 };
 
 type AuthContextValue = {
   user: AuthUser | null;
   ready: boolean;
   refreshProfile: () => Promise<void>;
-  signIn: (email: string, password: string) => Promise<AuthUser>;
+  signIn: (
+    email: string,
+    password: string,
+    captchaToken: string,
+  ) => Promise<AuthUser>;
   signOut: () => Promise<void>;
   register: (input: RegistrationInput) => Promise<void>;
-  requestPasswordReset: (email: string) => Promise<void>;
+  requestPasswordReset: (
+    email: string,
+    captchaToken: string,
+  ) => Promise<void>;
   acceptInvitation: (tokenHash: string) => Promise<void>;
   acceptPasswordRecovery: (tokenHash: string) => Promise<void>;
   validatePasswordSetup: (flow: PasswordSetupFlow) => Promise<void>;
@@ -563,13 +571,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (error || !data.user) throw new Error("Please sign in again.");
         setUser(await resolveAuthUser(data.user));
       },
-      async signIn(email, password) {
+      async signIn(email, password, captchaToken) {
         const supabase = createClient();
         clearPasswordRecoverySession();
         clearInvitationSession();
         const { data, error } = await supabase.auth.signInWithPassword({
           email: email.trim().toLowerCase(),
           password,
+          options: { captchaToken },
         });
         if (error || !data.user)
           throw new Error(
@@ -619,6 +628,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           options: {
             emailRedirectTo: authRedirectUrl("/signin"),
             data: metadata,
+            captchaToken: input.captchaToken,
           },
         });
         if (error) throw new Error(error.message);
@@ -627,12 +637,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (data.session) await supabase.auth.signOut();
         setUser(null);
       },
-      async requestPasswordReset(email) {
+      async requestPasswordReset(email, captchaToken) {
         clearPasswordRecoverySession();
         const { error } = await createClient().auth.resetPasswordForEmail(
           email.trim().toLowerCase(),
           {
             redirectTo: authRedirectUrl("/recover-password"),
+            captchaToken,
           },
         );
         if (error) throw new Error(error.message);

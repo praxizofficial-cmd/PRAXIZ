@@ -257,6 +257,7 @@ export type EvaluationInput = {
 };
 
 export type NotificationRecord = {
+  category?: string;
   id: string;
   title: string;
   message: string;
@@ -2896,6 +2897,9 @@ export const evaluationService = {
 export const notificationService = {
   async listLive(): Promise<NotificationRecord[]> {
     const userId = await currentUserId();
+    const rows: unknown[] = [];
+    const pageSize = 1000;
+    for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await createClient()
       .from("notification_recipients")
       .select(
@@ -2904,8 +2908,12 @@ export const notificationService = {
       .eq("user_id", userId)
       .is("archived_at", null)
       .order("created_at", { ascending: false })
-      .limit(100);
+      .order("notification_id", { ascending: false })
+      .range(offset, offset + pageSize - 1);
     if (error) throw new Error(error.message);
+    rows.push(...(data ?? []));
+    if (!data || data.length < pageSize) break;
+    }
     type NotificationRow = {
       id: string;
       title: string;
@@ -2921,7 +2929,7 @@ export const notificationService = {
       read_at: string | null;
       notifications?: NotificationRow | NotificationRow[] | null;
     };
-    return ((data ?? []) as unknown as Row[]).flatMap((row) => {
+    return (rows as Row[]).flatMap((row) => {
       const notification = Array.isArray(row.notifications)
         ? row.notifications[0]
         : row.notifications;
@@ -2929,6 +2937,7 @@ export const notificationService = {
       return [
         {
           id: notification.id,
+          category: notification.related_entity_type || "General",
           title: notification.title,
           message: notification.message,
           tone: notification.severity,
@@ -2942,7 +2951,8 @@ export const notificationService = {
           unread: !row.read_at,
           targetPath:
             typeof notification.metadata?.targetPath === "string" &&
-            notification.metadata.targetPath.startsWith("/")
+            /^\/(student|hte|coordinator|placement|admin)\//.test(notification.metadata.targetPath) &&
+            !notification.metadata.targetPath.includes("\\")
               ? notification.metadata.targetPath
               : notification.related_entity_type === "internship_feedback" &&
                   /^[0-9a-f-]{36}$/i.test(notification.related_entity_id)
@@ -2958,10 +2968,12 @@ export const notificationService = {
       p_read: true,
     });
     if (error) throw new Error(error.message);
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("praxiz:notifications-changed"));
   },
   async markAllRead(): Promise<void> {
     const { error } = await createClient().rpc("mark_all_notifications_read");
     if (error) throw new Error(error.message);
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("praxiz:notifications-changed"));
   },
   async getPreferences(): Promise<{
     emailNotifications: boolean;

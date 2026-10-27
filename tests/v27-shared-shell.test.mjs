@@ -7,7 +7,7 @@ const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8
 
 test("v27 sidebar is explicitly collapsible, persistent, accessible, and shared by every role", () => {
   assert.match(app, /praxiz-sidebar-expanded/);
-  assert.match(app, /aria-label=\{expanded \? "Collapse sidebar" : "Pin sidebar open"\}/);
+  assert.match(app, /aria-label=\{expanded \? "Collapse sidebar" : "Expand sidebar"\}/);
   assert.match(app, /aria-pressed=\{expanded\}/);
   assert.match(app, /aria-current=\{selected \? "page" : undefined\}/);
   assert.match(app, /title=\{item\.label\}/);

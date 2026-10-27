@@ -54,7 +54,7 @@ test("V23 repairs placement permissions and coordinator requirement scope", () =
 
 test("V23 makes propagation opt-in and confirms HTE and requirement updates", () => {
   assert.match(app, /const \[confirmApply, setConfirmApply\] = useState\(false\)/);
-  assert.match(app, /Apply daily hours to active assignments\?/);
+  assert.match(app, /Review authorized correction/);
   assert.match(app, /placeholder="Enter hours"/);
   assert.match(app, /Apply required hours to active assignments\?/);
   assert.match(app, /Completed, cancelled, and historical records remain unchanged/);

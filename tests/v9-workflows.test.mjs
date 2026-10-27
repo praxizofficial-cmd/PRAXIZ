@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const app = read("../app/PraxizApp.tsx");
+const publicFlow = read("../app/components/PublicInteractiveFlow.tsx");
 const auth = read("../app/auth/supabase-auth.tsx");
 const css = read("../app/globals.css");
 const pdfViewer = read("../app/components/EvaluationPdfDownload.tsx");
@@ -34,14 +35,13 @@ const compactCss = css.replace(/\s+/g, " ");
 
 test("v9 branding and landing journey use the approved identity and exact slogan", () => {
   assert.match(app, /src="\/branding\/praxiz-symbol\.png"/);
-  assert.match(app, /Progress, <em>Powered by Technology\.<\/em>/);
+  assert.match(app, /The Pursuit of Knowledge\./);
+  assert.match(app, /The Practice of Intelligence\./);
   for (const stage of [
     "Placement",
-    "Attendance",
-    "Weekly Logs",
-    "Documents",
-    "Evaluation",
-    "Analytics & Insights",
+    "Monitor",
+    "Evaluate",
+    "Understand",
   ]) {
     assert.match(app, new RegExp(`["']${stage.replace("&", "\\&")}["']`));
   }
@@ -168,19 +168,16 @@ test("evaluation reports separate reviewer details from student finalized PDF ac
 });
 
 test("v11 public interactions are connected, keyboard-ready, and use one contextual description", () => {
-  assert.match(app, /className="journey-node-button"/);
-  assert.match(app, /aria-pressed=\{activeJourneyIndex === index\}/);
-  assert.match(
-    app,
-    /id="active-journey-description"[\s\S]*?aria-live="polite"/,
-  );
-  assert.match(
-    app,
-    /className=\{`analytics-flow-lines analytics-line-\$\{activeAnalyticsInput\}`\}/,
-  );
-  assert.match(app, /aria-pressed=\{activeAnalyticsInput === index\}/);
-  assert.match(css, /@keyframes hero-path-draw/);
-  assert.match(css, /@keyframes analytics-path-draw/);
+  assert.match(app, /PublicInteractiveFlow label="Internship journey"/);
+  const preview = read("../app/components/usePublicPreview.ts");
+  const analytics = read("../app/components/PublicAnalytics.tsx");
+  assert.match(publicFlow, /preview.controls\(index\)/);
+  assert.match(publicFlow, /aria-live="polite"/);
+  assert.match(preview, /"aria-pressed": selected === index/);
+  assert.match(preview, /hovered \?\? focused \?\? selected/);
+  assert.match(analytics, /className="record-connectors"/);
+  assert.match(analytics, /source.controls\(index\)/);
+  assert.match(analytics, /Not live PRAXIZ analytics/);
 });
 
 test("v11 authentication, feedback, notifications, and loading states use shared accessible patterns", () => {
@@ -207,8 +204,8 @@ test("attendance and feedback workflows expose the requested filters and indepen
   assert.match(app, /<span>Month<\/span>/);
   assert.match(app, /<span>Year<\/span>/);
   assert.match(app, /Export filtered CSV/);
-  assert.match(app, /<th className="feedback-status-cell">Follow-up<\/th>/);
-  assert.match(app, /<th className="feedback-status-cell">Read<\/th>/);
+  assert.match(app, /StatusBadge status=\{item\.status\}/);
+  assert.match(app, /StatusBadge status=\{item\.readStatus\}/);
   assert.match(services, /recipient_read_at/);
   assert.match(
     services,

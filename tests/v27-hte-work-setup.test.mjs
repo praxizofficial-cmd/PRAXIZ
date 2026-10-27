@@ -21,7 +21,7 @@ test("v27 work setup preserves daily-hour ownership and explicit propagation", a
   assert.match(app, /Total internship hours remain coordinator-owned/);
   assert.match(app, /PRAXIZ will not assume an[\s\S]*eight-hour day/);
   assert.match(app, /checked=\{applyToActive\}/);
-  assert.match(app, /Apply daily hours to active assignments\?/);
+  assert.match(app, /Review authorized correction/);
   assert.match(app, /Completed and historical (?:assignments|records) remain unchanged/);
   assert.match(app, /Correction reason \*/);
 });
@@ -32,7 +32,7 @@ test("v27 HTE photo policy is compact, explicit, and non-retroactive", async () 
   assert.match(component, /Configure \/ Update Policy/);
   assert.match(component, /policy && editing &&/);
   assert.match(component, /setApply\(false\)/);
-  assert.match(component, /Review impact/);
+  assert.match(component, /Review changes/);
   assert.match(component, /Confirm and save policy/);
   assert.match(component, /Existing submitted and historical Weekly Logs are unchanged/);
 });

@@ -277,6 +277,7 @@ export const roles: Record<
         permission: "users:manage",
       },
       { label: "System Settings", href: "/admin/settings", icon: "settings" },
+      { label: "Notifications", href: "/admin/notifications", icon: "bell" },
     ],
   },
 };

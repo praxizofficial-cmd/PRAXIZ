@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Eye, Plus, Search, Trash2 } from "lucide-react";
+import { Eye, Plus, Search, Trash2, FileText, Clock3, CheckCircle2 } from "lucide-react";
+import { WorkspaceMetrics } from "./WorkspaceMetrics";
 import { useAuth } from "../auth/supabase-auth";
 import { hasPermission } from "../permissions";
 import {
@@ -45,8 +46,8 @@ function RatingSections({
   return (
     <>
       {sections.map((section) => (
-        <section className="evaluation-section" key={section}>
-          <h3>{section}</h3>
+        <details className="evaluation-section" key={section} open>
+          <summary>{section}</summary>
           {[
             ...new Set(
               criteria
@@ -161,7 +162,7 @@ function RatingSections({
                 ))}
             </div>
           ))}
-        </section>
+        </details>
       ))}
     </>
   );
@@ -590,6 +591,15 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
           remain available below.
         </p>
       )}
+      {!loading && !error && <WorkspaceMetrics items={student ? [
+        { label: "Released reports", value: records.length, icon: FileText },
+        { label: "Finalized", value: records.filter(record => record.status === "Finalized").length, icon: CheckCircle2, tone: "green" },
+      ] : [
+        { label: "Total evaluations", value: records.length, icon: FileText },
+        { label: "Submitted", value: records.filter(record => record.status === "Submitted").length, icon: Clock3, tone: "orange" },
+        { label: "Finalized", value: records.filter(record => record.status === "Finalized").length, icon: CheckCircle2, tone: "green" },
+      ]} />}
+      {role === "coordinator" && records.some(record => record.status === "Submitted") && <section className="card review-queue"><h2>Awaiting finalization</h2><p>Review submitted evaluations before an explicit finalization decision.</p>{records.filter(record => record.status === "Submitted").map(record => <div key={record.id}><strong>{record.studentName}</strong><button className="button button-secondary" onClick={() => setDetails(record.id)}>Review details</button></div>)}</section>}
       {!student && !loading && (
         <div className="evaluation-filters">
           <label className="table-search">
@@ -598,6 +608,7 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search student, evaluator, or form…"
+              aria-label="Search evaluations"
             />
           </label>
           <label className="field field-compact">
@@ -607,6 +618,7 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
               onChange={(event) => setStatus(event.target.value)}
             >
               <option>All</option>
+              <option>Submitted</option>
               <option>Needs Review</option>
               <option>Finalized</option>
               <option>Draft</option>
@@ -643,98 +655,17 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
           </p>
         </section>
       ) : (
-        <section className="card table-card evaluation-review-card">
-          <div className="table-scroll">
-            <table className="data-table evaluation-data-table">
-              <thead>
-                <tr>
-                  <th>Student</th>
-                  <th>Evaluation</th>
-                  <th>Evaluator</th>
-                  <th>{student ? "Finalized / released" : "Submitted"}</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRecords.map((r) => (
-                  <tr key={r.id}>
-                    <td>
-                      <b>{r.studentName}</b>
-                    </td>
-                    <td>
-                      {r.templateName}
-                      {student && r.context.ratingPeriod && (
-                        <small>{r.context.ratingPeriod}</small>
-                      )}
-                    </td>
-                    <td>{r.evaluatorName}</td>
-                    <td>{student ? r.reviewedAt : r.submittedAt}</td>
-                    <td>
-                      <StatusBadge status={r.status} />
-                    </td>
-                    <td>
-                      <div className="inline-actions">
-                        {!student && (
-                          <button
-                            className="table-link"
-                            onClick={() => setDetails(r.id)}
-                          >
-                            <Eye size={16} />
-                            View details
-                          </button>
-                        )}
-                        {r.status === "Finalized" && (
-                          <EvaluationPdfDownload
-                            id={r.id}
-                            studentName={r.studentName}
-                          />
-                        )}
-                        {role === "hte" &&
-                          r.evaluatorId === user?.id &&
-                          ["Draft", "Returned"].includes(r.status) && (
-                            <button
-                              className="table-link"
-                              onClick={() => setEditor(r)}
-                            >
-                              Edit
-                            </button>
-                          )}
-                        {role === "hte" &&
-                          r.evaluatorId === user?.id &&
-                          r.status === "Draft" && (
-                            <button
-                              className="table-link"
-                              title="Delete your draft"
-                              onClick={() =>
-                                setAction({ record: r, kind: "delete" })
-                              }
-                            >
-                              <Trash2 size={16} />
-                              Delete
-                            </button>
-                          )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {visibleRecords.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="table-empty">
-                      No evaluations match these filters.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+        <section className="card table-card evaluation-review-card evaluation-records">
+          <div className="card-title"><h2>{student ? "Official evaluation reports" : "Evaluation Records"}</h2><span>{visibleRecords.length} records</span></div>
           <div className="evaluation-mobile-list">
+            {!visibleRecords.length && <p role="status">No evaluations match these filters.</p>}
             {visibleRecords.map((r) => (
               <article className="evaluation-mobile-card" key={r.id}>
                 <header>
                   <div>
                     <strong>{r.studentName}</strong>
                     <small>{r.templateName}</small>
+                    {r.context.ratingPeriod && <small>{r.context.ratingPeriod}</small>}
                   </div>
                   <StatusBadge status={r.status} />
                 </header>
@@ -744,11 +675,15 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
                     <dd>{r.evaluatorName}</dd>
                   </div>
                   <div>
-                    <dt>Submitted</dt>
-                    <dd>{r.submittedAt}</dd>
+                    <dt>{student ? "Finalized / released" : "Submitted"}</dt>
+                    <dd>{student ? r.reviewedAt : r.submittedAt}</dd>
                   </div>
                 </dl>
                 <div className="inline-actions">
+                  {role === "hte" && r.evaluatorId === user?.id && ["Draft", "Returned"].includes(r.status) && <button className="table-link" onClick={() => setEditor(r)}>Edit</button>}
+                  {role === "hte" && r.evaluatorId === user?.id && r.status === "Draft" && (
+                    <button className="table-link" title="Delete your draft" onClick={() => setAction({record:r,kind:"delete"})}><Trash2 size={16}/>Delete</button>
+                  )}
                   {!student && (
                     <button
                       className="table-link"
@@ -781,38 +716,9 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
                   : "HTE evaluation details"
               }
               protectChanges={false}
-              wide
-              onClose={() => setDetails("")}
-            >
-              <dl className="info-list">
-                <div>
-                  <dt>Student</dt>
-                  <dd>{record.studentName}</dd>
-                </div>
-                <div>
-                  <dt>Form</dt>
-                  <dd>{record.metadata?.formCode ?? record.templateName}</dd>
-                </div>
-                <div>
-                  <dt>Status</dt>
-                  <dd>
-                    <StatusBadge status={record.status} />
-                  </dd>
-                </div>
-                <div>
-                  <dt>Rating period</dt>
-                  <dd>{record.context.ratingPeriod || "Not recorded"}</dd>
-                </div>
-                <div>
-                  <dt>HTE evaluator</dt>
-                  <dd>{record.evaluatorName}</dd>
-                </div>
-              </dl>
-              <RatingSections
-                criteria={record.criteria}
-                metadata={record.metadata}
-              />
-              {role === "hte" &&
+              wide expandable
+              className="evaluation-review-workspace"
+              footer={<>              {role === "hte" &&
                 record.evaluatorId === user?.id &&
                 ["Draft", "Returned"].includes(record.status) && (
                   <div className="modal-actions">
@@ -851,6 +757,37 @@ export function EvaluationWorkspace({ role }: { role: RoleId }) {
                     </button>
                   </div>
                 )}
+</>}
+              onClose={() => setDetails("")}
+            >
+
+<div className="evaluation-review-columns"><div>              <RatingSections
+                criteria={record.criteria}
+                metadata={record.metadata}
+              /><section className="review-notice"><h3>Written remarks</h3><p className="preserve-text">{record.overallRemarks || "No remarks recorded."}</p></section></div><aside>              <dl className="info-list">
+                <div>
+                  <dt>Student</dt>
+                  <dd>{record.studentName}</dd>
+                </div>
+                <div>
+                  <dt>Form</dt>
+                  <dd>{record.metadata?.formCode ?? record.templateName}</dd>
+                </div>
+                <div>
+                  <dt>Status</dt>
+                  <dd>
+                    <StatusBadge status={record.status} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>Rating period</dt>
+                  <dd>{record.context.ratingPeriod || "Not recorded"}</dd>
+                </div>
+                <div>
+                  <dt>HTE evaluator</dt>
+                  <dd>{record.evaluatorName}</dd>
+                </div>
+              </dl><p>Submitted: {record.submittedAt || "Not recorded"}</p><p>Reviewed: {record.reviewedAt || "Not recorded"}</p></aside></div>
               <p className="muted-note">
                 {record.status === "Finalized"
                   ? "This official record is finalized and read-only."

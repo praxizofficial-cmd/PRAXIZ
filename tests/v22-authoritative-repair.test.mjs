@@ -70,7 +70,7 @@ test("V22 document and required-format actions expose complete secure review pat
 });
 
 test("V22 landing, AI thinking, sidebar, and modal polish are responsive", () => {
-  assert.match(app, /className="analytics-final-line"/);
+  assert.match(app, /<PublicAnalytics \/>/);
   assert.match(app, /Placement Head/);
   assert.match(ai, /ai-thinking/);
   assert.match(ai, /ai-thinking-wave/);

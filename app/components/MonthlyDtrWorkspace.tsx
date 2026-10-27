@@ -270,40 +270,7 @@ export function MonthlyDtrWorkspace({ role }: { role: RoleId }) {
       )}
 
       {(coordinator || role === "admin") && !loading && (
-        <div className="table-scroll monthly-dtr-inbox">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Student</th>
-                <th>HTE</th>
-                <th>Month</th>
-                <th>Reference / version</th>
-                <th>Verification</th>
-                <th>Submission</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reports.map((item) => (
-                <tr key={item.reportId}>
-                  <td><b>{item.student.name}</b><small>{item.student.studentNumber}</small></td>
-                  <td>{item.internship.hte}</td>
-                  <td>{item.reportingMonth.slice(0, 7)}</td>
-                  <td>{item.reportReference}<small>Version {item.version}</small></td>
-                  <td><StatusBadge status={labelStatus(item.verificationStatus)} /></td>
-                  <td><StatusBadge status={labelStatus(item.submissionStatus)} /></td>
-                  <td className="table-actions">
-                    <a className="table-link" href={`/api/dtr/${item.reportId}/pdf`} target="_blank" rel="noreferrer"><Eye aria-hidden="true" /> View</a>
-                    <a className="table-link" href={`/api/dtr/${item.reportId}/pdf?download=1`}><Download aria-hidden="true" /> Download</a>
-                  </td>
-                </tr>
-              ))}
-              {!reports.length && (
-                <tr><td colSpan={7}>No authorized monthly DTR records match this reporting month.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <div className="record-list monthly-dtr-inbox">{reports.map(item => <details className="record-card" key={item.reportId}><summary><div><strong>{item.student.name}</strong><p>{item.reportingMonth.slice(0,7)} · {item.internship.hte}</p></div><StatusBadge status={labelStatus(item.submissionStatus)}/></summary><dl className="info-list"><div><dt>Student number</dt><dd>{item.student.studentNumber}</dd></div><div><dt>Reference</dt><dd>{item.reportReference}</dd></div><div><dt>Version</dt><dd>{item.version}</dd></div><div><dt>Verification</dt><dd><StatusBadge status={labelStatus(item.verificationStatus)}/></dd></div></dl><div className="table-action-group"><a className="button button-secondary" href={`/api/dtr/${item.reportId}/pdf`} target="_blank" rel="noreferrer"><Eye aria-hidden="true"/> View</a><a className="button button-secondary" href={`/api/dtr/${item.reportId}/pdf?download=1`}><Download aria-hidden="true"/> Download</a></div></details>)}{!reports.length && <p>No authorized monthly DTR records match this reporting month.</p>}</div>
       )}
 
       {!coordinator && role !== "admin" && !loading && !report && (
