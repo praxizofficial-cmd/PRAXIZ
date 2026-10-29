@@ -50,7 +50,7 @@ test('verified registration lifecycle: timing, recipients, idempotency, resoluti
  create table org_units(id uuid primary key,name text);
  create table role_assignments(user_id uuid,role_id uuid,starts_at timestamptz default now(),ends_at timestamptz,deleted_at timestamptz);
  create table registration_applications(id uuid primary key default gen_random_uuid(),requester_user_id uuid,requested_role_id uuid,status text default 'pending',deleted_at timestamptz,campus_org_unit_id uuid);
- create table notifications(id uuid primary key default gen_random_uuid(),deduplication_key text unique,type text,title text,message text,severity text,actor_user_id uuid,internship_assignment_id uuid,related_entity_type text,related_entity_id uuid,metadata jsonb);
+ create table notifications(id uuid primary key default gen_random_uuid(),deduplication_key text unique,type text,title text,message text,severity text,actor_user_id uuid,internship_assignment_id uuid,related_entity_type text check(related_entity_type=any(array['registration_application','internship_assignment','attendance_session','daily_log','document_requirement','evaluation','internship_feedback'])),related_entity_id uuid,metadata jsonb);
  create table notification_recipients(notification_id uuid,user_id uuid,read_at timestamptz,archived_at timestamptz,unique(notification_id,user_id));`);
  await db.exec(readFileSync(new URL('./fixtures/emit-notification.sql',import.meta.url),'utf8'));
  const admin='00000000-0000-0000-0000-000000000001',student='00000000-0000-0000-0000-000000000002';
@@ -80,6 +80,7 @@ test('verified registration lifecycle: timing, recipients, idempotency, resoluti
  await db.exec(`create table hte_organizations(id uuid primary key default gen_random_uuid(),verification_status text,deleted_at timestamptz);
  create table required_file_format_versions(id uuid primary key default gen_random_uuid(),status text);
  create table outbox_events(id uuid primary key default gen_random_uuid(),status text);`);
+ await db.exec(readFileSync(new URL('../supabase/migrations/20261029040000_expand_admin_notification_entities.sql',import.meta.url),'utf8'));
  await db.exec(readFileSync(new URL('../supabase/migrations/20261029010000_admin_workflow_notifications.sql',import.meta.url),'utf8'));
  await db.exec("insert into hte_organizations(verification_status) values ('pending'); insert into required_file_format_versions(status) values ('submitted'); insert into outbox_events(status) values ('retry_wait')");
  assert.equal((await db.query('select * from notifications')).rows.length,3);
