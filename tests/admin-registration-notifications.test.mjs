@@ -40,6 +40,9 @@ test('student registration delivery uses current active admins and preserves rec
 });
 
 const verifiedMigration=readFileSync(new URL('../supabase/migrations/20261029000000_verified_registration_notifications.sql',import.meta.url),'utf8');
+const workflowMigration=readFileSync(new URL('../supabase/migrations/20261029010000_admin_workflow_notifications.sql',import.meta.url),'utf8');
+const entityMigration=readFileSync(new URL('../supabase/migrations/20261029040000_expand_admin_notification_entities.sql',import.meta.url),'utf8');
+const immutableMigration=readFileSync(new URL('../supabase/migrations/20261029050000_preserve_immutable_notification_events.sql',import.meta.url),'utf8');
 test('verified registration lifecycle: timing, recipients, idempotency, resolution and backfill', async()=>{
  const db=new PGlite();
  try {
@@ -50,8 +53,13 @@ test('verified registration lifecycle: timing, recipients, idempotency, resoluti
  create table org_units(id uuid primary key,name text);
  create table role_assignments(user_id uuid,role_id uuid,starts_at timestamptz default now(),ends_at timestamptz,deleted_at timestamptz);
  create table registration_applications(id uuid primary key default gen_random_uuid(),requester_user_id uuid,requested_role_id uuid,status text default 'pending',deleted_at timestamptz,campus_org_unit_id uuid);
+ create table hte_organizations(id uuid primary key default gen_random_uuid(),verification_status text,deleted_at timestamptz);
+ create table required_file_format_versions(id uuid primary key default gen_random_uuid(),status text);
+ create table outbox_events(id uuid primary key default gen_random_uuid(),status text);
  create table notifications(id uuid primary key default gen_random_uuid(),deduplication_key text unique,type text,title text,message text,severity text,actor_user_id uuid,internship_assignment_id uuid,related_entity_type text check(related_entity_type=any(array['registration_application','internship_assignment','attendance_session','daily_log','document_requirement','evaluation','internship_feedback'])),related_entity_id uuid,metadata jsonb);
- create table notification_recipients(notification_id uuid,user_id uuid,read_at timestamptz,archived_at timestamptz,unique(notification_id,user_id));`);
+ create table notification_recipients(notification_id uuid,user_id uuid,read_at timestamptz,archived_at timestamptz,unique(notification_id,user_id));
+ create function private.reject_notification_mutation() returns trigger language plpgsql as $$begin raise exception 'Notification event content is immutable'; end$$;
+ create trigger notifications_immutable before update or delete on notifications for each row execute function private.reject_notification_mutation();`);
  await db.exec(readFileSync(new URL('./fixtures/emit-notification.sql',import.meta.url),'utf8'));
  const admin='00000000-0000-0000-0000-000000000001',student='00000000-0000-0000-0000-000000000002';
  const a='10000000-0000-0000-0000-000000000001',b='10000000-0000-0000-0000-000000000002',u='10000000-0000-0000-0000-000000000003';
@@ -60,6 +68,9 @@ test('verified registration lifecycle: timing, recipients, idempotency, resoluti
  await db.query('insert into role_assignments(user_id,role_id) values ($1,$3),($2,$3),($1,$3)',[a,b,admin]);
  await db.query('insert into auth.users(id) values ($1)',[u]);
  await db.exec(verifiedMigration);
+ await db.exec(workflowMigration);
+ await db.exec(entityMigration);
+ await db.exec(immutableMigration);
  assert.equal((await db.query("select has_function_privilege('authenticated','private.sync_registration_notification(uuid)','execute') as allowed")).rows[0].allowed,false,'clients cannot forge alerts');
  const app=(await db.query('insert into registration_applications(requester_user_id,requested_role_id) values ($1,$2) returning id',[u,student])).rows[0].id;
  assert.equal((await db.query('select * from notifications')).rows.length,0,'unverified must not notify');
@@ -74,21 +85,16 @@ test('verified registration lifecycle: timing, recipients, idempotency, resoluti
  assert.equal((await db.query('select status from registration_applications')).rows[0].status,'pending');
  await db.query("update registration_applications set status='approved' where id=$1",[app]);
  notices=(await db.query('select * from notifications')).rows;
- assert.equal(notices[0].metadata.actionRequired,false);
- await db.exec(verifiedMigration);
+ assert.equal(notices[0].metadata.actionRequired,true,'the original event remains immutable after review');
+ await db.exec(immutableMigration);
  assert.equal((await db.query('select * from notifications')).rows.length,1,'reviewed applications not backfilled');
- await db.exec(`create table hte_organizations(id uuid primary key default gen_random_uuid(),verification_status text,deleted_at timestamptz);
- create table required_file_format_versions(id uuid primary key default gen_random_uuid(),status text);
- create table outbox_events(id uuid primary key default gen_random_uuid(),status text);`);
- await db.exec(readFileSync(new URL('../supabase/migrations/20261029040000_expand_admin_notification_entities.sql',import.meta.url),'utf8'));
- await db.exec(readFileSync(new URL('../supabase/migrations/20261029010000_admin_workflow_notifications.sql',import.meta.url),'utf8'));
  await db.exec("insert into hte_organizations(verification_status) values ('pending'); insert into required_file_format_versions(status) values ('submitted'); insert into outbox_events(status) values ('retry_wait')");
  assert.equal((await db.query('select * from notifications')).rows.length,3);
  await db.exec("update outbox_events set status='dead_letter'");
  assert.equal((await db.query("select * from notifications where metadata->>'priority'='critical'")).rows.length,1);
  await db.exec("update outbox_events set status='dead_letter'; update hte_organizations set verification_status='verified'; update required_file_format_versions set status='published'");
  assert.equal((await db.query('select * from notifications')).rows.length,4);
- assert.equal((await db.query("select * from notifications where metadata->>'actionRequired'='true'")).rows.length,1);
+ assert.equal((await db.query("select * from notifications where metadata->>'actionRequired'='true'")).rows.length,4,'historical events remain immutable');
  // Existing recipient-only policy shape, exercised under an unprivileged database role.
  await db.exec(`create function auth.uid() returns uuid language sql as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
  grant usage on schema public,auth to authenticated;
