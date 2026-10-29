@@ -83,6 +83,8 @@ button, a, input, select, textarea, summary { transition: border-color var(--mot
 .workspace-switch { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
 .workspace-switch button[aria-pressed=true] { background: var(--primary); color: var(--on-primary,#fff); }
 .organization-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(min(100%,380px),1fr)); gap: 16px; padding: 20px; }
+.partner-hte-filter-actions { display: flex; flex-wrap: wrap; gap: 12px; padding: 0 20px; }
+.coordinator-attention-empty { margin: 0; padding: 16px 20px 20px; }
 .history-versions { display: grid; gap: 12px; padding: 20px; }
 .history-versions summary { display: flex; justify-content: space-between; gap: 14px; cursor: pointer; padding: 8px 0; }
 .report-primary-controls { display: grid; grid-template-columns: minmax(200px,300px) minmax(200px,360px); gap: 16px; align-items: end; }

@@ -3864,7 +3864,7 @@ function CoordinatorDashboard() {
         </div>
         <InternTable rows={attentionRows.slice(0, 6)} />
         {attentionRows.length === 0 && (
-          <p className="muted-note">
+          <p className="muted-note coordinator-attention-empty">
             No interns currently meet the follow-up criteria.
           </p>
         )}
@@ -9402,7 +9402,10 @@ function PartnerHtesPage() {
             />
           </label>
         </div>
-        <button type="button" className="button button-secondary" onClick={() => { setSearch(""); setStatus("All"); }}>Clear filters</button><div className="organization-grid">
+        <div className="partner-hte-filter-actions">
+          <button type="button" className="button button-secondary" onClick={() => { setSearch(""); setStatus("All"); }}>Clear filters</button>
+        </div>
+        <div className="organization-grid">
           {shown.map(item => <article className="record-card" key={item.id}>
             <header><div><h3>{item.name}</h3><p>{item.industry || "Industry not specified"} · {item.location}</p></div><StatusBadge status={item.status}/></header>
             <div className="hte-program-badges" aria-label="Associated academic programs">
