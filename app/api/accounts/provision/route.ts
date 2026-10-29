@@ -148,12 +148,12 @@ export async function POST(request: Request) {
           },
           { status: 400, headers: responseHeaders },
         );
-      const { data: visibleHte, error: hteError } = await callerClient
-        .from("hte_organizations")
-        .select("id")
-        .eq("id", hteId)
-        .is("deleted_at", null)
-        .maybeSingle();
+      const { data: visibleHtes, error: hteError } = await callerClient.rpc(
+        "list_partner_htes_v29",
+      );
+      const visibleHte = (
+        (visibleHtes ?? []) as unknown as Array<{ id: string }>
+      ).some((hte) => hte.id === hteId);
       if (hteError || !visibleHte)
         return NextResponse.json(
           { error: "That HTE is not available within your authorized scope." },

@@ -19,7 +19,7 @@ function notifications({ pages = [], failPage = -1, rpcError = null, unauthentic
   const end = source.indexOf('  async getPreferences()',start);
   const js = ts.transpile(source.slice(start,end).replace('export const notificationService =','const notificationService =')+'}; return notificationService;', { target: ts.ScriptTarget.ES2022 });
   const calls = [], events = [];
-  const query = { from: (...args) => { calls.push(['from',...args]); return query; }, select: () => query, eq: (...args) => { calls.push(['eq',...args]); return query; }, is: (...args) => { calls.push(['is',...args]); return query; }, order: () => query, range: async (from,to) => { calls.push(['range',from,to]); const index=from/1000; return {data:pages[index] ?? [],error:index===failPage ? {message:'Denied'} : null}; }, rpc: async (...args) => {calls.push(['rpc',...args]);return {error:rpcError};} };
+  const query = { from: (...args) => { calls.push(['from',...args]); return query; }, select: () => query, eq: (...args) => { calls.push(['eq',...args]); return query; }, is: (...args) => { calls.push(['is',...args]); return query; }, not: (...args) => { calls.push(['not',...args]); return query; }, order: () => query, range: async (from,to) => { calls.push(['range',from,to]); const index=from/1000; return {data:pages[index] ?? [],error:index===failPage ? {message:'Denied'} : null}; }, rpc: async (...args) => {calls.push(['rpc',...args]);return {error:rpcError};} };
   const service = new Function('createClient','currentUserId','window',js)(() => query,async () => {if(unauthenticated) throw new Error('Sign in required'); return 'current-user';},{dispatchEvent:event => events.push(event.type)});
   return {service,calls,events};
 }
@@ -37,4 +37,25 @@ test('notification reads fail closed and emit synchronization only after success
   const denied=notifications({rpcError:{message:'Denied'}});await assert.rejects(denied.service.markRead('id'),/Denied/);assert.deepEqual(denied.events,[]);
   const ok=notifications();await ok.service.markRead('id');await ok.service.markAllRead();assert.deepEqual(ok.events,['praxiz:notifications-changed','praxiz:notifications-changed']);
   assert.deepEqual(ok.calls[0],['rpc','mark_notification_read',{p_notification_id:'id',p_read:true}]);
+});
+
+test('registration includes optional suffix after compound family name', () => {
+  assert.equal(formatRegistrationName('Juan', 'a', 'Dela Cruz', ' Jr. '), 'Juan A. Dela Cruz Jr.');
+  assert.equal(formatRegistrationName('Juan', '', 'Santos', 'III'), 'Juan Santos III');
+  assert.equal(formatRegistrationName('Juan', '', 'Santos', ''), 'Juan Santos');
+});
+
+test('archive retrieval, mark unread and archive mutations preserve recipient scope', async () => {
+ const fixture=notifications({pages:[[row(1)]]});
+ const result=await fixture.service.listLive(true);
+ assert.equal(result[0].archived,true);
+ assert.ok(fixture.calls.some(c=>c[0]==='not' && c[1]==='archived_at'));
+ assert.ok(fixture.calls.some(c=>c[0]==='eq' && c[1]==='user_id' && c[2]==='current-user'));
+ await fixture.service.markRead('notice',false);
+ await fixture.service.archive('notice');
+ assert.ok(fixture.calls.some(c=>c[0]==='rpc' && c[1]==='mark_notification_read' && c[2].p_read===false));
+ assert.ok(fixture.calls.some(c=>c[0]==='rpc' && c[1]==='archive_notification' && c[2].p_archived===true));
+ const failed=notifications({rpcError:{message:'Denied'}});
+ await assert.rejects(failed.service.archive('notice'),/Denied/);
+ assert.deepEqual(failed.events,[]);
 });

@@ -257,6 +257,14 @@ export type EvaluationInput = {
 };
 
 export type NotificationRecord = {
+  priority?: string;
+  actionRequired?: boolean;
+  actionStatus?: string;
+  actionLabel?: string;
+  campus?: string;
+  sourceModule?: string;
+  createdAt?: string;
+  archived?: boolean;
   category?: string;
   id: string;
   title: string;
@@ -270,12 +278,40 @@ export type NotificationRecord = {
 export type PartnerHteRecord = {
   id: string;
   name: string;
+  registrationNumber: string;
   representative: string;
   assignedInterns: number;
   status: string;
   industry: string;
   location: string;
+  address: string;
+  city: string;
+  province: string;
+  companyEmail: string;
+  companyContactNumber: string;
+  supervisorName: string;
+  supervisorEmail: string;
+  supervisorContactNumber: string;
+  academicAssociations: Array<{
+    programId: string;
+    programCode: string;
+    programName: string;
+    collegeId: string;
+    collegeName: string;
+    campusId: string;
+    campusName: string;
+  }>;
   dailyRequiredHours: number | null;
+};
+
+export type CoordinatorProgramScope = {
+  id: string;
+  code: string;
+  name: string;
+  collegeId: string;
+  collegeName: string;
+  campusId: string;
+  campus: string;
 };
 
 export type AssignmentOption = { id: string; label: string };
@@ -287,7 +323,7 @@ export type AssignmentOptions = {
       section?: string;
     }
   >;
-  htes: AssignmentOption[];
+  htes: Array<AssignmentOption & { programIds: string[] }>;
   terms: Array<AssignmentOption & { startsOn: string; endsOn: string }>;
 };
 
@@ -2895,21 +2931,20 @@ export const evaluationService = {
 };
 
 export const notificationService = {
-  async listLive(): Promise<NotificationRecord[]> {
+  async listLive(archived = false): Promise<NotificationRecord[]> {
     const userId = await currentUserId();
     const rows: unknown[] = [];
     const pageSize = 1000;
     for (let offset = 0; ; offset += pageSize) {
-    const { data, error } = await createClient()
+    const query = createClient()
       .from("notification_recipients")
       .select(
         "notification_id,read_at,created_at,notifications(id,title,message,severity,related_entity_type,related_entity_id,metadata,created_at)",
       )
       .eq("user_id", userId)
-      .is("archived_at", null)
       .order("created_at", { ascending: false })
-      .order("notification_id", { ascending: false })
-      .range(offset, offset + pageSize - 1);
+      .order("notification_id", { ascending: false });
+    const { data, error } = await (archived ? query.not("archived_at", "is", null) : query.is("archived_at", null)).range(offset, offset + pageSize - 1);
     if (error) throw new Error(error.message);
     rows.push(...(data ?? []));
     if (!data || data.length < pageSize) break;
@@ -2921,7 +2956,7 @@ export const notificationService = {
       severity: NotificationRecord["tone"];
       related_entity_type: string;
       related_entity_id: string;
-      metadata?: { targetPath?: string } | null;
+      metadata?: { targetPath?: string; category?: string; priority?: string; actionRequired?: boolean; actionStatus?: string; actionLabel?: string; campus?: string; sourceModule?: string } | null;
       created_at: string;
     };
     type Row = {
@@ -2937,7 +2972,15 @@ export const notificationService = {
       return [
         {
           id: notification.id,
-          category: notification.related_entity_type || "General",
+          category: notification.metadata?.category || notification.related_entity_type || "General",
+          priority: notification.metadata?.priority || "low",
+          actionRequired: notification.metadata?.actionRequired === true,
+          actionStatus: notification.metadata?.actionStatus,
+          actionLabel: notification.metadata?.actionLabel,
+          campus: notification.metadata?.campus,
+          sourceModule: notification.metadata?.sourceModule,
+          createdAt: notification.created_at,
+          archived,
           title: notification.title,
           message: notification.message,
           tone: notification.severity,
@@ -2962,16 +3005,21 @@ export const notificationService = {
       ];
     });
   },
-  async markRead(notificationId: string): Promise<void> {
+  async markRead(notificationId: string, read = true): Promise<void> {
     const { error } = await createClient().rpc("mark_notification_read", {
       p_notification_id: notificationId,
-      p_read: true,
+      p_read: read,
     });
     if (error) throw new Error(error.message);
     if (typeof window !== "undefined") window.dispatchEvent(new Event("praxiz:notifications-changed"));
   },
   async markAllRead(): Promise<void> {
     const { error } = await createClient().rpc("mark_all_notifications_read");
+    if (error) throw new Error(error.message);
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("praxiz:notifications-changed"));
+  },
+  async archive(notificationId: string, archived = true): Promise<void> {
+    const { error } = await createClient().rpc("archive_notification", { p_notification_id: notificationId, p_archived: archived });
     if (error) throw new Error(error.message);
     if (typeof window !== "undefined") window.dispatchEvent(new Event("praxiz:notifications-changed"));
   },
@@ -3491,120 +3539,82 @@ export const hteWorkSetupService = {
 };
 
 export const coordinatorService = {
-  async getScope(): Promise<
-    Array<{ id: string; code: string; name: string; campus: string }>
-  > {
-    const supabase = createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user)
-      throw new Error("Sign in to load your coordinator scope.");
-    // Identity comes from Auth. Fetch only the user's active trusted assignments;
-    // never populate this control from the university-wide program catalog.
-    const now = new Date().toISOString();
-    const { data: assignments, error } = await supabase
-      .from("role_assignments")
-      .select("scope_academic_program_id,roles!inner(code,is_active)")
-      .eq("user_id", user.id)
-      .eq("roles.code", "internship_coordinator")
-      .eq("roles.is_active", true)
-      .is("deleted_at", null)
-      .lte("starts_at", now)
-      .or(`ends_at.is.null,ends_at.gt.${now}`);
+  async getScope(): Promise<CoordinatorProgramScope[]> {
+    const { data, error } = await createClient().rpc(
+      "list_authorized_hte_programs_v29",
+    );
     if (error) throw new Error(error.message);
-    const ids = [
-      ...new Set(
-        (
-          (assignments ?? []) as Array<{
-            scope_academic_program_id: string | null;
-          }>
-        )
-          .map((row) => row.scope_academic_program_id)
-          .filter((id): id is string => typeof id === "string"),
-      ),
-    ];
-    if (!ids.length)
+    type ScopeRow = {
+      program_id: string;
+      program_code: string;
+      program_name: string;
+      college_id: string;
+      college_name: string;
+      campus_id: string;
+      campus_name: string;
+    };
+    const scope = ((data ?? []) as unknown as ScopeRow[]).map((row) => ({
+      id: row.program_id,
+      code: row.program_code,
+      name: row.program_name,
+      collegeId: row.college_id,
+      collegeName: row.college_name,
+      campusId: row.campus_id,
+      campus: row.campus_name,
+    }));
+    if (!scope.length)
       throw new Error(
         "Your coordinator program scope is not configured. Please contact the administrator.",
       );
-    const { data: programs, error: programError } = await supabase
-      .from("academic_programs")
-      .select("id,code,name,owning_org_unit_id")
-      .in("id", ids)
-      .eq("is_active", true)
-      .is("deleted_at", null)
-      .order("code");
-    if (programError) throw new Error(programError.message);
-    return Promise.all(
-      (
-        (programs ?? []) as Array<{
-          id: string;
-          code: string;
-          name: string;
-          owning_org_unit_id: string;
-        }>
-      ).map(async (program) => {
-        let unitId: string | null = program.owning_org_unit_id;
-        for (let depth = 0; unitId && depth < 8; depth += 1) {
-          const {
-            data: unit,
-            error: unitError,
-          }: {
-            data: {
-              unit_type: string;
-              name: string;
-              short_name: string | null;
-              parent_id: string | null;
-            } | null;
-            error: { message: string } | null;
-          } = await supabase
-            .from("org_units")
-            .select("unit_type,name,short_name,parent_id")
-            .eq("id", unitId)
-            .is("deleted_at", null)
-            .maybeSingle();
-          if (unitError) throw new Error(unitError.message);
-          if (!unit) break;
-          if (unit.unit_type === "campus")
-            return {
-              id: program.id,
-              code: program.code,
-              name: program.name,
-              campus: unit.short_name || unit.name,
-            };
-          unitId = unit.parent_id;
-        }
-        throw new Error(
-          "Your program campus could not be verified. Please contact the administrator.",
-        );
-      }),
-    );
+    return scope;
   },
   async listPartnerHtes(): Promise<PartnerHteRecord[]> {
-    const { data, error } = await createClient().rpc("list_partner_htes_v28");
+    const { data, error } = await createClient().rpc("list_partner_htes_v29");
     if (error) throw new Error(error.message);
     type HteRow = {
       id: string;
       display_name: string;
+      registration_number: string | null;
       representative_name: string;
       assigned_interns: number;
       verification_status: string;
       industry: string;
-      location: string;
+      address_line: string | null;
+      city_municipality: string | null;
+      province: string | null;
+      company_email: string | null;
+      company_contact_number: string | null;
+      company_supervisor_name: string | null;
+      company_supervisor_email: string | null;
+      company_supervisor_contact_number: string | null;
       daily_required_hours: number | string | null;
+      academic_associations: PartnerHteRecord["academicAssociations"] | null;
     };
     return ((data ?? []) as unknown as HteRow[]).map((hte) => ({
       id: hte.id,
       name: hte.display_name,
+      registrationNumber: hte.registration_number ?? "",
       representative: hte.representative_name,
       assignedInterns: Number(hte.assigned_interns ?? 0),
       status: hte.verification_status
         .replaceAll("_", " ")
         .replace(/\b\w/g, (letter) => letter.toUpperCase()),
       industry: hte.industry,
-      location: hte.location,
+      location:
+        [hte.city_municipality, hte.province].filter(Boolean).join(", ") ||
+        "Not specified",
+      address: hte.address_line ?? "",
+      city: hte.city_municipality ?? "",
+      province: hte.province ?? "",
+      companyEmail: hte.company_email ?? "",
+      companyContactNumber: hte.company_contact_number ?? "",
+      supervisorName: hte.company_supervisor_name ?? "",
+      supervisorEmail: hte.company_supervisor_email ?? "",
+      supervisorContactNumber:
+        hte.company_supervisor_contact_number ?? "",
+      academicAssociations: Array.isArray(hte.academic_associations)
+        ? hte.academic_associations
+        : [],
       dailyRequiredHours:
         hte.daily_required_hours == null
           ? null
@@ -3620,16 +3630,28 @@ export const coordinatorService = {
     province: string;
     email: string;
     phone: string;
+    supervisorName: string;
+    supervisorEmail: string;
+    supervisorContactNumber: string;
+    campusId: string;
+    collegeId: string;
+    programIds: string[];
   }): Promise<void> {
-    const { error } = await createClient().rpc("create_partner_hte", {
+    const { error } = await createClient().rpc("create_partner_hte_v29", {
       p_name: input.name,
       p_registration_number: input.registrationNumber || null,
       p_industry: input.industry || null,
       p_address_line: input.address,
       p_city_municipality: input.city || null,
       p_province: input.province || null,
-      p_contact_email: input.email || null,
-      p_contact_phone: input.phone || null,
+      p_company_email: input.email || null,
+      p_company_contact_number: input.phone || null,
+      p_company_supervisor_name: input.supervisorName,
+      p_company_supervisor_email: input.supervisorEmail,
+      p_company_supervisor_contact_number: input.supervisorContactNumber,
+      p_campus_id: input.campusId,
+      p_college_id: input.collegeId,
+      p_academic_program_ids: input.programIds,
     });
     if (error) throw new Error(error.message);
   },
@@ -3643,7 +3665,7 @@ export const coordinatorService = {
     if (roster.error) throw new Error(roster.error.message);
     const payload = (data ?? {}) as {
       students?: AssignmentOption[];
-      htes?: AssignmentOption[];
+      htes?: Array<AssignmentOption & { programIds?: string[] }>;
       terms?: Array<AssignmentOption & { startsOn: string; endsOn: string }>;
     };
     const identities = new Map(
@@ -3672,7 +3694,11 @@ export const coordinatorService = {
           ]
         : [];
     });
-    return { students, htes: payload.htes ?? [], terms: payload.terms ?? [] };
+    const htes = (payload.htes ?? []).map((hte) => ({
+      ...hte,
+      programIds: Array.isArray(hte.programIds) ? hte.programIds : [],
+    }));
+    return { students, htes, terms: payload.terms ?? [] };
   },
   async createAssignment(input: CreateAssignmentInput): Promise<void> {
     const { error } = await createClient().rpc(

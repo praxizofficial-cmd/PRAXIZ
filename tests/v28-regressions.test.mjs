@@ -8,19 +8,19 @@ const read = (path) => readFile(new URL(path, root), "utf8");
 test("Partner HTE directory is server-authorized and does not fail through chained client reads", async () => {
   const [service, migration] = await Promise.all([
     read("app/services/praxiz-services.ts"),
-    read("supabase/migrations/20261017010000_v28_partner_hte_scope.sql"),
+    read("supabase/migrations/20261029030000_hte_academic_program_scope.sql"),
   ]);
   const method = service.slice(
     service.indexOf("async listPartnerHtes()"),
     service.indexOf("async createPartnerHte", service.indexOf("async listPartnerHtes()")),
   );
-  assert.match(method, /rpc\("list_partner_htes_v28"\)/);
+  assert.match(method, /rpc\("list_partner_htes_v29"\)/);
   assert.doesNotMatch(method, /from\("hte_daily_hour_configs"\)/);
   assert.match(migration, /private\.is_active_user\(auth\.uid\(\)\)/);
   assert.match(migration, /private\.user_has_role_code\(auth\.uid\(\), 'system_admin'\)/);
   assert.match(migration, /private\.user_has_role_code\(auth\.uid\(\), 'internship_coordinator'\)/);
-  assert.match(migration, /revoke all on function public\.list_partner_htes_v28\(\) from public, anon/);
-  assert.match(migration, /grant execute on function public\.list_partner_htes_v28\(\) to authenticated/);
+  assert.match(migration, /revoke all on function public\.list_partner_htes_v29\(\) from public, anon/);
+  assert.match(migration, /grant execute on function public\.list_partner_htes_v29\(\) to authenticated/);
 });
 
 test("AI failures preserve verified analytics and expose bounded retry states", async () => {

@@ -47,3 +47,6 @@ tsconfig.tsbuildinfo
 /.tmp-pglast/
 /.tmp-remote-schema.sql
 /supabase/.temp/
+
+.vercel
+.env*

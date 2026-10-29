@@ -618,9 +618,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const metadata = {
           ...input.fields,
           requested_role: registrationRole.student,
-          first_name: names.firstName,
-          middle_name: names.middleName,
-          last_name: names.lastName,
+          first_name: input.fields.first_name?.trim() || names.firstName,
+          middle_name: input.fields.middle_initial?.trim() ?? names.middleName,
+          last_name: input.fields.last_name?.trim() || names.lastName,
+          suffix: input.fields.suffix?.trim() || "",
         };
         const { data, error } = await supabase.auth.signUp({
           email: institutionalEmail.normalizedEmail,

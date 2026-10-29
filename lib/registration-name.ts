@@ -8,7 +8,7 @@ export function validNamePart(value: string): boolean {
 export function validMiddleInitial(value: string): boolean {
   return !value.trim() || /^\p{L}\p{M}*\.?$/u.test(value.trim().normalize("NFC"));
 }
-export function formatRegistrationName(first: string, middle: string, last: string): string {
+export function formatRegistrationName(first: string, middle: string, last: string, suffix = ""): string {
   const initial = middle.trim().normalize("NFC").replace(/\.$/, "").toLocaleUpperCase();
-  return [normalizeName(first), initial ? `${initial}.` : "", normalizeName(last)].filter(Boolean).join(" ");
+  return [normalizeName(first), initial ? `${initial}.` : "", normalizeName(last), normalizeName(suffix)].filter(Boolean).join(" ");
 }

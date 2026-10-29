@@ -118,6 +118,7 @@ import {
   type AssignmentOptions,
   type AuditLogRecord,
   type ContactMessageRecord,
+  type CoordinatorProgramScope,
   type AttendanceHistoryRow,
   type WeeklyLogRecord,
   type DocumentRecord,
@@ -1615,6 +1616,7 @@ type StudentRegistrationSummary = {
   firstName?: string;
   middleInitial?: string;
   lastName?: string;
+  suffix?: string;
   fullName: string;
   studentNumber: string;
   campus: string;
@@ -1673,7 +1675,8 @@ function RegistrationFields({
   const [firstName, setFirstName] = useState("");
   const [middleInitial, setMiddleInitial] = useState("");
   const [lastName, setLastName] = useState("");
-  const fullName = formatRegistrationName(firstName, middleInitial, lastName);
+  const [suffix, setSuffix] = useState("");
+  const fullName = formatRegistrationName(firstName, middleInitial, lastName, suffix);
   const nameValid = validNamePart(firstName) && validNamePart(lastName) && validMiddleInitial(middleInitial);
   const [studentNumber, setStudentNumber] = useState("");
   const [institutionalEmail, setInstitutionalEmail] = useState("");
@@ -1786,7 +1789,7 @@ function RegistrationFields({
                     : "";
     onValidityChange?.(studentFormValid, reason);
     onSummaryChange?.({
-      firstName: firstName.trim(), middleInitial: middleInitial.trim(), lastName: lastName.trim(),
+      firstName: firstName.trim(), middleInitial: middleInitial.trim(), lastName: lastName.trim(), suffix: suffix.trim(),
       fullName: fullName.trim() || "Not entered",
       studentNumber: studentNumber.trim(),
       campus:
@@ -1810,7 +1813,7 @@ function RegistrationFields({
     emailValidation.error,
     emailValidation.normalizedEmail,
     emailValidation.valid,
-    fullName, firstName, middleInitial, lastName, nameValid,
+    fullName, firstName, middleInitial, lastName, suffix, nameValid,
     isStudent,
     onSummaryChange,
     onValidityChange,
@@ -1845,6 +1848,7 @@ function RegistrationFields({
         <label className="field"><span>First name *</span><input name="firstName" autoComplete="given-name" required value={firstName} onChange={event => setFirstName(event.target.value)} /></label>
         <label className="field"><span>Middle initial</span><input name="middleInitial" autoComplete="additional-name" value={middleInitial} aria-invalid={!validMiddleInitial(middleInitial)} onChange={event => setMiddleInitial(event.target.value)} onBlur={() => { if (validMiddleInitial(middleInitial)) setMiddleInitial(middleInitial.trim().replace(/\.$/, "").toLocaleUpperCase()); }}/><small>Optional; one letter.</small></label>
         <label className="field"><span>Last name *</span><input name="lastName" autoComplete="family-name" required value={lastName} onChange={event => setLastName(event.target.value)} /></label>
+        <label className="field"><span>Suffix</span><input name="suffix" autoComplete="honorific-suffix" maxLength={20} value={suffix} onChange={event => setSuffix(event.target.value)} /><small>Optional; e.g. Jr., III.</small></label>
       </div><p className="name-preview">Full name preview: <strong>{fullName || "Enter your name above"}</strong></p><input type="hidden" name="fullName" value={fullName}/></>}
       <div className="two-fields">
         {!isStudent && <label className="field"><span>{isHte ? "Organization / company name" : "Full name"} *</span><input required name={isHte ? "organizationName" : "fullName"}/></label>}
@@ -2416,7 +2420,7 @@ function RegisterPage() {
             {securityVerification}
             <section>
               <h3>Personal information</h3>
-              <dl className="info-list"><div><dt>First name</dt><dd>{summary.firstName}</dd></div><div><dt>Middle initial</dt><dd>{summary.middleInitial || "Not provided"}</dd></div><div><dt>Last name</dt><dd>{summary.lastName}</dd></div></dl>
+              <dl className="info-list"><div><dt>First name</dt><dd>{summary.firstName}</dd></div><div><dt>Middle initial</dt><dd>{summary.middleInitial || "Not provided"}</dd></div><div><dt>Last name</dt><dd>{summary.lastName}</dd></div><div><dt>Suffix</dt><dd>{summary.suffix || "Not provided"}</dd></div></dl>
               <dl className="info-list">
                 <div>
                   <dt>Full name</dt>
@@ -2751,9 +2755,14 @@ function AppShell({
     };
     const refresh = () => { clearTimeout(timer); timer = setTimeout(() => void load(), 150); };
     void load();
+    const poll = window.setInterval(refresh, 30000);
+    const client = createSupabaseBrowserClient();
+    const channel = client.channel(`notifications-${crypto.randomUUID()}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "notification_recipients", filter: `user_id=eq.${user?.id}` }, refresh)
+      .subscribe();
     window.addEventListener("praxiz:notifications-changed", refresh);
     window.addEventListener("focus", refresh);
-    return () => { activeRequest = false; clearTimeout(timer); window.removeEventListener("praxiz:notifications-changed", refresh); window.removeEventListener("focus", refresh); };
+    return () => { activeRequest = false; clearInterval(poll); void client.removeChannel(channel); clearTimeout(timer); window.removeEventListener("praxiz:notifications-changed", refresh); window.removeEventListener("focus", refresh); };
   }, [user]);
   async function markShellNotificationsRead() {
     if (markingRead) return;
@@ -2954,6 +2963,8 @@ function AppShell({
                       <Bell size={16} />
                       <span>
                         <b>{item.title}</b>
+                        <small>{item.message}</small>
+                        <small>{item.category} · {item.priority || "low"} priority{item.actionLabel ? ` · ${item.actionLabel}` : ""}</small>
                         <small>
                           {item.unread ? "Unread · " : "Read · "}
                           {item.time}
@@ -6464,7 +6475,11 @@ function ProgressPage() {
 function NotificationsPage() {
   const { user } = useAuth();
   const [items, setItems] = useState<NotificationRecord[]>([]);
-  const [filter, setFilter] = useState<"all" | "unread">("all");
+  const [filter, setFilter] = useState<"all" | "unread" | "action" | "archived">("all");
+  const [priority, setPriority] = useState("All");
+  const [campus, setCampus] = useState("All");
+  const [since, setSince] = useState("");
+  const [until, setUntil] = useState("");
   const [category, setCategory] = useState("All");
   const [selected, setSelected] = useState<NotificationRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -6478,16 +6493,21 @@ function NotificationsPage() {
     let sequence = 0;
     const load = async () => {
       const request = ++sequence;
-      try { const records = await notificationService.listLive(); if (active && request === sequence) { setItems(records); setError(""); } }
+      try { const records = await notificationService.listLive(filter === "archived"); if (active && request === sequence) { setItems(records); setError(""); } }
       catch (reason) { if (active && request === sequence) setError(userError(reason, "Notifications could not be loaded.")); }
       finally { if (active && request === sequence) setLoading(false); }
     };
     const refresh = () => { clearTimeout(timer); timer = setTimeout(() => void load(), 150); };
     void load();
+    const poll = window.setInterval(refresh, 30000);
+    const client = createSupabaseBrowserClient();
+    const channel = client.channel(`notifications-${crypto.randomUUID()}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "notification_recipients", filter: `user_id=eq.${user?.id}` }, refresh)
+      .subscribe();
     window.addEventListener("praxiz:notifications-changed", refresh);
     window.addEventListener("focus", refresh);
-    return () => { active = false; clearTimeout(timer); window.removeEventListener("praxiz:notifications-changed", refresh); window.removeEventListener("focus", refresh); };
-  }, [retry]);
+    return () => { active = false; clearInterval(poll); void client.removeChannel(channel); clearTimeout(timer); window.removeEventListener("praxiz:notifications-changed", refresh); window.removeEventListener("focus", refresh); };
+  }, [retry, filter, user?.id]);
   async function view(item: NotificationRecord, readOnly = false) {
     setError("");
     try {
@@ -6528,13 +6548,22 @@ function NotificationsPage() {
     }
   }
   const unread = items.filter((r) => r.unread).length;
-  const shown = items.filter((r) => (filter === "all" || r.unread) && (category === "All" || (r.category || "General") === category));
+  const shown = items.filter((r) => (!since || new Date(r.createdAt || 0).getTime() >= new Date(`${since}T00:00:00+08:00`).getTime()) && (!until || new Date(r.createdAt || 0).getTime() <= new Date(`${until}T23:59:59.999+08:00`).getTime()) && (filter !== "unread" || r.unread) && (filter !== "action" || r.actionRequired) && (priority === "All" || r.priority === priority) && (campus === "All" || r.campus === campus) && (category === "All" || (r.category || "General") === category));
+  async function updateNotification(item: NotificationRecord, action: "unread" | "archive") {
+    setBusy(true);
+    try {
+      if (action === "unread") await notificationService.markRead(item.id, false);
+      else await notificationService.archive(item.id, !item.archived);
+      setRetry(value => value + 1);
+    } catch (reason) { setError(userError(reason)); }
+    finally { setBusy(false); }
+  }
   return (
     <>
       {error && <button type="button" className="button button-secondary" onClick={() => { setLoading(true); setRetry(value => value + 1); }}>Retry notifications</button>}
       <PageHeader
         title="Notifications"
-        subtitle={unread + " unread notifications"}
+        subtitle={`${unread} unread · ${items.filter(item => item.actionRequired).length} requiring action · ${items.filter(item => item.priority === "critical").length} critical${filter === "archived" ? " (archived view)" : ""}`}
         action={
           <div className="notification-controls">
             <button
@@ -6549,6 +6578,16 @@ function NotificationsPage() {
             >
               Unread ({unread})
             </button>
+            <button aria-pressed={filter === "action"} onClick={() => setFilter("action")}>Needs Action</button>
+            <button aria-pressed={filter === "archived"} onClick={() => setFilter("archived")}>Archived</button>
+            <label>From <input type="date" aria-label="Notifications from date" value={since} onChange={event => setSince(event.target.value)} /></label>
+            <label>Through <input type="date" aria-label="Notifications through date" value={until} min={since || undefined} onChange={event => setUntil(event.target.value)} /></label>
+            <select aria-label="Notification priority" value={priority} onChange={event => setPriority(event.target.value)}>
+              <option>All</option>{["critical", "high", "medium", "low"].map(value => <option key={value}>{value}</option>)}
+            </select>
+            <select aria-label="Notification campus" value={campus} onChange={event => setCampus(event.target.value)}>
+              <option>All</option>{[...new Set(items.flatMap(item => item.campus ? [item.campus] : []))].map(value => <option key={value}>{value}</option>)}
+            </select>
             <select aria-label="Notification category" value={category} onChange={(event) => setCategory(event.target.value)}>
               <option>All</option>
               {[...new Set(items.map((item) => item.category || "General"))].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}
@@ -6591,11 +6630,15 @@ function NotificationsPage() {
                 <strong>{item.title}</strong>
                 <p>{item.message}</p>
                 <small>
-                  {item.time}
-                  {item.unread ? " · Unread" : ""}
+                  {item.time} · {item.category} · {item.priority || "low"} priority
+                  {item.campus ? ` · ${item.campus}` : ""}
+                  {item.actionRequired ? " · Needs action" : ""}
+                  {item.unread ? " · Unread" : " · Read"}
                 </small>
               </div>
               <div className="inline-actions">
+              {!item.unread && <button type="button" className="table-link" disabled={busy} onClick={() => void updateNotification(item, "unread")}>Mark as unread</button>}
+              <button type="button" className="table-link" disabled={busy} onClick={() => void updateNotification(item, "archive")}>{item.archived ? "Restore" : "Archive"}</button>
               {item.unread && <button type="button" className="table-link" disabled={busy} onClick={() => void view(item, true)}>Mark as read</button>}
               <button
                 className="table-link"
@@ -6604,17 +6647,17 @@ function NotificationsPage() {
                 onClick={() => void view(item)}
               >
                 <Eye size={18} />
-                View
+                {item.actionLabel || "View"}
               </button>
               </div>
             </article>
           ))}
-          {!shown.length && (
+          {!error && !shown.length && (
             <EmptyAction
               icon={Bell}
               title="You’re all caught up"
               copy={
-                category !== "All"
+                filter === "archived" ? "No archived notifications match these filters." : filter === "action" ? "No notifications currently require action." : category !== "All" || priority !== "All" || campus !== "All" || since || until
                   ? "No notifications match this category and read-state filter."
                   : filter === "unread"
                   ? "There are no unread notifications."
@@ -9054,14 +9097,44 @@ function PartnerHteDialog({
     province: "",
     email: "",
     phone: "",
+    supervisorName: "",
+    supervisorEmail: "",
+    supervisorContactNumber: "",
+    campusId: "",
+    collegeId: "",
+    programIds: [] as string[],
   });
+  const [scope, setScope] = useState<CoordinatorProgramScope[]>([]);
+  const [scopeLoading, setScopeLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    coordinatorService
+      .getScope()
+      .then((programs) => {
+        if (active) setScope(programs);
+      })
+      .catch((reason) => {
+        if (active)
+          setError(userError(reason, "Your academic scope could not be loaded."));
+      })
+      .finally(() => {
+        if (active) setScopeLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   const field =
     (key: keyof typeof form) => (event: ChangeEvent<HTMLInputElement>) =>
       setForm((current) => ({ ...current, [key]: event.target.value }));
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!form.campusId || !form.collegeId || !form.programIds.length) {
+      setError("Select a campus, college, and at least one authorized academic program.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -9072,6 +9145,29 @@ function PartnerHteDialog({
       setLoading(false);
     }
   }
+  const campuses = [
+    ...new Map(
+      scope.map((program) => [program.campusId, program.campus]),
+    ).entries(),
+  ].map(([id, name]) => ({ id, name }));
+  const colleges = [
+    ...new Map(
+      scope
+        .filter((program) => program.campusId === form.campusId)
+        .map((program) => [program.collegeId, program.collegeName]),
+    ).entries(),
+  ].map(([id, name]) => ({ id, name }));
+  const programs = scope
+    .filter(
+      (program) =>
+        program.campusId === form.campusId &&
+        program.collegeId === form.collegeId,
+    )
+    .map((program) => ({
+      id: program.id,
+      code: program.code,
+      name: program.name,
+    }));
   return (
     <Dialog title="Add partner HTE" onClose={close} busy={loading} wide>
       <InfoCallout icon={BriefcaseBusiness}>
@@ -9080,48 +9176,128 @@ function PartnerHteDialog({
           verification before they can receive internship assignments.
         </p>
       </InfoCallout>
-      <form onSubmit={submit}>
-        <label className="field">
-          <span>Legal organization name *</span>
-          <input required value={form.name} onChange={field("name")} />
-        </label>
-        <div className="two-fields">
+      <form onSubmit={submit} className="hte-partner-form">
+        <fieldset className="hte-form-section">
+          <legend>Organization information</legend>
           <label className="field">
-            <span>Registration number</span>
-            <input
-              value={form.registrationNumber}
-              onChange={field("registrationNumber")}
+            <span>Legal organization name *</span>
+            <input required value={form.name} onChange={field("name")} />
+          </label>
+          <div className="two-fields">
+            <label className="field">
+              <span>Registration number</span>
+              <input
+                value={form.registrationNumber}
+                onChange={field("registrationNumber")}
+              />
+            </label>
+            <label className="field">
+              <span>Industry</span>
+              <input value={form.industry} onChange={field("industry")} />
+            </label>
+          </div>
+          <label className="field">
+            <span>Address *</span>
+            <input required value={form.address} onChange={field("address")} />
+          </label>
+          <div className="two-fields">
+            <label className="field">
+              <span>City / municipality</span>
+              <input value={form.city} onChange={field("city")} />
+            </label>
+            <label className="field">
+              <span>Province</span>
+              <input value={form.province} onChange={field("province")} />
+            </label>
+          </div>
+        </fieldset>
+        <fieldset className="hte-form-section">
+          <legend>Academic association</legend>
+          <p>Only programs within your authorized coordinator scope are available.</p>
+          <div className="two-fields">
+            <label className="field">
+              <span>Campus *</span>
+              <select
+                required
+                disabled={scopeLoading}
+                value={form.campusId}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    campusId: event.target.value,
+                    collegeId: "",
+                    programIds: [],
+                  }))
+                }
+              >
+                <option value="">Select campus</option>
+                {campuses.map((campus) => (
+                  <option key={campus.id} value={campus.id}>{campus.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>College / academic unit *</span>
+              <select
+                required
+                disabled={!form.campusId}
+                value={form.collegeId}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    collegeId: event.target.value,
+                    programIds: [],
+                  }))
+                }
+              >
+                <option value="">Select college</option>
+                {colleges.map((college) => (
+                  <option key={college.id} value={college.id}>{college.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="field">
+            <span>Academic programs *</span>
+            <ProgramMultiSelect
+              options={programs}
+              value={form.programIds}
+              onChange={(programIds) =>
+                setForm((current) => ({ ...current, programIds }))
+              }
             />
-          </label>
+          </div>
+        </fieldset>
+        <fieldset className="hte-form-section">
+          <legend>Company contact information</legend>
+          <div className="two-fields">
+            <label className="field">
+              <span>Company email</span>
+              <input type="email" value={form.email} onChange={field("email")} />
+            </label>
+            <label className="field">
+              <span>Company&apos;s contact number</span>
+              <input type="tel" value={form.phone} onChange={field("phone")} />
+            </label>
+          </div>
+        </fieldset>
+        <fieldset className="hte-form-section">
+          <legend>Company supervisor information</legend>
           <label className="field">
-            <span>Industry</span>
-            <input value={form.industry} onChange={field("industry")} />
+            <span>Supervisor&apos;s name *</span>
+            <input required value={form.supervisorName} onChange={field("supervisorName")} />
           </label>
-        </div>
-        <label className="field">
-          <span>Address *</span>
-          <input required value={form.address} onChange={field("address")} />
-        </label>
-        <div className="two-fields">
-          <label className="field">
-            <span>City / municipality</span>
-            <input value={form.city} onChange={field("city")} />
-          </label>
-          <label className="field">
-            <span>Province</span>
-            <input value={form.province} onChange={field("province")} />
-          </label>
-        </div>
-        <div className="two-fields">
-          <label className="field">
-            <span>Contact email</span>
-            <input type="email" value={form.email} onChange={field("email")} />
-          </label>
-          <label className="field">
-            <span>Contact phone</span>
-            <input value={form.phone} onChange={field("phone")} />
-          </label>
-        </div>
+          <div className="two-fields">
+            <label className="field">
+              <span>Supervisor&apos;s email *</span>
+              <input required type="email" value={form.supervisorEmail} onChange={field("supervisorEmail")} />
+            </label>
+            <label className="field">
+              <span>Supervisor&apos;s contact number *</span>
+              <input required type="tel" value={form.supervisorContactNumber} onChange={field("supervisorContactNumber")} />
+            </label>
+          </div>
+        </fieldset>
         {error && (
           <p className="form-error">
             <AlertTriangle size={16} /> {error}
@@ -9167,7 +9343,7 @@ function PartnerHtesPage() {
     (item) =>
       (status === "All" || item.status === status) &&
       (!search ||
-        `${item.name} ${item.representative} ${item.industry} ${item.location} ${item.status}`
+        `${item.name} ${item.representative} ${item.supervisorName} ${item.industry} ${item.location} ${item.status} ${item.academicAssociations.map((program) => `${program.programCode} ${program.programName}`).join(" ")}`
           .toLowerCase()
           .includes(search.toLowerCase())),
   );
@@ -9228,27 +9404,57 @@ function PartnerHtesPage() {
         </div>
         <button type="button" className="button button-secondary" onClick={() => { setSearch(""); setStatus("All"); }}>Clear filters</button><div className="organization-grid">
           {shown.map(item => <article className="record-card" key={item.id}>
-            <header><div><h3>{item.name}</h3><p>{item.industry} · {item.location}</p></div><StatusBadge status={item.status}/></header>
+            <header><div><h3>{item.name}</h3><p>{item.industry || "Industry not specified"} · {item.location}</p></div><StatusBadge status={item.status}/></header>
+            <div className="hte-program-badges" aria-label="Associated academic programs">
+              {item.academicAssociations.map((program) => <span key={`${item.id}-${program.programId}`}>{program.programCode}</span>)}
+            </div>
             <div className="record-metrics"><div><span>Assigned interns</span><strong>{item.assignedInterns}</strong></div><div><span>Representative</span><strong>{item.representative}</strong></div><div><span>Daily hours</span><strong>{item.dailyRequiredHours == null ? "Not configured" : `${item.dailyRequiredHours} hrs/day`}</strong></div></div>
             <footer><button className="button button-secondary" onClick={() => setSelected(item)}>View details <Eye size={16}/></button>{item.status === "Verified" && <button className="button button-primary" onClick={() => setProvisioning(item)}>Create HTE Representative <Plus size={16}/></button>}</footer>
           </article>)}
-          {!loading && !shown.length && <p role="status">No HTE organizations match this view.</p>}
+          {!loading && !shown.length && <p role="status">{records.length ? "No HTE organizations match this view." : "No partner HTEs are currently associated with your authorized academic programs."}</p>}
         </div>
       </section>
       {selected && (
-        <Dialog title={selected.name} onClose={() => setSelected(null)}>
-          <dl className="info-list">
+        <Dialog title={selected.name} onClose={() => setSelected(null)} wide>
+          <section className="hte-detail-section">
+            <h3>Organization information</h3>
+            <dl className="info-list">
+              <div><dt>Registration number</dt><dd>{selected.registrationNumber || "Not provided"}</dd></div>
+              <div><dt>Industry</dt><dd>{selected.industry || "Not provided"}</dd></div>
+              <div><dt>Address</dt><dd>{[selected.address, selected.city, selected.province].filter(Boolean).join(", ") || "Not provided"}</dd></div>
+              <div><dt>Company email</dt><dd>{selected.companyEmail || "Not provided"}</dd></div>
+              <div><dt>Company&apos;s contact number</dt><dd>{selected.companyContactNumber || "Not provided"}</dd></div>
+            </dl>
+          </section>
+          <section className="hte-detail-section">
+            <h3>Academic associations</h3>
+            {selected.academicAssociations.length ? (
+              <ul className="hte-association-list">
+                {selected.academicAssociations.map((program) => (
+                  <li key={program.programId}>
+                    <strong>{program.programCode} — {program.programName}</strong>
+                    <span>{program.collegeName} · {program.campusName}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p>Academic program associations have not been recorded.</p>}
+          </section>
+          <section className="hte-detail-section">
+            <h3>Company supervisor</h3>
+            {selected.supervisorName || selected.supervisorEmail || selected.supervisorContactNumber ? (
+              <dl className="info-list">
+                <div><dt>Supervisor&apos;s name</dt><dd>{selected.supervisorName || "Not provided"}</dd></div>
+                <div><dt>Supervisor&apos;s email</dt><dd>{selected.supervisorEmail || "Not provided"}</dd></div>
+                <div><dt>Supervisor&apos;s contact number</dt><dd>{selected.supervisorContactNumber || "Not provided"}</dd></div>
+              </dl>
+            ) : <p>Supervisor information not yet provided.</p>}
+          </section>
+          <section className="hte-detail-section">
+            <h3>HTE representative and workflow</h3>
+            <dl className="info-list">
             <div>
-              <dt>Representative</dt>
+              <dt>HTE representative</dt>
               <dd>{selected.representative}</dd>
-            </div>
-            <div>
-              <dt>Industry</dt>
-              <dd>{selected.industry}</dd>
-            </div>
-            <div>
-              <dt>Location</dt>
-              <dd>{selected.location}</dd>
             </div>
             <div>
               <dt>Assigned interns</dt>
@@ -9263,6 +9469,7 @@ function PartnerHtesPage() {
               <dd>{selected.status}</dd>
             </div>
           </dl>
+          </section>
         </Dialog>
       )}
       {adding && (
@@ -10036,7 +10243,7 @@ function AssignmentDialog({
         await coordinatorService.createAssignmentsBulk(
           requirements.map((item) => ({
             studentUserId: item.id,
-            hteId,
+            hteId: resolvedHteId,
             academicTermId: termId,
             requiredHours: Number(item.hours),
             startDate,
@@ -10056,7 +10263,7 @@ function AssignmentDialog({
         );
       await coordinatorService.createAssignment({
         studentUserId: studentId,
-        hteId,
+        hteId: resolvedHteId,
         academicTermId: termId,
         requiredHours,
         startDate,
@@ -10072,6 +10279,28 @@ function AssignmentDialog({
   const selectedStudent = options.students.find(
     (item) => item.id === studentId,
   );
+  const selectedProgramIds = [
+    ...new Set(
+      (bulkMode
+        ? options.students.filter((student) =>
+            selectedStudentIds.includes(student.id),
+          )
+        : selectedStudent
+          ? [selectedStudent]
+          : []
+      )
+        .map((student) => student.programId)
+        .filter((programId): programId is string => Boolean(programId)),
+    ),
+  ];
+  const eligibleHtes = options.htes.filter(
+    (hte) =>
+      selectedProgramIds.length > 0 &&
+      selectedProgramIds.every((programId) => hte.programIds.includes(programId)),
+  );
+  const resolvedHteId = eligibleHtes.some((hte) => hte.id === hteId)
+    ? hteId
+    : eligibleHtes[0]?.id ?? "";
   return (
     <Dialog
       title="Create internship assignment"
@@ -10177,18 +10406,23 @@ function AssignmentDialog({
           <span>Verified HTE *</span>
           <select
             required
-            value={hteId}
+            value={resolvedHteId}
             onChange={(event) => setHteId(event.target.value)}
           >
             <option value="" disabled>
               Select HTE
             </option>
-            {options.htes.map((item) => (
+            {eligibleHtes.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.label}
               </option>
             ))}
           </select>
+          {!eligibleHtes.length && (
+            <small>
+              No verified HTE is associated with every selected student&apos;s academic program.
+            </small>
+          )}
         </label>
         <label className="field">
           <span>Academic term *</span>
@@ -13371,7 +13605,11 @@ function RegistrationTable({
     void registrationService
       .listLive(includeReviewed)
       .then((result) => {
-        if (active) setRecords(result);
+        if (active) {
+          setRecords(result);
+          const requested = new URLSearchParams(window.location.search).get("registration");
+          if (requested) setSelected(result.find((record) => record.id === requested) ?? null);
+        }
       })
       .catch((reason) => {
         if (active)

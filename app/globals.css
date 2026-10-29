@@ -889,12 +889,17 @@ textarea:focus-visible {
   box-shadow: 0 0 0 4px rgba(23, 104, 229, 0.08);
 }
 .password-input {
+  position: relative;
   display: flex;
   align-items: center;
-  padding: 0 12px 0 0;
+  padding: 0;
 }
 .password-input input {
+  width: 100%;
+  min-width: 0;
+  padding-right: 56px;
   border: 0;
+  border-radius: inherit;
   min-height: 53px;
 }
 .password-input input:focus,
@@ -908,6 +913,10 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 .password-input button {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 40px;
   height: 40px;
   display: grid;
